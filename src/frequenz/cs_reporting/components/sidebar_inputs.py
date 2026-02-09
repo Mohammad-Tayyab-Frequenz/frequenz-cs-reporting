@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Sequence
 
+import pytz
 import streamlit as st
 
 from frequenz.cs_reporting.components import inputs
@@ -162,3 +164,136 @@ def collect_sidebar_inputs(
         st.session_state[state_key] = current_selection
 
     return dict(st.session_state[state_key])
+
+
+# pylint: disable=too-many-instance-attributes
+@dataclass(frozen=True)
+class SolarWorkflowInputs:
+    """Structured inputs for the solar maintenance workflow."""
+
+    microgrid_id: int
+    component_category: str
+    language: str
+    resample_period: str
+    rolling_view_duration: int
+    baseline_models: list[str]
+    start_date: date
+    time_zone: str
+
+
+def collect_solar_sidebar_inputs(
+    *,
+    default_start_date: date,
+    default_resample_period: str,
+    baseline_model_options: Sequence[str],
+    default_baseline_models: Sequence[str] | None = None,
+    timezone_options: Sequence[str] | None = None,
+    default_timezone: str = "UTC",
+    key_prefix: str = "",
+) -> tuple[SolarWorkflowInputs | None, bool]:
+    """Render sidebar inputs for the solar maintenance workflow.
+
+    Args:
+        default_start_date: Default start date shown in the date picker.
+        default_resample_period: Default resample period in seconds.
+        baseline_model_options: Available baseline model options.
+        default_baseline_models: Baseline models selected by default.
+        timezone_options: Timezone options; defaults to all available timezones.
+        default_timezone: Default timezone selection.
+        key_prefix: Optional prefix for widget keys to avoid collisions.
+
+    Returns:
+        A tuple containing the collected selections (or ``None`` on error) and
+        the submit flag.
+    """
+    st.sidebar.header("Inputs | Eingabe")
+    st.sidebar.caption("Configure the solar maintenance workflow.")
+
+    try:
+        available_microgrids = get_microgrid_ids()
+    except RuntimeError as exc:
+        st.error(f"Failed to load microgrid configurations: {exc}")
+        return None, False
+
+    if not available_microgrids:
+        st.error("No microgrid configurations found.")
+        return None, False
+
+    timezone_options_list = (
+        list(timezone_options) if timezone_options else sorted(pytz.all_timezones)
+    )
+    timezone_default_index = next(
+        (
+            idx
+            for idx, option in enumerate(timezone_options_list)
+            if option == default_timezone
+        ),
+        0,
+    )
+
+    form_key = f"{key_prefix}solar_inputs" if key_prefix else "solar_inputs"
+    default_baseline_models = list(default_baseline_models or [])
+
+    with st.sidebar.form(form_key):
+        st.subheader("🔌 Microgrid")
+        microgrid_id = st.selectbox(
+            "Select Microgrid",
+            options=available_microgrids,
+            format_func=str,
+        )
+        component_category = st.selectbox(
+            "Select Component Category",
+            options=["inverter", "meter"],
+            index=0,
+        )
+
+        st.divider()
+        st.subheader("⚙️ Workflow")
+        language = st.selectbox(
+            "Language",
+            options=["English", "Deutsch"],
+            index=0,
+        )
+        resample_period = st.text_input(
+            "Resample Period (seconds)",
+            value=default_resample_period,
+        )
+        rolling_view_duration = st.slider(
+            "Rolling View Duration (days)",
+            min_value=5,
+            max_value=60,
+            value=30,
+            step=1,
+        )
+        baseline_models = st.multiselect(
+            "Baseline Models",
+            options=list(baseline_model_options),
+            default=default_baseline_models,
+        )
+
+        st.divider()
+        st.subheader("📅 Date & Time")
+        start_date = st.date_input(
+            "Start Date",
+            value=default_start_date,
+        )
+        time_zone = st.selectbox(
+            "Time Zone",
+            options=timezone_options_list,
+            index=timezone_default_index,
+        )
+
+        submit_button = st.form_submit_button("Start", use_container_width=True)
+
+    inputs_data = SolarWorkflowInputs(
+        microgrid_id=int(microgrid_id),
+        component_category=component_category,
+        language=language,
+        resample_period=resample_period,
+        rolling_view_duration=rolling_view_duration,
+        baseline_models=baseline_models,
+        start_date=start_date,
+        time_zone=time_zone,
+    )
+
+    return inputs_data, submit_button

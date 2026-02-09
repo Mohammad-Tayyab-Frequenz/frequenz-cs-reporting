@@ -72,6 +72,7 @@ dev-mkdocs = [
 dev-mypy = [
   "mypy == 1.19.1",
   "types-Markdown == 3.10.0.20251106",
+  "types-pytz",
   "pandas-stubs",
   # For checking the noxfile, docs/ script, and tests
   "frequenz-cs-reporting[dev-mkdocs,dev-noxfile,dev-pytest]",
