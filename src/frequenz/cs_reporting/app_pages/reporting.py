@@ -78,7 +78,7 @@ def render() -> None:
     """
     # Page header
     st.title("📈 Frequenz Monitoring Dashboard")
-    st.caption("Explore data and plots.")
+    st.divider()
 
     # Collect user inputs from sidebar
     today = date.today()
