@@ -115,6 +115,21 @@ def _render_figure_card(fig: Figure, title: str | None = None) -> None:
     )
 
 
+def _figure_has_renderable_content(fig: Figure) -> bool:
+    """Return True if the figure appears to contain visible content."""
+    axes = fig.get_axes()
+    if not axes:
+        return False
+    for ax in axes:
+        if ax.has_data():
+            return True
+        if ax.images or ax.lines or ax.collections or ax.patches or ax.tables:
+            return True
+        if ax.texts and any(text.get_text() for text in ax.texts):
+            return True
+    return False
+
+
 # pylint: disable=too-many-branches
 def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
     """Render and display results returned by the solar workflow.
@@ -148,7 +163,8 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
         for key, value in plot_data.items():
             st.subheader(key)
             if isinstance(value, Figure):
-                _render_figure_card(value, title=str(key))
+                if _figure_has_renderable_content(value):
+                    _render_figure_card(value, title=str(key))
                 plt.close(value)
             else:
                 st.write(value)
@@ -156,7 +172,8 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
     elif isinstance(plot_data, list):
         for idx, item in enumerate(plot_data, start=1):
             if isinstance(item, Figure):
-                _render_figure_card(item, title=f"Plot {idx}")
+                if _figure_has_renderable_content(item):
+                    _render_figure_card(item, title=f"Plot {idx}")
                 plt.close(item)
             else:
                 st.write(item)
@@ -169,6 +186,9 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
         st.markdown("#### Workflow Figures")
 
         for idx, fig in enumerate(new_figures, start=1):
+            if not _figure_has_renderable_content(fig):
+                plt.close(fig)
+                continue
             label: str = str(fig.get_label())
             suptitle = getattr(fig, "_suptitle", None)
 
