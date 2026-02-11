@@ -186,11 +186,24 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
         Streamlit components are rendered directly.
     """
     st.subheader("Data Tables")
+    available_specs = []
+    for spec in TABLE_TAB_SPECS:
+        value = tables_dict.get(spec["table_key"])
+        if isinstance(value, pd.DataFrame) and not value.empty:
+            available_specs.append(spec)
 
-    tab_labels = [spec["label"] for spec in TABLE_TAB_SPECS] + ["Combined DF"]
+    include_master = master_df is not None and not master_df.empty
+
+    if not available_specs and not include_master:
+        st.info("No data tables available.")
+        return
+
+    tab_labels = [spec["label"] for spec in available_specs]
+    if include_master:
+        tab_labels.append("Combined DF")
     tabs = st.tabs(tab_labels)
 
-    for tab, spec in zip(tabs[:-1], TABLE_TAB_SPECS):
+    for tab, spec in zip(tabs, available_specs):
         value = tables_dict.get(spec["table_key"])
         with tab:
             render_table_section(
@@ -200,5 +213,6 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
                 empty_info=spec.get("empty_info"),
             )
 
-    with tabs[-1]:
-        render_master_df(master_df)
+    if include_master:
+        with tabs[-1]:
+            render_master_df(master_df)
