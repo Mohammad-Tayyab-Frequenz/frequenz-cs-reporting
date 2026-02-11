@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+from functools import partial
+from typing import Callable
+
 import pandas as pd
 import streamlit as st
 from frequenz.lib.notebooks.reporting.plotter import (
@@ -238,45 +241,43 @@ def _render_overview_plot(
     )
 
 
-def render_plots_tabs(
-    tables: TablesResult,
-    mapper: ColumnMapper,
-    color_dict: dict[str, str] | None = None,
-) -> None:
-    """Render the plots section with overview, pie chart, and component tabs.
+def _get_active_tabs(
+    tables: TablesResult, mapper: ColumnMapper, palette: dict[str, str]
+) -> list[tuple[str, Callable[[], None]]]:
+    """Determine which tabs should be rendered based on data availability."""
+    tabs = []
 
-    Args:
-        tables: Dictionary of analysis tables including overview and component
-            analysis dataframes.
-        mapper: Column mapper for display naming.
-        color_dict: Optional color mapping used across plots.
-
-    Returns:
-        Streamlit components are rendered directly.
-    """
-    st.subheader("Plots")
-
-    palette = color_dict or COLOR_DICT
+    # 1. Overview Tab
     overview_df = _prepare_overview_df(tables, mapper)
+    if overview_df is not None and not overview_df.empty:
+        tabs.append(
+            ("Zeitreihen-Plot", lambda: _render_overview_plot(overview_df, palette))
+        )
 
-    tab_labels = ["Zeitreihen-Plot", "Energie-Mix"] + [
-        label for label, _ in _COMPONENT_TABS
-    ]
-    plot_tabs = st.tabs(tab_labels)
+    # 2. Energy Mix Tab
+    power_table = tables.get("power_table")
+    required = {"Energy Source", "Energy [kWh]"}
+    if (
+        isinstance(power_table, pd.DataFrame)
+        and not power_table.empty
+        and required.issubset(power_table.columns)
+    ):
+        tabs.append(
+            (
+                "Energie-Mix",
+                lambda: render_energy_pie_chart(power_table, color_dict=palette),
+            )
+        )
 
-    with plot_tabs[0]:
-        _render_overview_plot(overview_df, palette)
+    # 3. Dynamic Component Tabs
+    for label, key in _COMPONENT_TABS:
+        df = tables.get(f"{key}_analysis")
+        config = COMPONENT_CONFIGS.get(key)
 
-    with plot_tabs[1]:
-        render_energy_pie_chart(tables.get("power_table"), color_dict=palette)
-
-    for tab, (_, key) in zip(plot_tabs[2:], _COMPONENT_TABS):
-        with tab:
-            config = COMPONENT_CONFIGS.get(key)
-            if not config:
-                st.info("Keine Konfiguration für diese Komponente.")
-                continue
-            _render_component_tab(
+        if isinstance(df, pd.DataFrame) and not df.empty and config:
+            # partial creates a typed callable and captures 'key' and 'config' correctly
+            render_fn = partial(
+                _render_component_tab,
                 tables=tables,
                 mapper=mapper,
                 table_key=f"{key}_analysis",
@@ -285,3 +286,36 @@ def render_plots_tabs(
                 value_col=config["value_col"],
                 color_dict=palette,
             )
+            tabs.append((label, render_fn))
+
+    return tabs
+
+
+def render_plots_tabs(
+    tables: TablesResult,
+    mapper: ColumnMapper,
+    color_dict: dict[str, str] | None = None,
+) -> None:
+    """
+    Render the plot tabs.
+
+    Args:
+        tables: The tables result containing data for the plots.
+        mapper: The column mapper for renaming columns.
+        color_dict: Optional color mapping for the plots.
+    """
+    st.subheader("Plots")
+    palette = color_dict or COLOR_DICT
+
+    # Get configuration of what to render
+    plot_tabs_config = _get_active_tabs(tables, mapper, palette)
+
+    if not plot_tabs_config:
+        st.info("No plot data available.")
+        return
+
+    # Render the UI
+    tab_labels = [label for label, _ in plot_tabs_config]
+    for tab, (_, render_fn) in zip(st.tabs(tab_labels), plot_tabs_config):
+        with tab:
+            render_fn()
