@@ -11,3 +11,4 @@
 
 ## Bug Fixes
 - Removed the temporary fix to calculate consumption.
+- Display the plots and tables only the respective component type is available.
