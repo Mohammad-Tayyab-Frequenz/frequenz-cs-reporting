@@ -2,13 +2,16 @@
 
 ## Summary
 
+<!-- Here goes a general summary of what this release is about -->
 
 ## Upgrading
 
+<!-- Here goes notes on how to upgrade from previous versions, including deprecations and what they should be replaced with -->
 
 ## New Features
-- Added Solar notebook pages to the streamlit application.
+
+<!-- Here goes the main new features and examples or instructions on how to use them -->
 
 ## Bug Fixes
-- Removed the temporary fix to calculate consumption.
-- Display the plots and tables only the respective component type is available.
+
+<!-- Here goes notable bug fixes that are worth a special mention or explanation -->
