@@ -7,8 +7,7 @@
 
 
 ## New Features
-
+- Add dockerfile to be used in deepnote environments.
 
 ## Bug Fixes
 
-- Remove non-rendered figure in the solar page.
