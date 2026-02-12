@@ -55,7 +55,7 @@ jobs:
 
       - name: Set helper environment variables
         run: |
-          echo "REGISTRY_IMAGE=${REGISTRY}/frequenz-io/${IMAGE_NAME}" >> $GITHUB_ENV
+          echo "REGISTRY_IMAGE=${REGISTRY}/frequenz-floss/${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -134,7 +134,7 @@ jobs:
 
       - name: Set helper environment variables
         run: |
-          echo "REGISTRY_IMAGE=${REGISTRY}/frequenz-io/${IMAGE_NAME}" >> $GITHUB_ENV
+          echo "REGISTRY_IMAGE=${REGISTRY}/frequenz-floss/${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Docker meta
         id: meta
