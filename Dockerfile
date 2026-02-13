@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir \
     "pandas>=2.3.1,<3" \
     "pyarrow>=20.0.0,<23.0.0" \
     "matplotlib>=3.9.2,<3.11.0" \
+    "ipython>=9.6.0,<10" \
     "pvlib>=0.13.0,<0.14.0" \
     "python-dotenv>=0.21.0,<1.3.0" \
     "toml>=0.10.2,<0.11.0" \
