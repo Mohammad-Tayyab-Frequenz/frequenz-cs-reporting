@@ -6,6 +6,10 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: frequenz-cs-reporting
@@ -23,19 +27,20 @@ jobs:
           - ubuntu-24.04
         python:
           - "3.12"
-    runs-on: ${{ matrix.os }}${{ matrix.arch != 'amd64' && format('-{0}', matrix.arch) || '' }}
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Setup Git
-        uses: frequenz-floss/gh-action-setup-git@v1.0.0
-        with:
-          username: ${{ secrets.GIT_USER }}
-          password: ${{ secrets.GIT_PASS }}
+      # - name: Setup Git
+      #   uses: frequenz-floss/gh-action-setup-git@v1.0.0
+      #   with:
+      #     secrets: |
+      #       GIT_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch sources
         uses: actions/checkout@v6
         with:
           submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}          
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -50,8 +55,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ci-agent-frequenz
-          password: ${{ secrets.CI_PACKAGE_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set helper environment variables
         run: |
@@ -98,8 +103,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
-              GIT_USER=${{ secrets.GIT_USER }}
-              GIT_PASS=${{ secrets.GIT_PASS }}
+            GIT_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
       - name: Export digest
         env:
@@ -149,8 +153,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ci-agent-frequenz
-          password: ${{ secrets.CI_PACKAGE_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
