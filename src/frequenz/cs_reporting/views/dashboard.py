@@ -156,7 +156,7 @@ def render_dashboard(
 
     # --- Overview section---
     st.markdown("<hr style='border: 1px dotted #bbb;'>", unsafe_allow_html=True)
-    sections.render_summary_boxes(tables["metrics"])
+    sections.render_summary_boxes(tables["metrics"], component_types)
 
     # --- Plots section---
     st.markdown(
