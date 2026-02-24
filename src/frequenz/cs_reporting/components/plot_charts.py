@@ -3,6 +3,8 @@
 
 """Chart rendering functions for the reporting module."""
 
+from math import isfinite
+
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -48,23 +50,24 @@ def plot_percentage_bar(
         return fig
 
     # segments
-    used = sum(v for k, v in clean.items() if k != total_key)
-    segments = {k: v for k, v in clean.items() if k != total_key and v > 0}
-    display_base = max(total, used)
-    leftover = max(0.0, display_base - used)
+    segments = {
+        k: v for k, v in clean.items() if k != total_key and isfinite(v) and v != 0.0
+    }
+    display_base = total
+    residual = display_base - sum(segments.values())
 
-    # Only add "Others" if it has a positive value
-    if leftover > 0:
-        segments["Others"] = leftover
+    # Only add "Others" if there is a meaningful residual
+    if abs(residual) > 1e-6:
+        segments["Others"] = residual
 
     # compute percentages
     seg_with_pct = [
-        (k, v, (v / display_base * 100.0 if display_base > 0 else 0.0))
+        (k, v, (v / display_base * 100.0 if display_base != 0 else 0.0))
         for k, v in segments.items()
     ]
 
     # sort left → right by descending absolute value (so largest chunk comes first in bar)
-    seg_with_pct.sort(key=lambda x: x[1], reverse=True)
+    seg_with_pct.sort(key=lambda x: abs(x[1]), reverse=True)
 
     # colors
     palette = px.colors.qualitative.Plotly
@@ -80,7 +83,7 @@ def plot_percentage_bar(
     fig = go.Figure()
 
     for label, value, pct in seg_with_pct:
-        text = f"{pct:.1f}%" if value > 0 else None
+        text = f"{pct:.1f}%"
         fig.add_trace(
             go.Bar(
                 x=[pct],
@@ -91,15 +94,22 @@ def plot_percentage_bar(
                 text=text,
                 textposition="inside",
                 insidetextanchor="middle",
-                hovertemplate=f"{label}: %{{x:.1f}}%<extra></extra>",
+                customdata=[value],
+                hovertemplate=(
+                    f"{label}: %{{x:.1f}}%<br>"
+                    "Wert: %{customdata[0]:,.2f} kWh<extra></extra>"
+                ),
             )
         )
 
+    pos_total = sum(pct for _, _, pct in seg_with_pct if pct > 0)
+    neg_total = sum(pct for _, _, pct in seg_with_pct if pct < 0)
+
     fig.update_layout(
-        barmode="stack",
+        barmode="relative",
         xaxis={
             "title": None,
-            "range": [0, 100],
+            "range": [min(0.0, neg_total * 1.1), max(0.0, pos_total * 1.1)],
             "tickformat": ".0f%%",  # show % ticks
             "showgrid": False,
             "zeroline": False,
