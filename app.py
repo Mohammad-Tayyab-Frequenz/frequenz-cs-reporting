@@ -14,19 +14,25 @@ import streamlit as st
 import pkgutil
 import os
 
+
 # --- Check if running in deepnote to pick up environment variables ---
 def running_in_deepnote() -> bool:
     # Common Deepnote env vars (if one changes, the others may still work)
-    return any(k in os.environ for k in (
-        "DEEPNOTE_PROJECT_ID",
-        "DEEPNOTE_WORKSPACE_ID",
-        "DEEPNOTE",
-    ))
+    return any(
+        k in os.environ
+        for k in (
+            "DEEPNOTE_PROJECT_ID",
+            "DEEPNOTE_WORKSPACE_ID",
+            "DEEPNOTE",
+        )
+    )
+
 
 IN_DEEPNOTE = running_in_deepnote()
 
 if IN_DEEPNOTE:
     import deepnote_toolkit
+
     deepnote_toolkit.set_integration_env()
 
 # --- Project paths & sys.path wiring ----------------------------------------
@@ -56,6 +62,7 @@ if package_parent not in sys.path:
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 
+
 # --- Local page loader (from ./app_pages) -----------------------------------
 def _load_local_pages() -> list[PageSpec]:
     """Load PAGE specs from local app_pages/*.py files."""
@@ -76,8 +83,7 @@ def _load_local_pages() -> list[PageSpec]:
         page = getattr(module, "PAGE", None)
 
         if page and all(
-            hasattr(page, attr)
-            for attr in ("key", "title", "icon", "order", "render")
+            hasattr(page, attr) for attr in ("key", "title", "icon", "order", "render")
         ):
             pages.append(page)
 
@@ -107,8 +113,7 @@ def discover_library_pages(pkg_root: str = LIB_PAGES_ROOT) -> list[PageSpec]:
         page = getattr(module, "PAGE", None)
 
         if page and all(
-            hasattr(page, attr)
-            for attr in ("key", "title", "icon", "order", "render")
+            hasattr(page, attr) for attr in ("key", "title", "icon", "order", "render")
         ):
             pages.append(page)
 
@@ -119,7 +124,11 @@ def discover_library_pages(pkg_root: str = LIB_PAGES_ROOT) -> list[PageSpec]:
 def _load_logo_bytes() -> bytes | None:
     """Fetch the sidebar logo from the installed package resources."""
     try:
-        return resources.files("frequenz.cs_reporting.assets").joinpath(LOGO_NAME).read_bytes()
+        return (
+            resources.files("frequenz.cs_reporting.assets")
+            .joinpath(LOGO_NAME)
+            .read_bytes()
+        )
     except (FileNotFoundError, ModuleNotFoundError):
         pass
 
@@ -132,7 +141,7 @@ def _load_logo_bytes() -> bytes | None:
 # Sidebar navigation
 def sidebar(pages: list[PageSpec]) -> PageSpec:
     if logo_bytes := _load_logo_bytes():
-        st.sidebar.image(logo_bytes, width='stretch')
+        st.sidebar.image(logo_bytes, width="stretch")
 
     st.sidebar.divider()
 
@@ -165,7 +174,7 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
 
     # Add page navigation header
     st.sidebar.header("📑 Seiten")
-    
+
     # Use st.sidebar.radio to manage selection
     selected_label = st.sidebar.radio(
         "Navigation",

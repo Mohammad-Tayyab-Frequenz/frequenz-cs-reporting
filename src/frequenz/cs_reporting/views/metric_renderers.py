@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 import streamlit as st
 
@@ -26,38 +26,43 @@ def _peak_label(metrics: dict[str, object]) -> str:
 
 SECTION_SPECS: list[dict[str, Any]] = [
     {
-        "title": "Verbrauch",
-        "boxes": [
-            {"label": "Stromverbrauch (kWh)", "key": "mid_consumption_sum"},
-            {"label": "", "key": None},
-            {"label": "", "key": None},
-        ],
-    },
-    {
-        "title": "Netzbezug",
+        "title": "Netzkennzahlen",
         "boxes": [
             {"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"},
-            {"label": "Einspeisung (kWh)", "key": "grid_feed_in_sum"},
+            {"label": "Netzeinspeisung (kWh)", "key": "grid_feed_in_sum"},
             {"label_fn": _peak_label, "key": "peak"},
         ],
     },
     {
-        "title": "Gesamterzeugung",
+        "title": "Verbrauchskennzahlen",
         "boxes": [
-            {"label": "Gesamterzeugung (kWh)", "key": "total_production_sum"},
-            {"label": "PV Gesamterzeugung (kWh)", "key": "pv_production_sum"},
-            {"label": "BHKW Gesamterzeugung (kWh)", "key": "chp_production_sum"},
-            {"label": "Wind Gesamterzeugung (kWh)", "key": "wind_production_sum"},
-        ],
-    },
-    {
-        "title": "Eigenverbrauch",
-        "boxes": [
+            {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
             {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
             {
                 "label": "Eigenverbrauchsanteil (%)",
                 "key": "prod_self_consumption_share",
                 "transform": lambda v: v * 100,
+            },
+        ],
+    },
+    {
+        "title": "(Eigen-)Erzeugungskennzahlen",
+        "boxes": [
+            {"label": "Gesamterzeugung (kWh)", "key": "total_production_sum"},
+            {
+                "label": "PV-Erzeugung (kWh)",
+                "key": "pv_production_sum",
+                "component_type": "pv",
+            },
+            {
+                "label": "KWK-Erzeugung (kWh)",
+                "key": "chp_production_sum",
+                "component_type": "chp",
+            },
+            {
+                "label": "Wind-Erzeugung (kWh)",
+                "key": "wind_production_sum",
+                "component_type": "wind",
             },
         ],
     },
@@ -172,6 +177,7 @@ def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | N
     values = {
         "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
         "Netzbezug (kWh)": metrics.get("grid_consumption_sum"),
+        "Netz Einspeisung (kWh)": -(metrics.get("grid_feed_in_sum") or 0),
         "PV Gesamterzeugung (kWh)": metrics.get("pv_production_sum"),
         "BHKW Gesamterzeugung (kWh)": metrics.get("chp_production_sum"),
         "Wind Gesamterzeugung (kWh)": metrics.get("wind_production_sum"),
@@ -179,11 +185,16 @@ def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | N
     return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
 
 
-def render_summary_boxes(metrics: dict[str, Any]) -> None:
+def render_summary_boxes(
+    metrics: dict[str, Any],
+    component_types: Iterable[str] | None = None,
+) -> None:
     """Render overview metrics grouped into subsections.
 
     Args:
         metrics: Metrics dictionary containing aggregated KPI values.
+        component_types: Optional iterable of component type identifiers present
+            in the microgrid (e.g., ``{"pv", "chp"}``).
 
     Returns:
         Streamlit components are rendered directly.
@@ -192,11 +203,21 @@ def render_summary_boxes(metrics: dict[str, Any]) -> None:
         st.info("No overview metrics available.")
         return
 
+    component_type_set = set(component_types or [])
+
     st.subheader("Übersicht")
 
     for section in SECTION_SPECS:
         st.markdown(f"##### {section['title']}")
-        boxes = _materialize_boxes(section["boxes"], metrics)
+        box_specs = section["boxes"]
+        if component_type_set:
+            box_specs = [
+                spec
+                for spec in box_specs
+                if spec.get("component_type") is None
+                or spec.get("component_type") in component_type_set
+            ]
+        boxes = _materialize_boxes(box_specs, metrics)
         render_box_grid(boxes)
 
     consumption_dict = _build_consumption_breakdown(metrics)
