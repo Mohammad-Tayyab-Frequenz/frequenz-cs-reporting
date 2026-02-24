@@ -2,12 +2,11 @@
 
 ## Summary
 
-This release improves dashboard clarity and accuracy by only showing summary
-cards for available components, correcting the consumption bar plot to include
-grid feed-in values, and renaming overview cards for clearer labels.
+<!-- Here goes a general summary of what this release is about -->
 
 ## Upgrading
 
+<!-- Here goes notes on how to upgrade from previous versions, including deprecations and what they should be replaced with -->
 
 ## New Features
 
@@ -15,6 +14,4 @@ grid feed-in values, and renaming overview cards for clearer labels.
 
 ## Bug Fixes
 
-- Show summary boxes only for available components on the dashboard.
-- Update the consumption bar plot to include grid feed-in values.
-- Rename overview cards to improve label clarity.
+<!-- Here goes notable bug fixes that are worth a special mention or explanation -->
