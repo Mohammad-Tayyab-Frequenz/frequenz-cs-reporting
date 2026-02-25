@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
-from frequenz.lib.notebooks.reporting.utils.helpers import set_date_to_midnight
+from frequenz.lib.notebooks.reporting.utils.helpers import normalize_date_for_reporting
 
 from frequenz.cs_reporting.components.sidebar_inputs import (
     collect_sidebar_inputs,
@@ -92,8 +92,8 @@ def render() -> None:
     # Extract and convert inputs
     microgrid_id = selections["microgrid_id"]
     # set_date_to_midnight returns TZ-aware datetimes aligned with the user's timezone
-    start_date = set_date_to_midnight(selections["start_date"], timezone)
-    end_date = set_date_to_midnight(selections["end_date"], timezone)
+    start_date = normalize_date_for_reporting(selections["start_date"], timezone)
+    end_date = normalize_date_for_reporting(selections["end_date"], timezone)
 
     # Validate date range
     if start_date > end_date:
