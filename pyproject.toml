@@ -29,7 +29,7 @@ requires-python = ">= 3.11, < 4"
 
 dependencies = [
     "css-inline>=0.17.0",
-    "frequenz-lib-notebooks>=0.13.0, < 0.15.0",
+    "frequenz-lib-notebooks>=0.14.7,<0.16.0",
     "matplotlib>=3.10.6",
     "numpy>=2.3.2",
     "pandas>=2.3.2",
