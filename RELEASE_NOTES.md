@@ -2,7 +2,9 @@
 
 ## Summary
 
-<!-- Here goes a general summary of what this release is about -->
+This release updates reporting date handling to avoid future-date errors,
+refreshes chart colors, and bumps the notebooks dependency to the latest
+compatible version.
 
 ## Upgrading
 
@@ -14,4 +16,5 @@
 
 ## Bug Fixes
 
-<!-- Here goes notable bug fixes that are worth a special mention or explanation -->
+- Normalize reporting end dates to avoid future-date failures.
+- Refresh PV and battery color mappings for time-series charts.

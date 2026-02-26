@@ -11,21 +11,19 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
-from frequenz.lib.notebooks.reporting.utils.helpers import set_date_to_midnight
-
-from frequenz.cs_reporting.components.sidebar_inputs import (
-    collect_sidebar_inputs,
+from frequenz.lib.notebooks.reporting.utils.helpers import (
+    normalize_date_for_reporting,
+    set_date_to_midnight,
 )
+
+from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
     get_microgrid_config,
 )
 from frequenz.cs_reporting.services.data_service import get_microgrid_data
-from frequenz.cs_reporting.views.dashboard import (
-    build_master_df,
-    render_dashboard,
-)
+from frequenz.cs_reporting.views.dashboard import build_master_df, render_dashboard
 
 
 def _parse_resolution(resolution_str: str) -> timedelta:
@@ -91,12 +89,16 @@ def render() -> None:
     timezone = selections["timezone"]
     # Extract and convert inputs
     microgrid_id = selections["microgrid_id"]
+
     # set_date_to_midnight returns TZ-aware datetimes aligned with the user's timezone
-    start_date = set_date_to_midnight(selections["start_date"], timezone)
-    end_date = set_date_to_midnight(selections["end_date"], timezone)
+    start_time = set_date_to_midnight(selections["start_date"], timezone)
+    end_time = normalize_date_for_reporting(selections["end_date"], timezone)
+    end_time = end_time.replace(microsecond=0)
+    if end_time.date() != date.today():
+        end_time += timedelta(days=1)
 
     # Validate date range
-    if start_date > end_date:
+    if start_time > end_time:
         st.warning(
             "End date must be on or after the start date. Please adjust your selection."
         )
@@ -113,17 +115,16 @@ def render() -> None:
     mcfg = get_microgrid_config(microgrid_id)
 
     # We extend the fetch end date by 1 day to ensure the API returns data
-    # for the full duration of the selected end_date.
-    fetch_end_date = end_date + timedelta(days=1)
+    # for the full duration of the selected end_time.
 
     # Fetch data with error handling
     try:
         with st.spinner("Loading microgrid data..."):
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
-                start_date=start_date,
+                start_date=start_time,
                 # Use the extended date here to ensure we get the full last day
-                end_date=fetch_end_date,
+                end_date=end_time,
                 resolution=resolution,
             )
     except (RuntimeError, ValueError, OSError) as e:
