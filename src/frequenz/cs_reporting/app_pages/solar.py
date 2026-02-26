@@ -16,9 +16,7 @@ import streamlit as st
 from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import run_workflow
 from matplotlib.figure import Figure
 
-from frequenz.cs_reporting.components.sidebar_inputs import (
-    collect_solar_sidebar_inputs,
-)
+from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import get_microgrid_config
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request

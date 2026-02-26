@@ -15,10 +15,7 @@ from __future__ import annotations
 from frequenz.cs_reporting.constants import COLOR_DICT as color_dict
 
 # Re-export from metric_renderers
-from .metric_renderers import (
-    render_box_grid,
-    render_summary_boxes,
-)
+from .metric_renderers import render_box_grid, render_summary_boxes
 
 # Re-export from plot_renderers
 from .plot_renderers import (
@@ -28,11 +25,7 @@ from .plot_renderers import (
 )
 
 # Re-export from table_renderers
-from .table_renderers import (
-    render_data_tabs,
-    render_master_df,
-    render_table_section,
-)
+from .table_renderers import render_data_tabs, render_master_df, render_table_section
 
 __all__ = [
     # Table renderers
