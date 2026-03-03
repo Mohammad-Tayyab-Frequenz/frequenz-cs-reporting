@@ -2,9 +2,7 @@
 
 ## Summary
 
-This release updates reporting date handling to avoid future-date errors,
-refreshes chart colors, and bumps the notebooks dependency to the latest
-compatible version.
+This release adds an Autarkiegrad KPI card to the overview, refines the Verbrauchskennzahlen layout, and localizes solar sidebar labels.
 
 ## Upgrading
 
@@ -12,9 +10,11 @@ compatible version.
 
 ## New Features
 
-<!-- Here goes the main new features and examples or instructions on how to use them -->
+- Add an Autarkiegrad KPI card (self-consumption / production) in the summary
+  overview and position it on its own row with an empty spacer card.
+- Limit solar workflow timezone selection to `TIMEZONE_OPTIONS`.
+- Localize solar sidebar inputs to German.
 
 ## Bug Fixes
 
-- Normalize reporting end dates to avoid future-date failures.
-- Refresh PV and battery color mappings for time-series charts.
+<!-- None -->
