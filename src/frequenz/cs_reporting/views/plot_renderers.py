@@ -28,13 +28,15 @@ _DEFAULT_PLOT_ORDER = [
     "Zeitpunkt",
     "MID Gesamtverbrauch",
     "Netzbezug",
-    "Netzeinspeisung",
+    "Netz Einspeisung",
     "PV-Erzeugung",
     "BHKW-Erzeugung",
     "Wind-Erzeugung",
-    "Batterie",
+    "Batterie Leistungsfluss",
 ]
-_FILL_EXCLUDE = {"Zeitpunkt", "MID Gesamtverbrauch", "Netzbezug", "Netzeinspeisung"}
+
+_DEFAULT_DOTTED_COLS = ["Netzbezug"]
+_FILL_EXCLUDE = {"Zeitpunkt", "MID Gesamtverbrauch", "Netzbezug", "Netz Einspeisung"}
 _COMPONENT_TABS = [
     ("PV Leistung", "pv"),
     ("Batterie", "batt"),
@@ -60,6 +62,7 @@ def render_time_series(
     value_col: str | None = None,
     fill_cols: list[str] | None = None,
     plot_order: list[str] | None = None,
+    dotted_cols: list[str] | None = None,
 ) -> None:
     """Render a generic time-series plot inside a card.
 
@@ -78,6 +81,7 @@ def render_time_series(
         value_col: Value column name when ``long_format_flag`` is ``True``.
         fill_cols: Columns to fill under the curve for stacked plots.
         plot_order: Explicit ordering of series when rendering.
+        dotted_cols: Columns to render with dotted lines.
 
     Returns:
         Streamlit components are rendered directly.
@@ -107,6 +111,7 @@ def render_time_series(
         category_col=category_col,
         value_col=value_col,
         fill_cols=fill_cols,
+        dotted_cols=dotted_cols,
         plot_order=plot_order,
     )
 
@@ -231,6 +236,7 @@ def _render_overview_plot(
     palette = color_dict or COLOR_DICT
     plot_order = [col for col in _DEFAULT_PLOT_ORDER if col in overview_df.columns]
     fill_cols = [col for col in overview_df.columns if col not in _FILL_EXCLUDE]
+    dotted_cols = [col for col in _DEFAULT_DOTTED_COLS if col in overview_df.columns]
 
     render_time_series(
         overview_df,
@@ -238,6 +244,7 @@ def _render_overview_plot(
         color_dict=palette,
         fill_cols=fill_cols,
         plot_order=plot_order,
+        dotted_cols=dotted_cols,
     )
 
 

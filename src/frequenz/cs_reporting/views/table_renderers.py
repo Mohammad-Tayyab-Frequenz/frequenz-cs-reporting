@@ -132,7 +132,7 @@ def render_table_section(
         csv_bytes = display_df.to_csv(index=False).encode("utf-8")
         _style_download_button(header_cols[1])
         header_cols[1].download_button(
-            label="Download table CSV",
+            label="Download CSV",
             data=csv_bytes,
             file_name=f"{key_prefix}.csv",
             mime="text/csv",
@@ -161,7 +161,7 @@ def render_master_df(master_df: pd.DataFrame) -> None:
         master_csv = display_df.to_csv(index=False).encode("utf-8")
         _style_download_button(header_cols[1])
         header_cols[1].download_button(
-            label="Download combined dataframe",
+            label="Download Gesamt-Datensatz",
             data=master_csv,
             file_name="master_df.csv",
             mime="text/csv",
@@ -200,7 +200,7 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
 
     tab_labels = [spec["label"] for spec in available_specs]
     if include_master:
-        tab_labels.append("Combined DF")
+        tab_labels.append("Gesamt-Datensatz")
     tabs = st.tabs(tab_labels)
 
     for tab, spec in zip(tabs, available_specs):
