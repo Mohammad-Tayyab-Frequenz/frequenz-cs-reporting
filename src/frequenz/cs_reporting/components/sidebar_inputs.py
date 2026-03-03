@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Sequence
 
-import pytz
 import streamlit as st
 
 from frequenz.cs_reporting.components import inputs
@@ -206,8 +205,8 @@ def collect_solar_sidebar_inputs(
         A tuple containing the collected selections (or ``None`` on error) and
         the submit flag.
     """
-    st.sidebar.header("Inputs | Eingabe")
-    st.sidebar.caption("Configure the solar maintenance workflow.")
+    st.sidebar.header("Eingaben | Solar")
+    st.sidebar.caption("Konfigurieren Sie den Solar-Wartungsworkflow.")
 
     try:
         available_microgrids = get_microgrid_ids()
@@ -219,9 +218,7 @@ def collect_solar_sidebar_inputs(
         st.error("No microgrid configurations found.")
         return None, False
 
-    timezone_options_list = (
-        list(timezone_options) if timezone_options else sorted(pytz.all_timezones)
-    )
+    timezone_options_list = list(timezone_options or TIMEZONE_OPTIONS)
     timezone_default_index = next(
         (
             idx
@@ -237,12 +234,12 @@ def collect_solar_sidebar_inputs(
     with st.sidebar.form(form_key):
         st.subheader("🔌 Microgrid")
         microgrid_id = st.selectbox(
-            "Select Microgrid",
+            "Microgrid auswählen",
             options=available_microgrids,
             format_func=str,
         )
         component_category = st.selectbox(
-            "Select Component Category",
+            "Komponentenkategorie auswählen",
             options=["inverter", "meter"],
             index=0,
         )
@@ -250,35 +247,35 @@ def collect_solar_sidebar_inputs(
         st.divider()
         st.subheader("⚙️ Workflow")
         language = st.selectbox(
-            "Language",
+            "Sprache",
             options=["English", "Deutsch"],
             index=0,
         )
         resample_period = st.text_input(
-            "Resample Period (seconds)",
+            "Resampling-Intervall (Sekunden)",
             value=default_resample_period,
         )
         rolling_view_duration = st.slider(
-            "Rolling View Duration (days)",
+            "Rolling-View-Dauer (Tage)",
             min_value=5,
             max_value=60,
             value=30,
             step=1,
         )
         baseline_models = st.multiselect(
-            "Baseline Models",
+            "Baseline-Modelle",
             options=list(baseline_model_options),
             default=default_baseline_models,
         )
 
         st.divider()
-        st.subheader("📅 Date & Time")
+        st.subheader("📅 Datum & Zeit")
         start_date = st.date_input(
-            "Start Date",
+            "Startdatum",
             value=default_start_date,
         )
         time_zone = st.selectbox(
-            "Time Zone",
+            "Zeitzone",
             options=timezone_options_list,
             index=timezone_default_index,
         )
