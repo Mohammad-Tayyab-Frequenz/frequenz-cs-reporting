@@ -34,18 +34,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
         ],
     },
     {
-        "title": "Verbrauchskennzahlen",
-        "boxes": [
-            {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
-            {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
-            {
-                "label": "Eigenverbrauchsanteil (%)",
-                "key": "prod_self_consumption_share",
-                "transform": lambda v: v * 100,
-            },
-        ],
-    },
-    {
         "title": "(Eigen-)Erzeugungskennzahlen",
         "boxes": [
             {"label": "Gesamterzeugung (kWh)", "key": "total_production_sum"},
@@ -63,6 +51,30 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "label": "Wind-Erzeugung (kWh)",
                 "key": "wind_production_sum",
                 "component_type": "wind",
+            },
+        ],
+    },
+    {
+        "title": "Verbrauchskennzahlen",
+        "per_row": 3,
+        "boxes": [
+            {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
+            {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
+        ],
+    },
+    {
+        "title": "Bilanzkennzahlen",
+        "per_row": 3,
+        "boxes": [
+            {
+                "label": "Autarkiegrad (%)",
+                "key": "prod_self_consumption_share",
+                "transform": lambda v: v * 100,
+            },
+            {
+                "label": "Eigenverbrauchsquote (%)",
+                "key": "prod_self_production_share",
+                "transform": lambda v: v * 100,
             },
         ],
     },
