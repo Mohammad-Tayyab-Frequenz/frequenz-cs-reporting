@@ -9,20 +9,20 @@ import pandas as pd
 
 # Color mapping for energy components
 COLOR_DICT = {
-    "PV": "rgba(255,243,138,1)",
-    "PV-Erzeugung": "rgba(255,243,138,1)",
-    "PV-Erzeugung [kWh]": "rgba(255,243,138,1)",
-    "PV-Erzeugung [kWh] Sum": "rgba(255,243,138,1)",
-    "Wind": "rgba(100,149,237,1)",
-    "Wind-Erzeugung": "rgba(100,149,237,1)",
-    "Wind-Erzeugung [kWh] Sum": "rgba(100,149,237,1)",
-    "BHKW": "rgba(255,140,0,1)",
-    "BHKW-Erzeugung": "rgba(255,140,0,1)",
-    "BHKW-Erzeugung [kWh] Sum": "rgba(255,140,0,1)",
-    "Netto Gesamtverbrauch": "rgba(70,70,70,1)",
-    "MID Gesamtverbrauch": "rgba(70,70,70,1)",
-    "Batterie Leistungsfluss": "rgba(0,204,150,1)",
-    "Netzbezug": "rgba(0,0,0,1)",
+    "PV": "rgba(224,176,38,1)",
+    "PV-Erzeugung": "rgba(224,176,38,1)",
+    "PV-Erzeugung [kWh]": "rgba(224,176,38,1)",
+    "PV-Erzeugung [kWh] Sum": "rgba(224,176,38,1)",
+    "Wind": "rgba(62,125,179,1)",
+    "Wind-Erzeugung": "rgba(62,125,179,1)",
+    "Wind-Erzeugung [kWh] Sum": "rgba(62,125,179,1)",
+    "BHKW": "rgba(198,113,52,1)",
+    "BHKW-Erzeugung": "rgba(198,113,52,1)",
+    "BHKW-Erzeugung [kWh] Sum": "rgba(198,113,52,1)",
+    "Netto Gesamtverbrauch": "rgba(71,82,99,1)",
+    "MID Gesamtverbrauch": "rgba(71,82,99,1)",
+    "Batterie Leistungsfluss": "rgba(41,140,120,1)",
+    "Netzbezug": "rgba(32,42,55,1)",
 }
 
 # Column name constants (German display names)

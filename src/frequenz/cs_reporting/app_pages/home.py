@@ -15,19 +15,13 @@ from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 ASSETS_DIR = PACKAGE_DIR / "assets"
 BACKGROUND_PATH = ASSETS_DIR / "neustrom_background.png"
-HERO_CARD_STYLE = """
-        position: fixed;
-        top: 40%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: min(92vw, 960px);
-        background: rgba(255, 255, 255, 0.88);
-        border-radius: 16px;
-        padding: 34px 40px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.30);
-        text-align: left;
-        line-height: 1.6;
-    """
+
+
+def _navigate_to(page_key: str) -> None:
+    """Navigate to a target page using the app's query-param routing."""
+    st.session_state["selected_page"] = page_key
+    st.query_params.page = page_key
+    st.rerun()
 
 
 def _set_page_bg(image_path: Path) -> None:
@@ -48,15 +42,66 @@ def _set_page_bg(image_path: Path) -> None:
         f"""
         <style>
         [data-testid="stAppViewContainer"] {{
-            background-image: url("data:image/png;base64,{b64}");
-            background-size: cover;            /* fill full width */
+            background-image:
+                linear-gradient(180deg, rgba(241,246,253,0.94), rgba(243,246,251,0.98)),
+                url("data:image/png;base64,{b64}");
+            background-size: cover;
             background-repeat: no-repeat;
-            background-position: center top;   /* keep main subject visible */
-            background-attachment: fixed;      /* stays still on scroll */
-            background-color: #ffffff;         /* fallback color */
+            background-position: center top;
+            background-attachment: fixed;
+            background-color: #f3f6fb;
             min-height: 100vh;
         }}
         [data-testid="stHeader"] {{ background: transparent; }}
+
+        .home-hero {{
+            background: rgba(255, 255, 255, 0.93);
+            border: 1px solid #d9e1ec;
+            border-radius: 14px;
+            box-shadow: 0 14px 30px rgba(17, 43, 79, 0.08);
+            padding: 26px 30px;
+            margin-bottom: 18px;
+        }}
+
+        .home-hero h1 {{
+            margin: 0;
+            font-size: clamp(1.6rem, 2vw, 2.2rem);
+            color: #142033;
+        }}
+
+        .home-hero p {{
+            margin: 10px 0 0;
+            line-height: 1.6;
+            color: #46566e;
+            max-width: 960px;
+        }}
+
+        .home-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }}
+
+        .home-panel {{
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid #d9e1ec;
+            border-radius: 12px;
+            padding: 16px 18px;
+        }}
+
+        .home-panel h3 {{
+            margin: 0 0 8px;
+            font-size: 1rem;
+            color: #1e4f87;
+        }}
+
+        .home-panel p {{
+            margin: 0;
+            color: #4f5f76;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -71,27 +116,51 @@ def render() -> None:
     """
     _set_page_bg(BACKGROUND_PATH)
 
-    # Content on top of the background
     st.markdown(
-        f"""
-        <div style="{HERO_CARD_STYLE.strip()}">
-            <h1>Welcome to the Frequenz Reporting Suite</h1>
-            <p><em>Operational intelligence at a glance.</em></p>
+        """
+        <div class="home-hero">
+            <h1>Frequenz Reporting Suite</h1>
             <p>
-                The Frequenz Reporting Suite provides visibility and insights across your energy
-                infrastructure. Use the navigation sidebar to explore live dashboards, solar
-                performance, and asset optimization tools tailored for your organization.
+                Consolidated operational insights for energy systems, built for daily
+                monitoring and decision support. Use the navigation on the left to access
+                reporting and solar performance workflows.
             </p>
+        </div>
+
+        <div class="home-grid">
+            <div class="home-panel">
+                <h3>Reporting Dashboard</h3>
+                <p>Review portfolio-level power flows, consumption balances, and detailed component analytics.</p>
+            </div>
+            <div class="home-panel">
+                <h3>Solar Monitoring</h3>
+                <p>Run maintenance-oriented solar workflow checks and compare baseline models.</p>
+            </div>
+            <div class="home-panel">
+                <h3>Data Export</h3>
+                <p>Download standardized tables directly from each section for internal reporting pipelines.</p>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Open Reporting Dashboard", use_container_width=True):
+            _navigate_to("reporting_dashboard")
+    with col2:
+        if st.button("Open Solar Operations", use_container_width=True):
+            _navigate_to("solar")
+    with col3:
+        if st.button("Open Reporting Exports", use_container_width=True):
+            _navigate_to("reporting_dashboard")
+
 
 PAGE = PageSpec(
     key="home",
-    title="Home",
-    icon="🏠",
+    title="Overview",
+    icon="",
     order=0,
     render=render,
 )

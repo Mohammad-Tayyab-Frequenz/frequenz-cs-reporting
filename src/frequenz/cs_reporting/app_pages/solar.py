@@ -108,7 +108,7 @@ def render() -> None:
 PAGE = PageSpec(
     key="solar",
     title="Solar Monitoring",
-    icon="☀️",
+    icon="",
     order=2,
     render=render,
 )

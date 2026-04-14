@@ -66,7 +66,7 @@ def _prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 # pylint: disable=too-many-locals
 def render() -> None:
-    """Render the Frequenz Monitoring Dashboard page.
+    """Render the Frequenz Reporting Dashboard page.
 
     Collects sidebar inputs, fetches microgrid data, prepares it for analysis,
     and renders the dashboard views.
@@ -75,7 +75,7 @@ def render() -> None:
         Streamlit components are rendered directly.
     """
     # Page header
-    st.title("📈 Frequenz Monitoring Dashboard")
+    st.title("Reporting Dashboard")
 
     # Collect user inputs from sidebar
     today = date.today()
@@ -153,7 +153,7 @@ def render() -> None:
 PAGE = PageSpec(
     key="reporting_dashboard",
     title="Reporting",
-    icon="📈",
+    icon="",
     order=1,
     render=render,
 )

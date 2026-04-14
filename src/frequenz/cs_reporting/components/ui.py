@@ -20,18 +20,19 @@ def _ensure_plot_card_css() -> None:
         """
         <style>
         .plot-card {
-            background: #fff;
-            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            border: 1px solid #d9e1ec;
             border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
-            margin-bottom: 18px;
+            padding: 14px 16px 10px;
+            box-shadow: 0 10px 20px rgba(15, 41, 74, 0.05);
+            margin-bottom: 16px;
         }
         .plot-card__title {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
-            color: #111827;
-            margin-bottom: 8px;
+            color: #1a2940;
+            margin-bottom: 10px;
+            letter-spacing: 0.01em;
         }
         </style>
         """,
@@ -52,8 +53,8 @@ def render_plot_card(title: str, fig: object) -> None:
     """
     _ensure_plot_card_css()
 
-    # Use st.container() for proper styling
-    with st.container(border=True):
+    with st.container():
+        st.markdown('<div class="plot-card">', unsafe_allow_html=True)
         st.markdown(
             f'<div class="plot-card__title">{title}</div>', unsafe_allow_html=True
         )
@@ -65,3 +66,4 @@ def render_plot_card(title: str, fig: object) -> None:
             st.pyplot(fig)
         else:
             st.warning("Unsupported figure type.")
+        st.markdown("</div>", unsafe_allow_html=True)

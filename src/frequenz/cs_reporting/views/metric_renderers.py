@@ -155,15 +155,19 @@ def render_box_grid(
                 col.markdown(
                     f"""
                     <div style="
-                        background:#f9f9f9;
-                        border:1px solid #ddd;
-                        border-radius:8px;
+                        background:#ffffff;
+                        border:1px solid #d9e1ec;
+                        border-radius:10px;
                         padding:14px;
                         text-align:center;
-                        box-shadow:1px 1px 3px rgba(0,0,0,0.06);
+                        box-shadow:0 8px 18px rgba(15,41,74,0.05);
+                        min-height:96px;
+                        display:flex;
+                        flex-direction:column;
+                        justify-content:center;
                     ">
-                        <div style="font-size:13px;color:#555;">{label}</div>
-                        <div style="font-size:20px;font-weight:700;color:#1565c0;">{txt}</div>
+                        <div style="font-size:12px;color:#607089;letter-spacing:0.01em;">{label}</div>
+                        <div style="font-size:22px;font-weight:700;color:#1f4f87;line-height:1.2;margin-top:4px;">{txt}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -217,7 +221,7 @@ def render_summary_boxes(
 
     component_type_set = set(component_types or [])
 
-    st.subheader("Übersicht")
+    st.subheader("Overview Metrics")
 
     for section in SECTION_SPECS:
         st.markdown(f"##### {section['title']}")

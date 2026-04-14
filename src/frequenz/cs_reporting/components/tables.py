@@ -19,9 +19,9 @@ def aggrid_table(
     *,
     key_prefix: str,
     page_size: int = 12,
-    header_color: str = "#1565c0",
+    header_color: str = "#1e4f87",
     height: int = 420,
-    theme: str = "alpine",  # 'alpine' | 'balham' | 'material' | etc.
+    theme: str = "balham",  # 'alpine' | 'balham' | 'material' | etc.
     default_col_width: int = 180,
     min_col_width: int = 160,
 ) -> None:
@@ -71,7 +71,7 @@ def aggrid_table(
     # Fit columns on first load
     grid_options = gb.build()
 
-    # --- Scoped CSS: blue header + centered labels ---
+    # --- Scoped CSS: restrained header + clean grid lines ---
     container_id = f"agc_{key_prefix}"
     st.markdown(
         f"""
@@ -80,12 +80,19 @@ def aggrid_table(
         #{container_id} .ag-theme-{theme} .ag-header {{
             background: {header_color} !important;
             color: #fff !important;
+            border-bottom: 1px solid #d9e1ec !important;
         }}
         #{container_id} .ag-theme-{theme} .ag-header-cell-label {{
             justify-content: center;     /* center header text */
         }}
         #{container_id} .ag-theme-{theme} .ag-cell {{
             text-align: left !important; /* left align body */
+            border-color: #eef2f7 !important;
+        }}
+        #{container_id} .ag-theme-{theme} .ag-root-wrapper {{
+            border: 1px solid #d9e1ec !important;
+            border-radius: 10px !important;
+            overflow: hidden !important;
         }}
         </style>
         """,

@@ -23,6 +23,14 @@ from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
 from frequenz.cs_reporting.views import sections
 
 
+def _section_divider() -> None:
+    """Render a subtle divider between dashboard sections."""
+    st.markdown(
+        "<hr style='border:0; border-top:1px solid #d9e1ec; margin: 18px 0 16px;'>",
+        unsafe_allow_html=True,
+    )
+
+
 @st.cache_data(show_spinner="Preparing analysis tables…")
 def _build_tables(
     master_df: pd.DataFrame,
@@ -130,7 +138,7 @@ def render_dashboard(
     component_types: Iterable[str],
     mapper: ColumnMapper,
 ) -> None:
-    """Render the complete microgrid monitoring dashboard.
+    """Render the complete microgrid reporting dashboard.
 
     Displays a comprehensive three-section dashboard:
     1. Overview section with summary metric boxes
@@ -155,15 +163,13 @@ def render_dashboard(
     tables = _build_tables(master_df, resolution, component_types)
 
     # --- Overview section---
-    st.markdown("<hr style='border: 1px dotted #bbb;'>", unsafe_allow_html=True)
+    _section_divider()
     sections.render_summary_boxes(tables["metrics"], component_types)
 
     # --- Plots section---
-    st.markdown(
-        "<hr style='border:1px solid #ddd; margin:20px 0;'>", unsafe_allow_html=True
-    )
+    _section_divider()
     sections.render_plots_tabs(tables, mapper)
 
     # --- Tables section---
-    st.markdown("<hr style='border: 1px dotted #bbb;'>", unsafe_allow_html=True)
+    _section_divider()
     sections.render_data_tabs(master_df, tables)

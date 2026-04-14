@@ -56,15 +56,15 @@ def collect_sidebar_inputs(
             ``end_date``, ``timezone``, and ``resolution`` selected by the user.
     """
     # Header with icon and caption
-    st.sidebar.header("🎛️ Filter Einstellungen")
-    st.sidebar.caption("Wählen Sie die gewünschten Parameter für die Analyse")
+    st.sidebar.header("Filter Einstellungen")
+    st.sidebar.caption("Wählen Sie die Parameter für die Analyse.")
 
     form_key = f"{key_prefix}filters_form" if key_prefix else "filters_form"
     state_key = f"{key_prefix}applied_filters" if key_prefix else "applied_filters"
 
     with st.sidebar.form(form_key):
         # Microgrid Section
-        st.subheader("🏭 Microgrid")
+        st.subheader("Microgrid")
         microgrid_id = inputs.microgrid_selector(
             label="Microgrid ID",
             ids=get_microgrid_ids(),
@@ -75,7 +75,7 @@ def collect_sidebar_inputs(
         st.divider()
 
         # Date & Time Section
-        st.subheader("📅 Zeitraum")
+        st.subheader("Zeitraum")
 
         today = date.today()
         fallback_start = default_start or (today - timedelta(days=7))
@@ -119,7 +119,7 @@ def collect_sidebar_inputs(
         )
 
         timezone = st.selectbox(
-            "🌍 Zeitzone",
+            "Zeitzone",
             options=timezone_options_list,
             index=timezone_index,
             key=timezone_key,
@@ -130,7 +130,7 @@ def collect_sidebar_inputs(
 
         # Resolution selector (full width)
         resolution = st.selectbox(
-            "⏱️ Auflösung",
+            "Auflösung",
             options=list(resolution_options),
             index=next(
                 (
@@ -148,7 +148,7 @@ def collect_sidebar_inputs(
 
         # Prominent submit button
         submitted = st.form_submit_button(
-            "✓ Filter anwenden", use_container_width=True, type="primary"
+            "Filter anwenden", use_container_width=True, type="primary"
         )
 
     current_selection = {
@@ -205,7 +205,7 @@ def collect_solar_sidebar_inputs(
         A tuple containing the collected selections (or ``None`` on error) and
         the submit flag.
     """
-    st.sidebar.header("Eingaben | Solar")
+    st.sidebar.header("Solar Workflow")
     st.sidebar.caption("Konfigurieren Sie den Solar-Wartungsworkflow.")
 
     try:
@@ -232,7 +232,7 @@ def collect_solar_sidebar_inputs(
     default_baseline_models = list(default_baseline_models or [])
 
     with st.sidebar.form(form_key):
-        st.subheader("🔌 Microgrid")
+        st.subheader("Microgrid")
         microgrid_id = st.selectbox(
             "Microgrid auswählen",
             options=available_microgrids,
@@ -245,7 +245,7 @@ def collect_solar_sidebar_inputs(
         )
 
         st.divider()
-        st.subheader("⚙️ Workflow")
+        st.subheader("Workflow")
         language = st.selectbox(
             "Sprache",
             options=["English", "Deutsch"],
@@ -269,7 +269,7 @@ def collect_solar_sidebar_inputs(
         )
 
         st.divider()
-        st.subheader("📅 Datum & Zeit")
+        st.subheader("Datum und Zeit")
         start_date = st.date_input(
             "Startdatum",
             value=default_start_date,
