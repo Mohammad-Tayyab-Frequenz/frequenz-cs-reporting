@@ -262,7 +262,7 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
 
     state_key = "selected_page"
     valid_keys = {p.key for p in pages}
-    default_key = st.query_params.get("page", [pages[0].key])[0]
+    default_key = st.query_params.get("page", pages[0].key)
 
     if default_key not in valid_keys:
         default_key = pages[0].key
@@ -278,19 +278,23 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     options = {p.title: p.key for p in pages}
     display_options = list(options.keys())
 
+    # Consume programmatic navigation signal (set by _navigate_to in home.py)
+    if "_nav_target" in st.session_state:
+        nav_target = st.session_state.pop("_nav_target")
+        if nav_target in valid_keys:
+            st.session_state[state_key] = nav_target
+            nav_label = next((p.title for p in pages if p.key == nav_target), None)
+            if nav_label:
+                st.session_state["navigation_radio"] = nav_label
+
     current_key = st.session_state[state_key]
     initial_index = next(
         (idx for idx, page in enumerate(pages) if page.key == current_key), 0
     )
 
-    # Function to resolve the selected key from the display label
-    def get_key_from_label(label: str) -> str:
-        return options.get(label, pages[0].key)
-
     # Add page navigation header
     st.sidebar.header("Seiten")
 
-    # Use st.sidebar.radio to manage selection
     selected_label = st.sidebar.radio(
         "Seiten",
         options=display_options,
@@ -302,14 +306,12 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     # Add divider after navigation
     st.sidebar.divider()
 
-    # Update session state and query params based on radio selection
-    selected_key = get_key_from_label(selected_label)
-    if st.session_state[state_key] != selected_key:
-        st.session_state[state_key] = selected_key
-        st.query_params.page = selected_key
+    # Update session state and query params from whatever the radio returned
+    selected_key = options.get(selected_label, pages[0].key)
+    st.session_state[state_key] = selected_key
+    st.query_params.page = selected_key
 
-    selected = next(p for p in pages if p.key == st.session_state[state_key])
-    return selected
+    return next(p for p in pages if p.key == selected_key)
 
 
 # --- Main entrypoint --------------------------------------------------------

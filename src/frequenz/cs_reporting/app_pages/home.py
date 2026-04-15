@@ -20,6 +20,7 @@ BACKGROUND_PATH = ASSETS_DIR / "neustrom_background.png"
 def _navigate_to(page_key: str) -> None:
     """Navigate to a target page using the app's query-param routing."""
     st.session_state["selected_page"] = page_key
+    st.session_state["_nav_target"] = page_key
     st.query_params.page = page_key
     st.rerun()
 
