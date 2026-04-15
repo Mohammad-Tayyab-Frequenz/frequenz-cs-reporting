@@ -44,7 +44,7 @@ def _set_page_bg(image_path: Path) -> None:
         <style>
         [data-testid="stAppViewContainer"] {{
             background-image:
-                linear-gradient(180deg, rgba(241,246,253,0.94), rgba(243,246,251,0.98)),
+                linear-gradient(180deg, rgba(241,246,253,0.70), rgba(243,246,251,0.74)),
                 url("data:image/png;base64,{b64}");
             background-size: cover;
             background-repeat: no-repeat;
