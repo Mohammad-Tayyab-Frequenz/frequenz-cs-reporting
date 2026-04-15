@@ -23,12 +23,77 @@ from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
 from frequenz.cs_reporting.views import sections
 
 
-def _section_divider() -> None:
-    """Render a subtle divider between dashboard sections."""
-    st.markdown(
-        "<hr style='border:0; border-top:1px solid #d9e1ec; margin: 18px 0 16px;'>",
-        unsafe_allow_html=True,
+_DASHBOARD_CSS = """
+<style>
+/* ── Dashboard page-level styles ── */
+.dash-section-divider {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 28px 0 20px;
+}
+.dash-section-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.dash-section-label__bar {
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+    flex-shrink: 0;
+}
+.dash-section-label__text {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1a2740;
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+.dash-section-label__count {
+    font-size: 0.75rem;
+    background: #eff6ff;
+    color: #3b82f6;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+</style>
+"""
+
+
+def _inject_dashboard_css() -> None:
+    if not st.session_state.get("_dashboard_css_injected"):
+        st.markdown(_DASHBOARD_CSS, unsafe_allow_html=True)
+        st.session_state["_dashboard_css_injected"] = True
+
+
+def _section_divider(label: str = "", badge: str = "") -> None:
+    """Render a styled section divider with optional label."""
+    _inject_dashboard_css()
+    badge_html = (
+        f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
     )
+    if label:
+        st.markdown(
+            f"""
+            <hr class="dash-section-divider">
+            <div class="dash-section-label">
+                <div class="dash-section-label__bar"></div>
+                <p class="dash-section-label__text">{label}</p>
+                {badge_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<hr class="dash-section-divider">',
+            unsafe_allow_html=True,
+        )
 
 
 @st.cache_data(show_spinner="Preparing analysis tables…")
@@ -163,13 +228,13 @@ def render_dashboard(
     tables = _build_tables(master_df, resolution, component_types)
 
     # --- Overview section---
-    _section_divider()
+    _section_divider("Overview", "KPIs")
     sections.render_summary_boxes(tables["metrics"], component_types)
 
     # --- Plots section---
-    _section_divider()
+    _section_divider("Charts & Time Series")
     sections.render_plots_tabs(tables, mapper)
 
     # --- Tables section---
-    _section_divider()
+    _section_divider("Data Tables")
     sections.render_data_tabs(master_df, tables)

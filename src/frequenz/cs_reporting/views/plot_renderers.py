@@ -311,7 +311,6 @@ def render_plots_tabs(
         mapper: The column mapper for renaming columns.
         color_dict: Optional color mapping for the plots.
     """
-    st.subheader("Plots")
     palette = color_dict or COLOR_DICT
 
     # Get configuration of what to render
