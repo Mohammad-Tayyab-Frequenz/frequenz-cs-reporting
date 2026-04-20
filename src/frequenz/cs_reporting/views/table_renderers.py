@@ -57,11 +57,11 @@ TABLE_TAB_SPECS = [
         "empty_info": "No wind data available.",
     },
     {
-        "label": "BHKW Analysis",
+        "label": "KWK Analysis",
         "table_key": "chp_analysis",
         "key_prefix": "chp_analysis",
-        "caption": "BHKW components (time series)",
-        "empty_info": "No BHKW data available.",
+        "caption": "KWK components (time series)",
+        "empty_info": "No KWK data available.",
     },
     {
         "label": "EV Analysis",

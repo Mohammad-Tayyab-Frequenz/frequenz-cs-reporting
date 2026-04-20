@@ -276,7 +276,7 @@ def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | N
         "Netzbezug (kWh)": metrics.get("grid_consumption_sum"),
         "Netz Einspeisung (kWh)": -(metrics.get("grid_feed_in_sum") or 0),
         "PV Gesamterzeugung (kWh)": metrics.get("pv_production_sum"),
-        "BHKW Gesamterzeugung (kWh)": metrics.get("chp_production_sum"),
+        "KWK Gesamterzeugung (kWh)": metrics.get("chp_production_sum"),
         "Wind Gesamterzeugung (kWh)": metrics.get("wind_production_sum"),
     }
     return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
