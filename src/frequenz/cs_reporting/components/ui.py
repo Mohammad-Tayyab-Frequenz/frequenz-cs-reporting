@@ -11,11 +11,8 @@ from frequenz.cs_reporting.ui_resources import inject_style
 
 
 def _ensure_plot_card_css() -> None:
-    """Inject card styling CSS once per session."""
-    if st.session_state.get("_plot_card_css_injected"):
-        return
+    """Inject card styling CSS for the current Streamlit run."""
     inject_style("plot_card.css")
-    st.session_state["_plot_card_css_injected"] = True
 
 
 def render_plot_card(title: str, fig: object) -> None:

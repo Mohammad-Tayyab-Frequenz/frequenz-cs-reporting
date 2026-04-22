@@ -25,9 +25,8 @@ from frequenz.cs_reporting.views import sections
 
 
 def _inject_dashboard_css() -> None:
-    if not st.session_state.get("_dashboard_css_injected"):
-        inject_style("dashboard.css")
-        st.session_state["_dashboard_css_injected"] = True
+    """Inject dashboard section styles for the current Streamlit run."""
+    inject_style("dashboard.css")
 
 
 def _section_divider(label: str = "", badge: str = "") -> None:

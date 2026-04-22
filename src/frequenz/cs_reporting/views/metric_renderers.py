@@ -30,9 +30,8 @@ _SECTION_ICONS: dict[str, str] = {
 }
 
 def _ensure_kpi_css() -> None:
-    if not st.session_state.get("_kpi_css_injected"):
-        inject_style("kpi.css")
-        st.session_state["_kpi_css_injected"] = True
+    """Inject KPI styles for the current Streamlit run."""
+    inject_style("kpi.css")
 
 
 def _peak_label(metrics: dict[str, object]) -> str:
