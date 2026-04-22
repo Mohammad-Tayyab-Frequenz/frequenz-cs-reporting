@@ -16,10 +16,10 @@ from frequenz.cs_reporting.ui_resources import inject_style
 # Each reporting section gets a distinct left-border colour so the dashboard
 # reads as a structured, visually hierarchical document.
 _SECTION_ACCENTS: dict[str, str] = {
-    "Netzkennzahlen": "#3b82f6",              # blue  – grid
-    "(Eigen-)Erzeugungskennzahlen": "#10b981", # green – generation
-    "Verbrauchskennzahlen": "#f59e0b",         # amber – consumption
-    "Bilanzkennzahlen": "#8b5cf6",             # purple – balance ratios
+    "Netzkennzahlen": "#3b82f6",  # blue  – grid
+    "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
+    "Verbrauchskennzahlen": "#f59e0b",  # amber – consumption
+    "Bilanzkennzahlen": "#8b5cf6",  # purple – balance ratios
 }
 
 _SECTION_ICONS: dict[str, str] = {
@@ -28,6 +28,7 @@ _SECTION_ICONS: dict[str, str] = {
     "Verbrauchskennzahlen": "📊",
     "Bilanzkennzahlen": "⚖",
 }
+
 
 def _ensure_kpi_css() -> None:
     """Inject KPI styles for the current Streamlit run."""
@@ -149,7 +150,9 @@ def render_box_grid(
                 )
             else:
                 if val is None:
-                    value_html = '<div class="kpi-card__value kpi-card__value--null">—</div>'
+                    value_html = (
+                        '<div class="kpi-card__value kpi-card__value--null">—</div>'
+                    )
                 elif isinstance(val, float) and val == int(val):
                     value_html = f'<div class="kpi-card__value">{val:,.0f}</div>'
                 elif isinstance(val, (int, float)):

@@ -34,7 +34,7 @@ class _Stat:
 @dataclass(frozen=True)
 class _FeatureCard:
     color_class: str  # e.g. "home-card--blue"
-    icon: str         # HTML entity or character
+    icon: str  # HTML entity or character
     title: str
     description: str
     features: tuple[str, ...]
@@ -172,7 +172,7 @@ def _inject_styles(bg_b64: str | None) -> None:
         bg_css = (
             f"background-image: linear-gradient("
             f"180deg, rgba(241,246,253,0.80), rgba(243,246,251,0.85)"
-            f"), url(\"data:image/png;base64,{bg_b64}\");"
+            f'), url("data:image/png;base64,{bg_b64}");'
             "background-size: cover;"
             "background-position: center top;"
             "background-attachment: fixed;"

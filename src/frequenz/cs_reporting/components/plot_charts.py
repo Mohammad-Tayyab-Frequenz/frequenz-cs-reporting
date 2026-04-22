@@ -5,7 +5,6 @@
 
 from math import isfinite
 
-import plotly.express as px
 import plotly.graph_objects as go
 
 # ── Professional colour palette ───────────────────────────────────────────────
@@ -29,7 +28,11 @@ _OTHERS_COLOR = "#94a3b8"  # light slate for residual segment
 def _apply_professional_layout(fig: go.Figure) -> None:
     """Apply a clean, corporate-grade layout to any Plotly figure."""
     fig.update_layout(
-        font={"family": "Inter, Segoe UI, Arial, sans-serif", "size": 12, "color": "#374151"},
+        font={
+            "family": "Inter, Segoe UI, Arial, sans-serif",
+            "size": 12,
+            "color": "#374151",
+        },
         paper_bgcolor="#ffffff",
         plot_bgcolor="#f8fafc",
         margin={"l": 12, "r": 12, "t": 40, "b": 40},
@@ -96,7 +99,11 @@ def plot_percentage_bar(
                     "y": 0.5,
                     "yref": "paper",
                     "showarrow": False,
-                    "font": {"size": 13, "color": "#94a3b8", "family": "Inter, sans-serif"},
+                    "font": {
+                        "size": 13,
+                        "color": "#94a3b8",
+                        "family": "Inter, sans-serif",
+                    },
                 }
             ],
         )
@@ -110,8 +117,7 @@ def plot_percentage_bar(
         segments["Others"] = residual
 
     seg_with_pct = [
-        (k, v, (v / total * 100.0 if total != 0 else 0.0))
-        for k, v in segments.items()
+        (k, v, (v / total * 100.0 if total != 0 else 0.0)) for k, v in segments.items()
     ]
     seg_with_pct.sort(key=lambda x: abs(x[1]), reverse=True)
 
@@ -122,7 +128,9 @@ def plot_percentage_bar(
         if label == "Others":
             color_map[label] = _OTHERS_COLOR
         else:
-            color_map[label] = _PROFESSIONAL_PALETTE[palette_idx % len(_PROFESSIONAL_PALETTE)]
+            color_map[label] = _PROFESSIONAL_PALETTE[
+                palette_idx % len(_PROFESSIONAL_PALETTE)
+            ]
             palette_idx += 1
 
     fig = go.Figure()
@@ -140,7 +148,11 @@ def plot_percentage_bar(
                 text=f"{pct:.1f}%",
                 textposition="inside",
                 insidetextanchor="middle",
-                textfont={"size": 11, "color": "#ffffff", "family": "Inter, sans-serif"},
+                textfont={
+                    "size": 11,
+                    "color": "#ffffff",
+                    "family": "Inter, sans-serif",
+                },
                 customdata=[value],
                 hovertemplate=(
                     f"<b>{label}</b><br>"
