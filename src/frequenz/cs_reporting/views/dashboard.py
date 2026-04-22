@@ -191,5 +191,6 @@ def render_dashboard(
     sections.render_plots_tabs(tables, mapper)
 
     # --- Tables section---
+    st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
     _section_divider("Data Tables")
     sections.render_data_tabs(master_df, tables)

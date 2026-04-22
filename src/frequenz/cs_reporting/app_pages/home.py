@@ -98,11 +98,15 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
 # ── Navigation ────────────────────────────────────────────────────────────────
 
 
-def _navigate_to(page_key: str) -> None:
+def _navigate_to(page_key: str, section: str | None = None) -> None:
     """Navigate to a target page using the app's query-param routing."""
     st.session_state["selected_page"] = page_key
     st.session_state["_nav_target"] = page_key
     st.query_params.page = page_key
+    if section:
+        st.query_params.section = section
+    elif "section" in st.query_params:
+        del st.query_params["section"]
     st.rerun()
 
 
@@ -206,7 +210,7 @@ def render() -> None:
             _navigate_to("solar")
     with col3:
         if st.button("Download Data Export", use_container_width=True):
-            _navigate_to("reporting_dashboard")
+            _navigate_to("reporting_dashboard", section="data-export")
 
     st.markdown(_footer_html(), unsafe_allow_html=True)
 
