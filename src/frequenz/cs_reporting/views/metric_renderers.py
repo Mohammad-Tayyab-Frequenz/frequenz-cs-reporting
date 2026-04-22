@@ -10,6 +10,7 @@ from typing import Any, Iterable
 import streamlit as st
 
 from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
+from frequenz.cs_reporting.ui_resources import inject_style
 
 # ── Section accent colours ─────────────────────────────────────────────────────
 # Each reporting section gets a distinct left-border colour so the dashboard
@@ -28,104 +29,9 @@ _SECTION_ICONS: dict[str, str] = {
     "Bilanzkennzahlen": "⚖",
 }
 
-# ── KPI card CSS (injected once per session) ───────────────────────────────────
-_KPI_CSS = """
-<style>
-/* ── Metric section header ── */
-.kpi-section-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 28px 0 14px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e5eaf2;
-}
-.kpi-section-icon {
-    width: 32px; height: 32px;
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 15px;
-    flex-shrink: 0;
-}
-.kpi-section-title {
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: #4a5568;
-    margin: 0;
-}
-
-/* ── Individual KPI card ── */
-.kpi-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-left: 4px solid var(--kpi-accent, #3b82f6);
-    border-radius: 10px;
-    padding: 16px 18px;
-    box-shadow: 0 2px 8px rgba(15,41,74,0.06);
-    min-height: 90px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    transition: box-shadow 0.2s;
-}
-.kpi-card:hover {
-    box-shadow: 0 6px 18px rgba(15,41,74,0.11);
-}
-.kpi-card__label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #718096;
-    margin-bottom: 8px;
-    line-height: 1.3;
-}
-.kpi-card__value {
-    font-size: 1.55rem;
-    font-weight: 700;
-    color: #1a2740;
-    line-height: 1;
-    letter-spacing: -0.02em;
-}
-.kpi-card__value--null {
-    font-size: 1.1rem;
-    color: #a0aec0;
-    font-weight: 400;
-}
-.kpi-card--empty {
-    background: transparent;
-    border: 1px solid transparent;
-    box-shadow: none;
-}
-
-/* ── Overview section heading ── */
-.metrics-heading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 6px;
-}
-.metrics-heading h2 {
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: #1a2740;
-    margin: 0;
-    letter-spacing: -0.01em;
-}
-.metrics-heading__line {
-    flex: 1;
-    height: 1px;
-    background: linear-gradient(90deg, #e2e8f0, transparent);
-}
-</style>
-"""
-
-
 def _ensure_kpi_css() -> None:
     if not st.session_state.get("_kpi_css_injected"):
-        st.markdown(_KPI_CSS, unsafe_allow_html=True)
+        inject_style("kpi.css")
         st.session_state["_kpi_css_injected"] = True
 
 

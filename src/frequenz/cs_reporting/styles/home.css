@@ -1,0 +1,170 @@
+[data-testid="stAppViewContainer"] {
+    __BG_CSS__
+    min-height: 100vh;
+}
+[data-testid="stHeader"] { background: transparent !important; }
+
+:root {
+    --clr-bg-card:    #ffffff;
+    --clr-border:     #d9e1ec;
+    --clr-accent:     #1e4f87;
+    --clr-text-h:     #0f2233;
+    --clr-text-body:  #46566e;
+    --clr-text-muted: #7a8fa8;
+    --radius-lg:      14px;
+    --shadow-card:    0 4px 18px rgba(17,43,79,0.08);
+}
+
+.home-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #1d4ed8;
+    margin-bottom: 20px;
+}
+
+.home-hero {
+    padding: 36px 0 28px;
+}
+.home-hero h1 {
+    margin: 0 0 16px;
+    font-size: clamp(1.9rem, 3vw, 2.7rem);
+    font-weight: 700;
+    line-height: 1.18;
+    color: var(--clr-text-h);
+    letter-spacing: -0.02em;
+}
+.home-hero h1 span { color: #1d4ed8; }
+.home-hero p {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.7;
+    color: var(--clr-text-body);
+    max-width: 680px;
+}
+
+.home-stats {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+}
+.home-stat { display: flex; flex-direction: column; }
+.home-stat__value {
+    font-size: 1.55rem;
+    font-weight: 700;
+    color: var(--clr-accent);
+    line-height: 1;
+}
+.home-stat__label {
+    font-size: 0.75rem;
+    color: var(--clr-text-muted);
+    margin-top: 4px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.home-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 36px;
+}
+.home-card {
+    position: relative;
+    background: var(--clr-bg-card);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-lg);
+    padding: 24px 24px 20px;
+    box-shadow: var(--shadow-card);
+    transition: box-shadow 0.2s, border-color 0.2s;
+    overflow: hidden;
+}
+.home-card:hover {
+    box-shadow: 0 8px 28px rgba(17,43,79,0.13);
+    border-color: #b8cbe8;
+}
+.home-card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.home-card--blue::before   { background: linear-gradient(90deg, #1d4ed8, #3b82f6); }
+.home-card--green::before  { background: linear-gradient(90deg, #059669, #10b981); }
+.home-card--purple::before { background: linear-gradient(90deg, #7c3aed, #8b5cf6); }
+
+.home-card__icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    margin-bottom: 14px;
+}
+.home-card--blue   .home-card__icon { background: #eff6ff; }
+.home-card--green  .home-card__icon { background: #ecfdf5; }
+.home-card--purple .home-card__icon { background: #f5f3ff; }
+
+.home-card h3 {
+    margin: 0 0 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--clr-text-h);
+}
+.home-card p {
+    margin: 0 0 16px;
+    font-size: 0.875rem;
+    color: var(--clr-text-body);
+    line-height: 1.6;
+}
+.home-card__features {
+    list-style: none;
+    margin: 0; padding: 0;
+    border-top: 1px solid #eef1f7;
+    padding-top: 14px;
+}
+.home-card__features li {
+    font-size: 0.8rem;
+    color: var(--clr-text-muted);
+    padding: 3px 0;
+    display: flex; align-items: center; gap: 6px;
+}
+.home-card__features li::before {
+    content: "✓";
+    color: #2563eb;
+    font-weight: 700;
+    font-size: 0.75rem;
+}
+
+div[data-testid="stHorizontalBlock"] .stButton > button {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s !important;
+}
+
+.home-footer {
+    margin-top: 44px;
+    padding-top: 20px;
+    border-top: 1px solid var(--clr-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.home-footer p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--clr-text-muted);
+}

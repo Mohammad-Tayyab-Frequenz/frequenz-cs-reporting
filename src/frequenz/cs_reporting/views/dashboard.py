@@ -20,54 +20,13 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 )
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.ui_resources import inject_style, render_template
 from frequenz.cs_reporting.views import sections
-
-
-_DASHBOARD_CSS = """
-<style>
-/* ── Dashboard page-level styles ── */
-.dash-section-divider {
-    border: 0;
-    border-top: 1px solid #e2e8f0;
-    margin: 28px 0 20px;
-}
-.dash-section-label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 18px;
-}
-.dash-section-label__bar {
-    width: 4px;
-    height: 20px;
-    border-radius: 2px;
-    background: linear-gradient(180deg, #3b82f6, #8b5cf6);
-    flex-shrink: 0;
-}
-.dash-section-label__text {
-    font-size: 1rem;
-    font-weight: 700;
-    color: #1a2740;
-    margin: 0;
-    letter-spacing: -0.01em;
-}
-.dash-section-label__count {
-    font-size: 0.75rem;
-    background: #eff6ff;
-    color: #3b82f6;
-    border: 1px solid #bfdbfe;
-    border-radius: 999px;
-    padding: 2px 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-}
-</style>
-"""
 
 
 def _inject_dashboard_css() -> None:
     if not st.session_state.get("_dashboard_css_injected"):
-        st.markdown(_DASHBOARD_CSS, unsafe_allow_html=True)
+        inject_style("dashboard.css")
         st.session_state["_dashboard_css_injected"] = True
 
 
@@ -79,14 +38,11 @@ def _section_divider(label: str = "", badge: str = "") -> None:
     )
     if label:
         st.markdown(
-            f"""
-            <hr class="dash-section-divider">
-            <div class="dash-section-label">
-                <div class="dash-section-label__bar"></div>
-                <p class="dash-section-label__text">{label}</p>
-                {badge_html}
-            </div>
-            """,
+            render_template(
+                "dashboard_section_divider.html",
+                label=label,
+                badge_html=badge_html,
+            ),
             unsafe_allow_html=True,
         )
     else:
