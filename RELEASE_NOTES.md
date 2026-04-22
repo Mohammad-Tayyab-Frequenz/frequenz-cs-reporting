@@ -2,19 +2,29 @@
 
 ## Summary
 
-This release adds an Autarkiegrad KPI card to the overview, refines the Verbrauchskennzahlen layout, and localizes solar sidebar labels.
+This release overhauls the Reporting UI with a redesigned home/dashboard experience,
+improves page navigation and routing reliability, and standardizes CHP naming from
+`BHKW` to `KWK` across reporting labels.
 
 ## Upgrading
 
-<!-- Here goes notes on how to upgrade from previous versions, including deprecations and what they should be replaced with -->
+- No breaking API changes are introduced.
+- Package assets now explicitly include UI templates and styles (`templates/*.html`,
+  `styles/*.css`) in distribution metadata.
 
 ## New Features
 
-- Add an Autarkiegrad KPI card (self-consumption / production) in the summary
-  overview and position it on its own row with an empty spacer card.
-- Limit solar workflow timezone selection to `TIMEZONE_OPTIONS`.
-- Localize solar sidebar inputs to German.
+- Redesign the home page with reusable HTML templates and dedicated CSS styling.
+- Introduce centralized UI resource helpers for loading/injecting templates and styles.
+- Add a global app theme and refreshed dashboard visual system (section dividers,
+  KPI card styling, updated color palette).
+- Add section-aware routing from query params (including direct scroll to Data Export
+  section when requested).
 
 ## Bug Fixes
 
-<!-- None -->
+- Fix navigation state synchronization between sidebar selection and query-parameter
+  routing.
+- Fix data-export navigation routing and page transitions.
+- Fix inconsistent terminology by renaming `BHKW` labels to `KWK` in reporting UI.
+- Fix formatting and quality issues reported by `nox` checks.

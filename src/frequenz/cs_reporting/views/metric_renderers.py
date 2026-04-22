@@ -10,18 +10,34 @@ from typing import Any, Iterable
 import streamlit as st
 
 from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
+from frequenz.cs_reporting.ui_resources import inject_style
+
+# ── Section accent colours ─────────────────────────────────────────────────────
+# Each reporting section gets a distinct left-border colour so the dashboard
+# reads as a structured, visually hierarchical document.
+_SECTION_ACCENTS: dict[str, str] = {
+    "Netzkennzahlen": "#3b82f6",  # blue  – grid
+    "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
+    "Verbrauchskennzahlen": "#f59e0b",  # amber – consumption
+    "Bilanzkennzahlen": "#8b5cf6",  # purple – balance ratios
+}
+
+_SECTION_ICONS: dict[str, str] = {
+    "Netzkennzahlen": "⚡",
+    "(Eigen-)Erzeugungskennzahlen": "☀",
+    "Verbrauchskennzahlen": "📊",
+    "Bilanzkennzahlen": "⚖",
+}
+
+
+def _ensure_kpi_css() -> None:
+    """Inject KPI styles for the current Streamlit run."""
+    inject_style("kpi.css")
 
 
 def _peak_label(metrics: dict[str, object]) -> str:
-    """Compose the label for the peak metric box.
-
-    Args:
-        metrics: Metrics dictionary expected to contain ``peak_date``.
-
-    Returns:
-        Localized peak label including the peak date.
-    """
-    return f"Lastspitze (kW) - {metrics.get('peak_date')}"
+    """Compose the label for the peak metric box."""
+    return f"Lastspitze (kW) — {metrics.get('peak_date')}"
 
 
 SECTION_SPECS: list[dict[str, Any]] = [
@@ -85,16 +101,7 @@ def _materialize_boxes(
     box_specs: list[dict[str, Any]],
     metrics: dict[str, Any],
 ) -> list[tuple[str, object]]:
-    """Resolve box specifications to label/value tuples.
-
-    Args:
-        box_specs: List of box configuration dictionaries with ``label``,
-            ``label_fn``, ``key``, and optional ``transform`` entries.
-        metrics: Metrics dictionary supplying values for the configured keys.
-
-    Returns:
-        Prepared label and value pairs for rendering.
-    """
+    """Resolve box specifications to label/value tuples."""
     boxes: list[tuple[str, object]] = []
     for spec in box_specs:
         label = spec.get("label", "")
@@ -111,87 +118,73 @@ def _materialize_boxes(
 
 
 def render_box_grid(
-    boxes: list[tuple[str, object]], per_row: int = 3, row_gap: int = 20
+    boxes: list[tuple[str, object]],
+    per_row: int = 3,
+    row_gap: int = 12,
+    accent: str = "#3b82f6",
 ) -> None:
-    """Render boxes in a grid layout.
+    """Render KPI boxes in a professional card grid.
 
     Args:
         boxes: Prepared list of label/value tuples.
         per_row: Maximum number of boxes to render per row.
         row_gap: Vertical gap between rows in pixels.
+        accent: Left-border accent colour for the cards.
 
     Returns:
         Streamlit markup is written directly to the page.
     """
+    _ensure_kpi_css()
+
     for i in range(0, len(boxes), per_row):
         row = boxes[i : i + per_row]
-
-        # pad row with empty boxes so it always has `per_row` items
         while len(row) < per_row:
             row.append(("", None))
 
-        cols = st.columns(per_row, gap="medium")
+        cols = st.columns(per_row, gap="small")
         for col, (label, val) in zip(cols, row):
             if label == "" and val is None:
-                # render transparent placeholder
                 col.markdown(
-                    """
-                    <div style="
-                        background:transparent;
-                        border:1px solid transparent;
-                        border-radius:8px;
-                        padding:14px;
-                        text-align:center;
-                    ">&nbsp;</div>
-                    """,
+                    '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
                     unsafe_allow_html=True,
                 )
             else:
-                txt = (
-                    "-"
-                    if val is None
-                    else (f"{val:,.2f}" if isinstance(val, (int, float)) else str(val))
-                )
+                if val is None:
+                    value_html = (
+                        '<div class="kpi-card__value kpi-card__value--null">—</div>'
+                    )
+                elif isinstance(val, float) and val == int(val):
+                    value_html = f'<div class="kpi-card__value">{val:,.0f}</div>'
+                elif isinstance(val, (int, float)):
+                    value_html = f'<div class="kpi-card__value">{val:,.2f}</div>'
+                else:
+                    value_html = f'<div class="kpi-card__value">{val}</div>'
+
                 col.markdown(
                     f"""
-                    <div style="
-                        background:#f9f9f9;
-                        border:1px solid #ddd;
-                        border-radius:8px;
-                        padding:14px;
-                        text-align:center;
-                        box-shadow:1px 1px 3px rgba(0,0,0,0.06);
-                    ">
-                        <div style="font-size:13px;color:#555;">{label}</div>
-                        <div style="font-size:20px;font-weight:700;color:#1565c0;">{txt}</div>
+                    <div class="kpi-card" style="--kpi-accent:{accent};">
+                        <div class="kpi-card__label">{label}</div>
+                        {value_html}
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-        # add vertical gap between rows (except last)
         if i + per_row < len(boxes):
             st.markdown(
-                f"<div style='margin-top:{row_gap}px;'></div>", unsafe_allow_html=True
+                f"<div style='margin-top:{row_gap}px;'></div>",
+                unsafe_allow_html=True,
             )
 
 
 def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | None]:
-    """Prepare data for the percentage bar plot.
-
-    Args:
-        metrics: Metrics dictionary with consumption and production values.
-
-    Returns:
-        Mapping of label to value with missing entries
-            normalized to ``0.0``.
-    """
+    """Prepare data for the percentage bar plot."""
     values = {
         "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
         "Netzbezug (kWh)": metrics.get("grid_consumption_sum"),
         "Netz Einspeisung (kWh)": -(metrics.get("grid_feed_in_sum") or 0),
         "PV Gesamterzeugung (kWh)": metrics.get("pv_production_sum"),
-        "BHKW Gesamterzeugung (kWh)": metrics.get("chp_production_sum"),
+        "KWK Gesamterzeugung (kWh)": metrics.get("chp_production_sum"),
         "Wind Gesamterzeugung (kWh)": metrics.get("wind_production_sum"),
     }
     return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
@@ -201,7 +194,7 @@ def render_summary_boxes(
     metrics: dict[str, Any],
     component_types: Iterable[str] | None = None,
 ) -> None:
-    """Render overview metrics grouped into subsections.
+    """Render overview metrics grouped into styled subsections.
 
     Args:
         metrics: Metrics dictionary containing aggregated KPI values.
@@ -215,12 +208,36 @@ def render_summary_boxes(
         st.info("No overview metrics available.")
         return
 
+    _ensure_kpi_css()
     component_type_set = set(component_types or [])
 
-    st.subheader("Übersicht")
+    # Section heading
+    st.markdown(
+        """
+        <div class="metrics-heading">
+            <h2>Key Performance Indicators</h2>
+            <div class="metrics-heading__line"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     for section in SECTION_SPECS:
-        st.markdown(f"##### {section['title']}")
+        title = section["title"]
+        accent = _SECTION_ACCENTS.get(title, "#3b82f6")
+        icon = _SECTION_ICONS.get(title, "●")
+        icon_bg = accent + "22"  # ~13% opacity hex approximation
+
+        st.markdown(
+            f"""
+            <div class="kpi-section-header">
+                <div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>
+                <p class="kpi-section-title">{title}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         box_specs = section["boxes"]
         if component_type_set:
             box_specs = [
@@ -230,8 +247,11 @@ def render_summary_boxes(
                 or spec.get("component_type") in component_type_set
             ]
         boxes = _materialize_boxes(box_specs, metrics)
-        render_box_grid(boxes)
+        per_row = section.get("per_row", 3)
+        render_box_grid(boxes, per_row=per_row, accent=accent)
 
+    # Consumption breakdown bar
+    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     consumption_dict = _build_consumption_breakdown(metrics)
     consumption_bar_plot = plot_percentage_bar(
         consumption_dict, total_key="Stromverbrauch (kWh)"

@@ -9,20 +9,20 @@ import pandas as pd
 
 # Color mapping for energy components
 COLOR_DICT = {
-    "PV": "rgba(255,243,138,1)",
-    "PV-Erzeugung": "rgba(255,243,138,1)",
-    "PV-Erzeugung [kWh]": "rgba(255,243,138,1)",
-    "PV-Erzeugung [kWh] Sum": "rgba(255,243,138,1)",
-    "Wind": "rgba(100,149,237,1)",
-    "Wind-Erzeugung": "rgba(100,149,237,1)",
-    "Wind-Erzeugung [kWh] Sum": "rgba(100,149,237,1)",
-    "BHKW": "rgba(255,140,0,1)",
-    "BHKW-Erzeugung": "rgba(255,140,0,1)",
-    "BHKW-Erzeugung [kWh] Sum": "rgba(255,140,0,1)",
-    "Netto Gesamtverbrauch": "rgba(70,70,70,1)",
-    "MID Gesamtverbrauch": "rgba(70,70,70,1)",
-    "Batterie Leistungsfluss": "rgba(0,204,150,1)",
-    "Netzbezug": "rgba(0,0,0,1)",
+    "PV": "rgba(224,176,38,1)",
+    "PV-Erzeugung": "rgba(224,176,38,1)",
+    "PV-Erzeugung [kWh]": "rgba(224,176,38,1)",
+    "PV-Erzeugung [kWh] Sum": "rgba(224,176,38,1)",
+    "Wind": "rgba(62,125,179,1)",
+    "Wind-Erzeugung": "rgba(62,125,179,1)",
+    "Wind-Erzeugung [kWh] Sum": "rgba(62,125,179,1)",
+    "KWK": "rgba(198,113,52,1)",
+    "KWK-Erzeugung": "rgba(198,113,52,1)",
+    "KWK-Erzeugung [kWh] Sum": "rgba(198,113,52,1)",
+    "Netto Gesamtverbrauch": "rgba(71,82,99,1)",
+    "MID Gesamtverbrauch": "rgba(71,82,99,1)",
+    "Batterie Leistungsfluss": "rgba(41,140,120,1)",
+    "Netzbezug": "rgba(32,42,55,1)",
 }
 
 # Column name constants (German display names)
@@ -36,8 +36,8 @@ COLUMN_NAMES = {
     "BATTERY_ENERGY": "Batterie Energie [kWh]",
     "BATTERY_THROUGHPUT": "Batterie Durchsatz",
     "BATTERY": "Batterie",
-    "CHP_PRODUCTION": "BHKW-Erzeugung",
-    "CHP_PRODUCTION_KWH": "BHKW-Erzeugung [kWh]",
+    "CHP_PRODUCTION": "KWK-Erzeugung",
+    "CHP_PRODUCTION_KWH": "KWK-Erzeugung [kWh]",
     "WIND_PRODUCTION": "Wind-Erzeugung",
     "WIND_PRODUCTION_KWH": "Wind-Erzeugung [kWh]",
     "EV_PRODUCTION_KWH": "EV-Erzeugung [kWh]",
@@ -60,7 +60,7 @@ COMPONENT_CONFIGS = {
     "chp": {
         "label": "CHP",
         "value_col": COLUMN_NAMES["CHP_PRODUCTION_KWH"],
-        "title": "BHKW Erzeugung",
+        "title": "KWK Erzeugung",
     },
     "ev": {
         "label": "EV",

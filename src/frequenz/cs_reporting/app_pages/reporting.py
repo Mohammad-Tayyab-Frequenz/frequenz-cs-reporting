@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.reporting.utils.helpers import (
     normalize_date_for_reporting,
@@ -24,6 +25,25 @@ from frequenz.cs_reporting.services.client_factory import (
 )
 from frequenz.cs_reporting.services.data_service import get_microgrid_data
 from frequenz.cs_reporting.views.dashboard import build_master_df, render_dashboard
+
+
+def _scroll_to_section_if_requested() -> None:
+    """Scroll to a dashboard section when requested via query params."""
+    if st.query_params.get("section") != "data-export":
+        return
+
+    # Execute in parent document because Streamlit components render in an iframe.
+    components.html(
+        """
+        <script>
+        const target = window.parent.document.getElementById("data-export-section");
+        if (target) {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _parse_resolution(resolution_str: str) -> timedelta:
@@ -66,7 +86,7 @@ def _prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 # pylint: disable=too-many-locals
 def render() -> None:
-    """Render the Frequenz Monitoring Dashboard page.
+    """Render the Frequenz Reporting Dashboard page.
 
     Collects sidebar inputs, fetches microgrid data, prepares it for analysis,
     and renders the dashboard views.
@@ -75,7 +95,7 @@ def render() -> None:
         Streamlit components are rendered directly.
     """
     # Page header
-    st.title("📈 Frequenz Monitoring Dashboard")
+    st.title("Reporting Dashboard")
 
     # Collect user inputs from sidebar
     today = date.today()
@@ -148,12 +168,13 @@ def render() -> None:
         component_types=component_types,
         mapper=mapper,
     )
+    _scroll_to_section_if_requested()
 
 
 PAGE = PageSpec(
     key="reporting_dashboard",
     title="Reporting",
-    icon="📈",
+    icon="",
     order=1,
     render=render,
 )

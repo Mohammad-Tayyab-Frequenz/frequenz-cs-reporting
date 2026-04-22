@@ -30,7 +30,7 @@ _DEFAULT_PLOT_ORDER = [
     "Netzbezug",
     "Netz Einspeisung",
     "PV-Erzeugung",
-    "BHKW-Erzeugung",
+    "KWK-Erzeugung",
     "Wind-Erzeugung",
     "Batterie Leistungsfluss",
 ]
@@ -41,7 +41,7 @@ _COMPONENT_TABS = [
     ("PV Leistung", "pv"),
     ("Batterie", "batt"),
     ("Wind", "wind"),
-    ("BHKW", "chp"),
+    ("KWK", "chp"),
     ("EV", "ev"),
 ]
 
@@ -141,7 +141,7 @@ def render_energy_pie_chart(
         return
 
     power_df["Energy Source"] = power_df["Energy Source"].replace(
-        {"CHP": "BHKW", "Grid Consumption": "Netzbezug"}
+        {"CHP": "KWK", "Grid Consumption": "Netzbezug"}
     )
     power_df = power_df.rename(
         columns={"Energy Source": "Energiebezug", "Energy [kWh]": "Energie [kWh]"}
@@ -311,7 +311,6 @@ def render_plots_tabs(
         mapper: The column mapper for renaming columns.
         color_dict: Optional color mapping for the plots.
     """
-    st.subheader("Plots")
     palette = color_dict or COLOR_DICT
 
     # Get configuration of what to render

@@ -20,7 +20,35 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 )
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.ui_resources import inject_style, render_template
 from frequenz.cs_reporting.views import sections
+
+
+def _inject_dashboard_css() -> None:
+    """Inject dashboard section styles for the current Streamlit run."""
+    inject_style("dashboard.css")
+
+
+def _section_divider(label: str = "", badge: str = "") -> None:
+    """Render a styled section divider with optional label."""
+    _inject_dashboard_css()
+    badge_html = (
+        f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
+    )
+    if label:
+        st.markdown(
+            render_template(
+                "dashboard_section_divider.html",
+                label=label,
+                badge_html=badge_html,
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<hr class="dash-section-divider">',
+            unsafe_allow_html=True,
+        )
 
 
 @st.cache_data(show_spinner="Preparing analysis tables…")
@@ -130,7 +158,7 @@ def render_dashboard(
     component_types: Iterable[str],
     mapper: ColumnMapper,
 ) -> None:
-    """Render the complete microgrid monitoring dashboard.
+    """Render the complete microgrid reporting dashboard.
 
     Displays a comprehensive three-section dashboard:
     1. Overview section with summary metric boxes
@@ -155,15 +183,14 @@ def render_dashboard(
     tables = _build_tables(master_df, resolution, component_types)
 
     # --- Overview section---
-    st.markdown("<hr style='border: 1px dotted #bbb;'>", unsafe_allow_html=True)
+    _section_divider("Overview", "KPIs")
     sections.render_summary_boxes(tables["metrics"], component_types)
 
     # --- Plots section---
-    st.markdown(
-        "<hr style='border:1px solid #ddd; margin:20px 0;'>", unsafe_allow_html=True
-    )
+    _section_divider("Charts & Time Series")
     sections.render_plots_tabs(tables, mapper)
 
     # --- Tables section---
-    st.markdown("<hr style='border: 1px dotted #bbb;'>", unsafe_allow_html=True)
+    st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
+    _section_divider("Data Tables")
     sections.render_data_tabs(master_df, tables)

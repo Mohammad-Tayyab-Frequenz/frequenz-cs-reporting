@@ -57,11 +57,11 @@ TABLE_TAB_SPECS = [
         "empty_info": "No wind data available.",
     },
     {
-        "label": "BHKW Analysis",
+        "label": "KWK Analysis",
         "table_key": "chp_analysis",
         "key_prefix": "chp_analysis",
-        "caption": "BHKW components (time series)",
-        "empty_info": "No BHKW data available.",
+        "caption": "KWK components (time series)",
+        "empty_info": "No KWK data available.",
     },
     {
         "label": "EV Analysis",
@@ -77,7 +77,7 @@ def _style_download_button(
     column: st.delta_generator.DeltaGenerator,
     *,
     width: int = 170,
-    color: str = "#1e88e5",
+    color: str = "#1e4f87",
 ) -> None:
     """Inject CSS so the download button matches the dashboard styling."""
     column.markdown(
@@ -93,7 +93,9 @@ def _style_download_button(
             min-width: {width}px;
             background-color: {color} !important;
             color: #ffffff !important;
-            border: 0 !important;
+            border: 1px solid {color} !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
         }}
         </style>
         """,
