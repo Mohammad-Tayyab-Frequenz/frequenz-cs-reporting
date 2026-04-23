@@ -102,7 +102,7 @@ def build_workflow_request(
 
     days_since_start = max(0, (end_timestamp - start_dt).days)
     actual_rolling_duration = min(rolling_view_duration, days_since_start)
-    lang_code = {"English": "en", "Deutsch": "de"}.get(language, "en")
+    lang_code = {"English": "en", "Englisch": "en", "Deutsch": "de"}.get(language, "de")
 
     weather_api = os.environ.get("WEATHER_API_URL")
     reporting_api = os.environ.get("REPORTING_API_URL")

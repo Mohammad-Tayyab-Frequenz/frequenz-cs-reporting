@@ -23,7 +23,7 @@ def _resolve_container(container: Any | None) -> Any:
 
 
 def microgrid_selector(
-    label: str = "Microgrid ID",
+    label: str = "Microgrid-ID",
     ids: Iterable[int] = range(1, 2),
     key_prefix: str = "",
     container: Any | None = None,

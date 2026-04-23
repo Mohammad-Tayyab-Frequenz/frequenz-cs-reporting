@@ -93,7 +93,7 @@ def plot_percentage_bar(
             showlegend=False,
             annotations=[
                 {
-                    "text": "No data to display",
+                    "text": "Keine Daten zur Anzeige",
                     "x": 0.5,
                     "xref": "paper",
                     "y": 0.5,
@@ -114,18 +114,18 @@ def plot_percentage_bar(
     }
     residual = total - sum(segments.values())
     if abs(residual) > 1e-6:
-        segments["Others"] = residual
+        segments["Sonstige"] = residual
 
     seg_with_pct = [
         (k, v, (v / total * 100.0 if total != 0 else 0.0)) for k, v in segments.items()
     ]
     seg_with_pct.sort(key=lambda x: abs(x[1]), reverse=True)
 
-    # Assign palette colours in order; "Others" always gets slate
+    # Assign palette colours in order; "Sonstige" always gets slate
     color_map: dict[str, str] = {}
     palette_idx = 0
     for label, _, _ in seg_with_pct:
-        if label == "Others":
+        if label == "Sonstige":
             color_map[label] = _OTHERS_COLOR
         else:
             color_map[label] = _PROFESSIONAL_PALETTE[
@@ -156,8 +156,8 @@ def plot_percentage_bar(
                 customdata=[value],
                 hovertemplate=(
                     f"<b>{label}</b><br>"
-                    "Share: %{x:.1f}%<br>"
-                    "Energy: %{customdata[0]:,.0f} kWh"
+                    "Anteil: %{x:.1f}%<br>"
+                    "Energie: %{customdata[0]:,.0f} kWh"
                     "<extra></extra>"
                 ),
             )

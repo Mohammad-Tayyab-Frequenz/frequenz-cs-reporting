@@ -61,7 +61,7 @@ def _parse_resolution(resolution_str: str) -> timedelta:
     """
     match = re.fullmatch(r"(\d+)\s*(min|hour|h)", resolution_str.strip().lower())
     if not match:
-        raise ValueError(f"Unsupported resolution format: {resolution_str}")
+        raise ValueError(f"Nicht unterstütztes Auflösungsformat: {resolution_str}")
 
     value, unit = match.groups()
     minutes = int(value) * (60 if unit in ("hour", "h") else 1)
@@ -95,7 +95,7 @@ def render() -> None:
         Streamlit components are rendered directly.
     """
     # Page header
-    st.title("Reporting Dashboard")
+    st.title("Reporting-Dashboard")
 
     # Collect user inputs from sidebar
     today = date.today()
@@ -120,7 +120,8 @@ def render() -> None:
     # Validate date range
     if start_time > end_time:
         st.warning(
-            "End date must be on or after the start date. Please adjust your selection."
+            "Das Enddatum muss am oder nach dem Startdatum liegen. "
+            "Bitte passen Sie Ihre Auswahl an."
         )
         st.stop()
 
@@ -139,7 +140,7 @@ def render() -> None:
 
     # Fetch data with error handling
     try:
-        with st.spinner("Loading microgrid data..."):
+        with st.spinner("Microgrid-Daten werden geladen..."):
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
                 start_date=start_time,
@@ -148,12 +149,12 @@ def render() -> None:
                 resolution=resolution,
             )
     except (RuntimeError, ValueError, OSError) as e:
-        st.error(f"Failed to fetch data: {e}")
+        st.error(f"Daten konnten nicht geladen werden: {e}")
         st.stop()
 
     # Check for empty results
     if df.empty:
-        st.warning("No data for the selected filters.")
+        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
     # Normalize the dataframe (Handle Index)

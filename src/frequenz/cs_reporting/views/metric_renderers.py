@@ -205,7 +205,7 @@ def render_summary_boxes(
         Streamlit components are rendered directly.
     """
     if not metrics:
-        st.info("No overview metrics available.")
+        st.info("Keine Übersichtskennzahlen verfügbar.")
         return
 
     _ensure_kpi_css()
@@ -215,7 +215,7 @@ def render_summary_boxes(
     st.markdown(
         """
         <div class="metrics-heading">
-            <h2>Key Performance Indicators</h2>
+            <h2>Leistungskennzahlen</h2>
             <div class="metrics-heading__line"></div>
         </div>
         """,

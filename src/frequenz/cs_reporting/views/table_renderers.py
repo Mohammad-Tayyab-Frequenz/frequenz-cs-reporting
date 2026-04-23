@@ -23,52 +23,52 @@ def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 TABLE_TAB_SPECS = [
     {
-        "label": "Power Mix",
+        "label": "Leistungsmix",
         "table_key": "power_table",
         "key_prefix": "power_mix",
-        "caption": "Aggregated energy mix from PV vs. grid",
+        "caption": "Aggregierter Energiemix aus PV und Netz",
     },
     {
-        "label": "PV Energy (per component)",
+        "label": "PV-Energie (pro Komponente)",
         "table_key": "pv_energy_table",
         "key_prefix": "pv_energy",
-        "caption": "Summary PV energy production (per component)",
-        "empty_info": "No PV energy data available.",
+        "caption": "Zusammenfassung der PV-Energieerzeugung (pro Komponente)",
+        "empty_info": "Keine PV-Energiedaten verfügbar.",
     },
     {
-        "label": "PV Analysis",
+        "label": "PV-Analyse",
         "table_key": "pv_analysis",
         "key_prefix": "pv_analysis",
-        "caption": "PV energy production (time series)",
-        "empty_info": "No PV analysis data available.",
+        "caption": "PV-Energieerzeugung (Zeitreihe)",
+        "empty_info": "Keine PV-Analysedaten verfügbar.",
     },
     {
-        "label": "Battery Analysis",
+        "label": "Batterie-Analyse",
         "table_key": "batt_analysis",
         "key_prefix": "batt_analysis",
-        "caption": "Battery components (time series)",
-        "empty_info": "No battery data available.",
+        "caption": "Batterie-Komponenten (Zeitreihe)",
+        "empty_info": "Keine Batteriedaten verfügbar.",
     },
     {
-        "label": "Wind Analysis",
+        "label": "Wind-Analyse",
         "table_key": "wind_analysis",
         "key_prefix": "wind_analysis",
-        "caption": "Wind components (time series)",
-        "empty_info": "No wind data available.",
+        "caption": "Wind-Komponenten (Zeitreihe)",
+        "empty_info": "Keine Winddaten verfügbar.",
     },
     {
-        "label": "KWK Analysis",
+        "label": "KWK-Analyse",
         "table_key": "chp_analysis",
         "key_prefix": "chp_analysis",
-        "caption": "KWK components (time series)",
-        "empty_info": "No KWK data available.",
+        "caption": "KWK-Komponenten (Zeitreihe)",
+        "empty_info": "Keine KWK-Daten verfügbar.",
     },
     {
-        "label": "EV Analysis",
+        "label": "EV-Analyse",
         "table_key": "ev_analysis",
         "key_prefix": "ev_analysis",
-        "caption": "EV components (time series)",
-        "empty_info": "No EV data available.",
+        "caption": "EV-Komponenten (Zeitreihe)",
+        "empty_info": "Keine EV-Daten verfügbar.",
     },
 ]
 
@@ -134,7 +134,7 @@ def render_table_section(
         csv_bytes = display_df.to_csv(index=False).encode("utf-8")
         _style_download_button(header_cols[1])
         header_cols[1].download_button(
-            label="Download CSV",
+            label="CSV herunterladen",
             data=csv_bytes,
             file_name=f"{key_prefix}.csv",
             mime="text/csv",
@@ -174,7 +174,7 @@ def render_master_df(master_df: pd.DataFrame) -> None:
             key_prefix="master_df",
         )
     else:
-        st.info("Master DF unavailable (no MicrogridConfig).")
+        st.info("Master-DF nicht verfügbar (keine MicrogridConfig).")
 
 
 def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None:
@@ -187,7 +187,7 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
     Returns:
         Streamlit components are rendered directly.
     """
-    st.subheader("Data Tables")
+    st.subheader("Datentabellen")
     available_specs = []
     for spec in TABLE_TAB_SPECS:
         value = tables_dict.get(spec["table_key"])
@@ -197,7 +197,7 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
     include_master = master_df is not None and not master_df.empty
 
     if not available_specs and not include_master:
-        st.info("No data tables available.")
+        st.info("Keine Datentabellen verfügbar.")
         return
 
     tab_labels = [spec["label"] for spec in available_specs]

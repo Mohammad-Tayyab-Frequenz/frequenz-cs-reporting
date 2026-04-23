@@ -36,7 +36,7 @@ def _render_production_table(plot_data: SolarAnalysisData) -> None:
     if table_view is None or table_view.empty:
         return
 
-    st.markdown("#### Production Statistics")
+    st.markdown("#### Produktionsstatistiken")
     styled = style_table(table_view)
 
     # ---- Dynamic height calculation ----
@@ -153,7 +153,7 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
         None. All outputs are rendered directly in the Streamlit UI.
     """
     if not plot_data:
-        st.warning("No data returned from workflow.")
+        st.warning("Vom Workflow wurden keine Daten zurückgegeben.")
         return
 
     if isinstance(plot_data, SolarAnalysisData):
@@ -173,7 +173,7 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
         for idx, item in enumerate(plot_data, start=1):
             if isinstance(item, Figure):
                 if _figure_has_renderable_content(item):
-                    _render_figure_card(item, title=f"Plot {idx}")
+                    _render_figure_card(item, title=f"Diagramm {idx}")
                 plt.close(item)
             else:
                 st.write(item)
@@ -183,7 +183,7 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
     # 2. Handle Secondary Figures
     if new_figures:
         st.divider()  # Clean visual separation
-        st.markdown("#### Workflow Figures")
+        st.markdown("#### Workflow-Abbildungen")
 
         for idx, fig in enumerate(new_figures, start=1):
             if not _figure_has_renderable_content(fig):
@@ -193,7 +193,7 @@ def render_workflow_results(plot_data: Any, new_figures: list[Figure]) -> None:
             suptitle = getattr(fig, "_suptitle", None)
 
             suptitle_text = str(suptitle.get_text()) if suptitle is not None else ""
-            title: str = label or suptitle_text or f"Figure {idx}"
+            title: str = label or suptitle_text or f"Abbildung {idx}"
 
             _render_figure_card(fig, title=title)
             plt.close(fig)
