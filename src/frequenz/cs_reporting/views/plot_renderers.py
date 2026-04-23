@@ -87,11 +87,11 @@ def render_time_series(
         Streamlit components are rendered directly.
     """
     if df is None or df.empty:
-        st.info("No data to plot.")
+        st.info("Keine Daten zum Plotten verfügbar.")
         return
 
     if time_col not in df.columns:
-        st.info(f"No valid time column found (expected '{time_col}').")
+        st.info(f"Keine gültige Zeitspalte gefunden (erwartet: '{time_col}').")
         return
 
     df = df.copy()
@@ -132,12 +132,12 @@ def render_energy_pie_chart(
         Streamlit components are rendered directly.
     """
     if power_df is None or power_df.empty:
-        st.info("No data available for energy pie chart.")
+        st.info("Keine Daten für das Energie-Kreisdiagramm verfügbar.")
         return
 
     required_cols = {"Energy Source", "Energy [kWh]"}
     if not required_cols.issubset(set(power_df.columns)):
-        st.info("Energy data missing required columns.")
+        st.info("Energiedaten enthalten nicht alle erforderlichen Spalten.")
         return
 
     power_df["Energy Source"] = power_df["Energy Source"].replace(
@@ -230,7 +230,7 @@ def _render_overview_plot(
         Streamlit components are rendered directly.
     """
     if overview_df is None or overview_df.empty:
-        st.info("No overview data to plot.")
+        st.info("Keine Übersichtsdaten zum Plotten verfügbar.")
         return
 
     palette = color_dict or COLOR_DICT
@@ -317,7 +317,7 @@ def render_plots_tabs(
     plot_tabs_config = _get_active_tabs(tables, mapper, palette)
 
     if not plot_tabs_config:
-        st.info("No plot data available.")
+        st.info("Keine Plot-Daten verfügbar.")
         return
 
     # Render the UI

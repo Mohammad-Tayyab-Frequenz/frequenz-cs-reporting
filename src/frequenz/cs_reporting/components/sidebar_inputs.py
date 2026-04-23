@@ -66,7 +66,7 @@ def collect_sidebar_inputs(
         # Microgrid Section
         st.subheader("Microgrid")
         microgrid_id = inputs.microgrid_selector(
-            label="Microgrid ID",
+            label="Microgrid-ID",
             ids=get_microgrid_ids(),
             key_prefix=key_prefix,
             container=st,
@@ -89,7 +89,7 @@ def collect_sidebar_inputs(
         columns = st.columns(2)
         with columns[0]:
             start_date = st.date_input(
-                "Start",
+                "Von",
                 value=start_initial,
                 max_value=today,
                 key=start_key,
@@ -211,11 +211,11 @@ def collect_solar_sidebar_inputs(
     try:
         available_microgrids = get_microgrid_ids()
     except RuntimeError as exc:
-        st.error(f"Failed to load microgrid configurations: {exc}")
+        st.error(f"Microgrid-Konfigurationen konnten nicht geladen werden: {exc}")
         return None, False
 
     if not available_microgrids:
-        st.error("No microgrid configurations found.")
+        st.error("Keine Microgrid-Konfigurationen gefunden.")
         return None, False
 
     timezone_options_list = list(timezone_options or TIMEZONE_OPTIONS)
@@ -248,7 +248,7 @@ def collect_solar_sidebar_inputs(
         st.subheader("Workflow")
         language = st.selectbox(
             "Sprache",
-            options=["English", "Deutsch"],
+            options=["Deutsch", "Englisch"],
             index=0,
         )
         resample_period = st.text_input(
@@ -280,7 +280,7 @@ def collect_solar_sidebar_inputs(
             index=timezone_default_index,
         )
 
-        submit_button = st.form_submit_button("Start", use_container_width=True)
+        submit_button = st.form_submit_button("Starten", use_container_width=True)
 
     inputs_data = SolarWorkflowInputs(
         microgrid_id=int(microgrid_id),

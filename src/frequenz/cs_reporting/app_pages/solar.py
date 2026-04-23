@@ -49,7 +49,7 @@ def capture_figures() -> Iterator[list[Figure]]:
 
 def render() -> None:
     """Render the Solar Maintenance & Monitoring page."""
-    st.title("Solar Maintenance & Monitoring")
+    st.title("Solar-Wartung & Monitoring")
     st.divider()
 
     inputs_data, submit_button = collect_solar_sidebar_inputs(
@@ -68,7 +68,8 @@ def render() -> None:
 
     if not submit_button:
         st.info(
-            "Select options in the sidebar and click Start to run the solar workflow."
+            "Wählen Sie Optionen in der Sidebar und klicken Sie auf Starten, "
+            "um den Solar-Workflow auszuführen."
         )
         return
 
@@ -76,7 +77,7 @@ def render() -> None:
         microgrid_config = get_microgrid_config(inputs_data.microgrid_id)
     except (KeyError, RuntimeError) as exc:
         st.error(
-            f"Configuration not found for microgrid {inputs_data.microgrid_id}: {exc}"
+            f"Konfiguration für Microgrid {inputs_data.microgrid_id} nicht gefunden: {exc}"
         )
         return
 
@@ -93,12 +94,12 @@ def render() -> None:
             baseline_models=inputs_data.baseline_models,
         )
     except Exception as exc:  # pylint: disable=broad-except
-        st.error(f"Failed to prepare request: {exc}")
+        st.error(f"Anfrage konnte nicht vorbereitet werden: {exc}")
         # Improve logging (could use proper logger, simplistic print for now as in original)
         print(f"Error building workflow request:\n{traceback.format_exc()}")
         return
 
-    with st.spinner("Running workflow..."):
+    with st.spinner("Workflow wird ausgeführt..."):
         with capture_figures() as new_figures:
             plot_data = asyncio.run(run_workflow(user_config_changes=user_request))
 
@@ -107,7 +108,7 @@ def render() -> None:
 
 PAGE = PageSpec(
     key="solar",
-    title="Solar Monitoring",
+    title="Solar-Monitoring",
     icon="",
     order=2,
     render=render,

@@ -41,56 +41,56 @@ class _FeatureCard:
 
 
 _STATS: tuple[_Stat, ...] = (
-    _Stat("Real-time", "Data Refresh"),
-    _Stat("5+", "Component Types"),
-    _Stat("Multi-site", "Portfolio View"),
-    _Stat("CSV", "Export Ready"),
+    _Stat("Echtzeit", "Datenaktualisierung"),
+    _Stat("5+", "Komponententypen"),
+    _Stat("Multi-Standort", "Portfolioansicht"),
+    _Stat("CSV", "Exportbereit"),
 )
 
 _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
     _FeatureCard(
         color_class="home-card--blue",
         icon="&#9889;",
-        title="Reporting Dashboard",
+        title="Reporting-Dashboard",
         description=(
-            "Portfolio-level power flows, consumption balances, "
-            "and detailed KPI analytics across all microgrid components."
+            "Leistungsflüsse auf Portfolioebene, Verbrauchsbilanzen "
+            "und detaillierte KPI-Analysen über alle Microgrid-Komponenten."
         ),
         features=(
-            "Grid import / export KPIs",
-            "PV, Battery, CHP &amp; Wind analytics",
-            "Self-sufficiency &amp; self-consumption ratios",
-            "Interactive time-series plots",
+            "KPIs für Netzbezug und Einspeisung",
+            "Analysen für PV, Batterie, KWK &amp; Wind",
+            "Autarkie- und Eigenverbrauchsquoten",
+            "Interaktive Zeitreihen-Plots",
         ),
     ),
     _FeatureCard(
         color_class="home-card--green",
         icon="&#9728;",
-        title="Solar Monitoring",
+        title="Solar-Monitoring",
         description=(
-            "Maintenance-oriented solar workflow checks with baseline "
-            "model comparison and rolling performance views."
+            "Wartungsorientierte Solar-Workflow-Prüfungen mit "
+            "Baseline-Modellvergleich und rollierenden Performance-Ansichten."
         ),
         features=(
-            "Inverter &amp; meter diagnostics",
-            "Baseline model benchmarking",
-            "Rolling performance window (5-60 days)",
-            "German &amp; English report output",
+            "Diagnose für Wechselrichter &amp; Zähler",
+            "Benchmarking von Baseline-Modellen",
+            "Rollierendes Performance-Fenster (5-60 Tage)",
+            "Berichtsausgabe auf Deutsch &amp; Englisch",
         ),
     ),
     _FeatureCard(
         color_class="home-card--purple",
         icon="&#8595;",
-        title="Data Export",
+        title="Datenexport",
         description=(
-            "Download standardised tables from each reporting section "
-            "for use in internal pipelines and client deliverables."
+            "Standardisierte Tabellen aus allen Reporting-Bereichen "
+            "für interne Pipelines und Kundenberichte herunterladen."
         ),
         features=(
-            "Per-component time series",
-            "Aggregated energy summaries",
-            "Configurable resolution &amp; timezone",
-            "CSV-compatible format",
+            "Zeitreihen pro Komponente",
+            "Aggregierte Energiezusammenfassungen",
+            "Konfigurierbare Auflösung &amp; Zeitzone",
+            "CSV-kompatibles Format",
         ),
     ),
 )
@@ -203,13 +203,13 @@ def render() -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("Open Reporting Dashboard", use_container_width=True):
+        if st.button("Reporting-Dashboard öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard")
     with col2:
-        if st.button("Open Solar Monitoring", use_container_width=True):
+        if st.button("Solar-Monitoring öffnen", use_container_width=True):
             _navigate_to("solar")
     with col3:
-        if st.button("Download Data Export", use_container_width=True):
+        if st.button("Datenexport öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard", section="data-export")
 
     st.markdown(_footer_html(), unsafe_allow_html=True)
@@ -217,7 +217,7 @@ def render() -> None:
 
 PAGE = PageSpec(
     key="home",
-    title="Overview",
+    title="Übersicht",
     icon="",
     order=0,
     render=render,

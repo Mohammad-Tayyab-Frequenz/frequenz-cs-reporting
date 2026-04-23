@@ -319,7 +319,7 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
 # --- Main entrypoint --------------------------------------------------------
 def main() -> None:
     st.set_page_config(
-        page_title="Enterprise Reporting App",
+        page_title="Reporting-Anwendung",
         page_icon="📊",
         layout="wide",
     )
@@ -327,7 +327,10 @@ def main() -> None:
 
     pages = discover_library_pages()
     if not pages:
-        st.info(f"No pages found under `{LIB_PAGES_ROOT}` (or local app_pages).")
+        st.info(
+            f"Keine Seiten unter `{LIB_PAGES_ROOT}` gefunden "
+            "(oder im lokalen Verzeichnis `app_pages`)."
+        )
         return
 
     selected = sidebar(pages)

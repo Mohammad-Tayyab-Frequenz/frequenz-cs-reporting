@@ -45,6 +45,6 @@ def render_plot_card(title: str, fig: object) -> None:
         elif isinstance(fig, Figure):
             st.pyplot(fig)
         else:
-            st.warning("Unsupported figure type.")
+            st.warning("Nicht unterstützter Figurtyp.")
 
         st.markdown("</div></div>", unsafe_allow_html=True)

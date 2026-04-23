@@ -183,14 +183,14 @@ def render_dashboard(
     tables = _build_tables(master_df, resolution, component_types)
 
     # --- Overview section---
-    _section_divider("Overview", "KPIs")
+    _section_divider("Übersicht", "KPIs")
     sections.render_summary_boxes(tables["metrics"], component_types)
 
     # --- Plots section---
-    _section_divider("Charts & Time Series")
+    _section_divider("Diagramme & Zeitreihen")
     sections.render_plots_tabs(tables, mapper)
 
     # --- Tables section---
     st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
-    _section_divider("Data Tables")
+    _section_divider("Datentabellen")
     sections.render_data_tabs(master_df, tables)
