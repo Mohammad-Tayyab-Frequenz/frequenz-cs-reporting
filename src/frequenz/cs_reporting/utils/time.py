@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Union
 
 from pandas import to_datetime
@@ -34,7 +34,7 @@ def to_iso8601(d: DateLike) -> str:
     if isinstance(d, datetime):
         return d.isoformat()
     if isinstance(d, date):
-        return datetime(d.year, d.month, d.day).isoformat()
+        return datetime(d.year, d.month, d.day, tzinfo=UTC).isoformat()
     raise TypeError(f"Invalid date-like value: {d!r}")
 
 

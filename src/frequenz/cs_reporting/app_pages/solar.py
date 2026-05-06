@@ -22,7 +22,9 @@ from frequenz.cs_reporting.services.client_factory import get_microgrid_config
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
 from frequenz.cs_reporting.views.solar_results import render_workflow_results
 
-DEFAULT_START_DATE = datetime.date(datetime.date.today().year, 1, 1)
+DEFAULT_START_DATE = datetime.date(
+    datetime.datetime.now(tz=datetime.timezone.utc).year, 1, 1
+)
 DEFAULT_RESAMPLE_PERIOD = "3600"
 DEFAULT_BASELINE_MODELS: list[str] = []
 

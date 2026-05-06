@@ -3,7 +3,7 @@
 
 """Tests for the frequenz.cs_reporting package."""
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -13,12 +13,12 @@ from frequenz.cs_reporting.utils import time
 def test_validate_range_accepts_chronological_values() -> None:
     """validate_range returns converted datetimes when start < end."""
     start = date(2024, 1, 1)
-    end = datetime(2024, 1, 2, 12, 0)
+    end = datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
 
     start_dt, end_dt = time.validate_range(start, end)
 
-    assert start_dt == datetime(2024, 1, 1)
-    assert end_dt == datetime(2024, 1, 2, 12, 0)
+    assert start_dt == datetime(2024, 1, 1, tzinfo=UTC)
+    assert end_dt == datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
     assert end_dt - start_dt == timedelta(days=1, hours=12)
 
 
