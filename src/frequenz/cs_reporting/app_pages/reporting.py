@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -98,7 +98,7 @@ def render() -> None:
     st.title("Reporting-Dashboard")
 
     # Collect user inputs from sidebar
-    today = date.today()
+    today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
         default_start=today,
         default_end=today,
@@ -114,7 +114,7 @@ def render() -> None:
     start_time = set_date_to_midnight(selections["start_date"], timezone)
     end_time = normalize_date_for_reporting(selections["end_date"], timezone)
     end_time = end_time.replace(microsecond=0)
-    if end_time.date() != date.today():
+    if end_time.date() != datetime.now(tz=UTC).date():
         end_time += timedelta(days=1)
 
     # Validate date range

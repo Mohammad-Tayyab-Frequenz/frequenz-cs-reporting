@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Union
 
 from pandas import to_datetime
@@ -34,7 +34,7 @@ def to_iso8601(d: DateLike) -> str:
     if isinstance(d, datetime):
         return d.isoformat()
     if isinstance(d, date):
-        return datetime(d.year, d.month, d.day).isoformat()
+        return datetime(d.year, d.month, d.day, tzinfo=UTC).isoformat()
     raise TypeError(f"Invalid date-like value: {d!r}")
 
 
@@ -51,8 +51,21 @@ def validate_range(start: DateLike, end: DateLike) -> tuple[datetime, datetime]:
     Raises:
         ValueError: If ``start`` is greater than or equal to ``end``.
     """
-    start_dt = to_datetime(start)
-    end_dt = to_datetime(end)
+    start_ts = to_datetime(start)
+    end_ts = to_datetime(end)
+
+    if start_ts.tzinfo is None:
+        start_ts = start_ts.tz_localize(UTC)
+    else:
+        start_ts = start_ts.tz_convert(UTC)
+
+    if end_ts.tzinfo is None:
+        end_ts = end_ts.tz_localize(UTC)
+    else:
+        end_ts = end_ts.tz_convert(UTC)
+
+    start_dt = start_ts.to_pydatetime()
+    end_dt = end_ts.to_pydatetime()
     if end_dt <= start_dt:
         raise ValueError("end_date must be after start_date")
     return start_dt, end_dt

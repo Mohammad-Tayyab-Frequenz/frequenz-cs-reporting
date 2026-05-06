@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Sequence
 
 import streamlit as st
@@ -77,7 +77,7 @@ def collect_sidebar_inputs(
         # Date & Time Section
         st.subheader("Zeitraum")
 
-        today = date.today()
+        today = datetime.now(tz=UTC).date()
         fallback_start = default_start or (today - timedelta(days=7))
 
         start_key = f"{key_prefix}start_date"

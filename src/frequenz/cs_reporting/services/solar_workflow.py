@@ -96,9 +96,9 @@ def build_workflow_request(
             metadata, service endpoints, and model configuration.
     """
     start_dt = datetime.datetime.combine(
-        start_date, datetime.datetime.min.time()
-    ).astimezone(datetime.timezone.utc)
-    end_timestamp = datetime.datetime.now().astimezone(datetime.timezone.utc)
+        start_date, datetime.time.min, tzinfo=datetime.UTC
+    )
+    end_timestamp = datetime.datetime.now(tz=datetime.UTC)
 
     days_since_start = max(0, (end_timestamp - start_dt).days)
     actual_rolling_duration = min(rolling_view_duration, days_since_start)
