@@ -72,7 +72,7 @@ dev-mkdocs = [
 ]
 dev-mypy = [
   "mypy == 1.20.1",
-  "types-Markdown == 3.10.2.20260211",
+  "types-Markdown == 3.10.2.20260408",
   "types-pytz",
   "pandas-stubs",
   # For checking the noxfile, docs/ script, and tests
