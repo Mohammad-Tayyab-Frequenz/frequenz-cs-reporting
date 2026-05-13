@@ -7,6 +7,6 @@
 
 ## New Features
 
-- Translate the output texts to german.
+- Update the radio button navigation for streamlit in deepnote.
 
 ## Bug Fixes
