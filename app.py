@@ -261,8 +261,12 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     st.sidebar.divider()
 
     state_key = "selected_page"
+    use_query_params = not IN_DEEPNOTE
     valid_keys = {p.key for p in pages}
-    default_key = st.query_params.get("page", pages[0].key)
+    if use_query_params:
+        default_key = st.query_params.get("page", pages[0].key)
+    else:
+        default_key = st.session_state.get(state_key, pages[0].key)
 
     if default_key not in valid_keys:
         default_key = pages[0].key
@@ -283,7 +287,13 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
             st.session_state[nav_sync_key] = nav_target
 
     # Sync from URL only on initial load or when query param changed externally.
-    if st.session_state.get(nav_sync_key) != default_key:
+    # In Deepnote, query params can be unreliable in embedded apps, so we
+    # stick to session state instead.
+    if use_query_params and st.session_state.get(nav_sync_key) != default_key:
+        st.session_state[state_key] = default_key
+        st.session_state["navigation_radio"] = default_label
+        st.session_state[nav_sync_key] = default_key
+    elif not use_query_params and "navigation_radio" not in st.session_state:
         st.session_state[state_key] = default_key
         st.session_state["navigation_radio"] = default_label
         st.session_state[nav_sync_key] = default_key
@@ -310,7 +320,8 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     # Update session state and query params from whatever the radio returned
     selected_key = options.get(selected_label, pages[0].key)
     st.session_state[state_key] = selected_key
-    st.query_params.page = selected_key
+    if use_query_params:
+        st.query_params["page"] = selected_key
     st.session_state[nav_sync_key] = selected_key
 
     return next(p for p in pages if p.key == selected_key)

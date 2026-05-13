@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from frequenz.cs_reporting.ui_resources import (
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 BACKGROUND_PATH = ASSETS_DIR / "neustrom_background.png"
 LOGO_PATH = ASSETS_DIR / "neustrom_logo.png"
+IN_DEEPNOTE = any(
+    key in os.environ
+    for key in ("DEEPNOTE_PROJECT_ID", "DEEPNOTE_WORKSPACE_ID", "DEEPNOTE")
+)
 
 # ── Static content data ───────────────────────────────────────────────────────
 
@@ -102,11 +107,12 @@ def _navigate_to(page_key: str, section: str | None = None) -> None:
     """Navigate to a target page using the app's query-param routing."""
     st.session_state["selected_page"] = page_key
     st.session_state["_nav_target"] = page_key
-    st.query_params.page = page_key
-    if section:
-        st.query_params.section = section
-    elif "section" in st.query_params:
-        del st.query_params["section"]
+    if not IN_DEEPNOTE:
+        st.query_params["page"] = page_key
+        if section:
+            st.query_params["section"] = section
+        elif "section" in st.query_params:
+            del st.query_params["section"]
     st.rerun()
 
 
