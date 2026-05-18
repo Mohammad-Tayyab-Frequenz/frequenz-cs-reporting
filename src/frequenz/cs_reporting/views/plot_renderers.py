@@ -28,7 +28,7 @@ _DEFAULT_PLOT_ORDER = [
     "Zeitpunkt",
     "MID Gesamtverbrauch",
     "Netzbezug",
-    "Netz Einspeisung",
+    "Netzeinspeisung",
     "PV-Erzeugung",
     "KWK-Erzeugung",
     "Wind-Erzeugung",
@@ -36,7 +36,18 @@ _DEFAULT_PLOT_ORDER = [
 ]
 
 _DEFAULT_DOTTED_COLS = ["Netzbezug"]
-_FILL_EXCLUDE = {"Zeitpunkt", "MID Gesamtverbrauch", "Netzbezug", "Netz Einspeisung"}
+_FILL_EXCLUDE = {
+    "Zeitpunkt",
+    "MID Gesamtverbrauch",
+    "Netzbezug",
+    "Netzeinspeisung",
+    "Netz Einspeisung",
+}
+_OVERVIEW_ALIASES = {
+    "BHKW-Erzeugung": "KWK-Erzeugung",
+    "CHP": "KWK-Erzeugung",
+    "Netz Einspeisung": "Netzeinspeisung",
+}
 _COMPONENT_TABS = [
     ("PV Leistung", "pv"),
     ("Batterie", "batt"),
@@ -214,7 +225,14 @@ def _prepare_overview_df(
 
     overview_df = mapper.to_display(overview_df)
     # Compatibility shim until the latest lib notebooks update rolls out
-    return overview_df.rename(columns=COLUMN_RENAME_MAP)
+    overview_df = overview_df.rename(columns=COLUMN_RENAME_MAP)
+
+    # Normalize known legacy aliases so plot ordering always includes key series.
+    for source, target in _OVERVIEW_ALIASES.items():
+        if source in overview_df.columns and target not in overview_df.columns:
+            overview_df = overview_df.rename(columns={source: target})
+
+    return overview_df
 
 
 def _render_overview_plot(
