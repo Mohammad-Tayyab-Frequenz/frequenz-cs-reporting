@@ -8,5 +8,6 @@
 ## New Features
 
 - Update the radio button navigation for streamlit in deepnote.
+- Add KWK aliases in the line plot.
 
 ## Bug Fixes
