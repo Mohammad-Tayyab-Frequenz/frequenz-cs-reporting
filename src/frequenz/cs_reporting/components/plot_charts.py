@@ -198,9 +198,13 @@ def plot_percentage_bar(
             "font_color": "#f8fafc",
             "bordercolor": "#334155",
         },
+        separators=",.",
         annotations=[
             {
-                "text": f"<b>{total_key}:</b> {total:,.0f} kWh",
+                "text": f"<b>{total_key}:</b> {total:,.0f}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", ".")
+                + " kWh",
                 "x": 0.5,
                 "xref": "paper",
                 "y": 1.35,

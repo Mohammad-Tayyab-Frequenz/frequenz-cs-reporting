@@ -12,6 +12,13 @@ import streamlit as st
 from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
 from frequenz.cs_reporting.ui_resources import inject_style
 
+
+def _fmt_de(val: float, decimals: int) -> str:
+    """Format a number in German locale (period thousands, comma decimal)."""
+    formatted = f"{val:,.{decimals}f}"
+    return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 # ── Section accent colours ─────────────────────────────────────────────────────
 # Each reporting section gets a distinct left-border colour so the dashboard
 # reads as a structured, visually hierarchical document.
@@ -154,9 +161,9 @@ def render_box_grid(
                         '<div class="kpi-card__value kpi-card__value--null">—</div>'
                     )
                 elif isinstance(val, float) and val == int(val):
-                    value_html = f'<div class="kpi-card__value">{val:,.0f}</div>'
+                    value_html = f'<div class="kpi-card__value">{_fmt_de(val, 0)}</div>'
                 elif isinstance(val, (int, float)):
-                    value_html = f'<div class="kpi-card__value">{val:,.2f}</div>'
+                    value_html = f'<div class="kpi-card__value">{_fmt_de(val, 2)}</div>'
                 else:
                     value_html = f'<div class="kpi-card__value">{val}</div>'
 

@@ -131,7 +131,7 @@ def render_table_section(
         header_cols[0].markdown("", unsafe_allow_html=True)
 
     if not safe_df.empty:
-        csv_bytes = display_df.to_csv(index=False).encode("utf-8")
+        csv_bytes = display_df.to_csv(index=False, sep=";", decimal=",").encode("utf-8")
         _style_download_button(header_cols[1])
         header_cols[1].download_button(
             label="CSV herunterladen",
@@ -160,7 +160,9 @@ def render_master_df(master_df: pd.DataFrame) -> None:
         header_cols = st.columns([10, 1])
         header_cols[0].caption("Standardized master dataframe")
         display_df = _round_numeric_columns(master_df)
-        master_csv = display_df.to_csv(index=False).encode("utf-8")
+        master_csv = display_df.to_csv(index=False, sep=";", decimal=",").encode(
+            "utf-8"
+        )
         _style_download_button(header_cols[1])
         header_cols[1].download_button(
             label="Download Gesamt-Datensatz",
