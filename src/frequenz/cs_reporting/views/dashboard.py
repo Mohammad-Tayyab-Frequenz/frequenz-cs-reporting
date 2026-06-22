@@ -147,7 +147,6 @@ def build_master_df(
         for c in component_types
         if pd.to_numeric(raw_df[c], errors="coerce").fillna(0).sum() != 0
     ]
-
     master_df = create_energy_report_df(raw_df, component_types, mcfg, mapper)
     return master_df
 
@@ -193,4 +192,4 @@ def render_dashboard(
     # --- Tables section---
     st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
     _section_divider("Datentabellen")
-    sections.render_data_tabs(master_df, tables)
+    sections.render_data_tabs(master_df, tables, mapper)
