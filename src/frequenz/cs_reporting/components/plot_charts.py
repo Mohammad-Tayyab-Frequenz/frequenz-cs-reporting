@@ -135,6 +135,9 @@ def plot_percentage_bar(
 
     fig = go.Figure()
     for label, value, pct in seg_with_pct:
+        formatted_value = (
+            f"{value:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
         fig.add_trace(
             go.Bar(
                 x=[pct],
@@ -153,11 +156,11 @@ def plot_percentage_bar(
                     "color": "#ffffff",
                     "family": "Inter, sans-serif",
                 },
-                customdata=[value],
+                hovertext=[formatted_value],
                 hovertemplate=(
                     f"<b>{label}</b><br>"
                     "Anteil: %{x:.1f}%<br>"
-                    "Energie: %{customdata[0]:,.0f} kWh"
+                    "Energie: %{hovertext} kWh"
                     "<extra></extra>"
                 ),
             )
