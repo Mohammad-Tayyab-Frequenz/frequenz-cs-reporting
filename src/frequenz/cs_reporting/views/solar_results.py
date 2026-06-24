@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import base64
+import math
 from io import BytesIO
 from typing import Any
 
 import matplotlib.pyplot as plt
 import streamlit as st
-from frequenz.lib.notebooks.solar.maintenance.plot_styles import style_table
+from frequenz.lib.notebooks.solar.maintenance.microgrid_dashboard import (
+    MicrogridOverviewDashboard,
+)
 from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import (
     SolarAnalysisData,
 )
@@ -19,10 +22,10 @@ from matplotlib.figure import Figure
 
 
 def _render_production_table(plot_data: SolarAnalysisData) -> None:
-    """Render the production statistics table, if available.
+    """Render the production statistics dashboard, if available.
 
-    Displays a styled, horizontally scrollable HTML table containing production
-    statistics derived from the solar analysis data. If no production table is
+    Displays the production statistics using the card-based microgrid overview
+    dashboard provided by ``frequenz.lib.notebooks``. If no production table is
     present or it is empty, the function returns without rendering anything.
 
     Args:
@@ -30,35 +33,26 @@ def _render_production_table(plot_data: SolarAnalysisData) -> None:
             ``production_table_view`` attribute with tabular production statistics.
 
     Returns:
-        None. The table is rendered directly in the Streamlit UI.
+        None. The dashboard is rendered directly in the Streamlit UI.
     """
     table_view = getattr(plot_data, "production_table_view", None)
     if table_view is None or table_view.empty:
         return
 
     st.markdown("#### Produktionsstatistiken")
-    styled = style_table(table_view)
-
-    # ---- Dynamic height calculation ----
-    row_height = 55
-    header_height = 75
-    max_height = 600
-
-    height = min(header_height + len(table_view) * row_height, max_height)
-
-    scrollable_html = (
-        "<style>"
-        "table { min-width: 1200px; } "
-        "thead th, tbody td { min-width: 150px; } "
-        "thead th:first-child, tbody td:first-child { "
-        "width: 60px; min-width: 60px; max-width: 80px; }"
-        "</style>"
-        "<div style='overflow-x: auto;'>"
-        f"{styled.data}"
-        "</div>"
+    dashboard = MicrogridOverviewDashboard(table_view, 1)
+    dashboard_html = dashboard.to_html().replace(
+        "justify-content: center;",
+        "justify-content: flex-start;",
     )
 
-    st.components.v1.html(scrollable_html, height=height, scrolling=True)
+    # The notebook implementation uses IPython display(). In Streamlit we need
+    # the same generated HTML rendered through the component API instead.
+    cards_per_row = 2
+    estimated_rows = max(1, math.ceil(len(table_view) / cards_per_row))
+    height = min(140 + estimated_rows * 430, 1600)
+
+    st.components.v1.html(dashboard_html, height=height, scrolling=True)
 
 
 def _ensure_card_styles() -> None:
