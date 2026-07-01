@@ -7,9 +7,15 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 
 from frequenz.cs_reporting.components import tables
 from frequenz.cs_reporting.constants import TablesResult
+
+_MASTER_DF_DISPLAY_RENAMES = {
+    "production_self_use": "Eigenverbrauch",
+    "production_self_usage": "Eigenverbrauch Share",
+}
 
 
 def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -147,11 +153,12 @@ def render_table_section(
         st.info(empty_info)
 
 
-def render_master_df(master_df: pd.DataFrame) -> None:
+def render_master_df(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
     """Render the combined master dataframe in an AgGrid table.
 
     Args:
         master_df: Processed master dataframe to display.
+        mapper: Column mapper for converting canonical names to standard display labels.
 
     Returns:
         Streamlit components are rendered directly.
@@ -159,7 +166,9 @@ def render_master_df(master_df: pd.DataFrame) -> None:
     if master_df is not None and not master_df.empty:
         header_cols = st.columns([10, 1])
         header_cols[0].caption("Standardized master dataframe")
-        display_df = _round_numeric_columns(master_df)
+        display_df = _round_numeric_columns(
+            mapper.to_display(master_df).rename(columns=_MASTER_DF_DISPLAY_RENAMES)
+        )
         master_csv = display_df.to_csv(index=False, sep=";", decimal=",").encode(
             "utf-8"
         )
@@ -179,12 +188,15 @@ def render_master_df(master_df: pd.DataFrame) -> None:
         st.info("Master-DF nicht verfügbar (keine MicrogridConfig).")
 
 
-def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None:
+def render_data_tabs(
+    master_df: pd.DataFrame, tables_dict: TablesResult, mapper: ColumnMapper
+) -> None:
     """Render tabbed data tables for overview and component analyses.
 
     Args:
         master_df: Processed master dataframe.
         tables_dict: Mapping of table names to dataframes for each analysis.
+        mapper: Column mapper for standardizing Gesamt-Datensatz column names.
 
     Returns:
         Streamlit components are rendered directly.
@@ -219,4 +231,4 @@ def render_data_tabs(master_df: pd.DataFrame, tables_dict: TablesResult) -> None
 
     if include_master:
         with tabs[-1]:
-            render_master_df(master_df)
+            render_master_df(master_df, mapper)
