@@ -19,6 +19,7 @@ _GRID_HEADER_HEIGHT = 40
 _GRID_ROW_HEIGHT = 44
 _GRID_PAGINATION_HEIGHT = 56
 _GRID_BORDER_HEIGHT = 2
+_GRID_TOOLBAR_HEIGHT = 40
 
 
 # pylint: disable=too-many-arguments
@@ -94,17 +95,33 @@ def aggrid_table(
     grid_options["onGridReady"] = JsCode(f"""
         function(params) {{
             const buttonId = {json.dumps(f"{key_prefix}_reset_table_filters")};
+            const toolbarHeight = {_GRID_TOOLBAR_HEIGHT};
             const existingButton = document.getElementById(buttonId);
             if (existingButton) {{
                 return;
             }}
 
             const gridRoot = document.querySelector(".ag-root-wrapper");
-            if (!gridRoot) {{
+            const gridParent = gridRoot ? gridRoot.parentElement : null;
+            if (!gridRoot || !gridParent) {{
                 return;
             }}
 
-            gridRoot.style.position = "relative";
+            const currentGridHeight = gridRoot.getBoundingClientRect().height;
+            if (currentGridHeight > toolbarHeight) {{
+                gridRoot.style.height = `${{currentGridHeight - toolbarHeight}}px`;
+            }}
+
+            const toolbar = document.createElement("div");
+            Object.assign(toolbar.style, {{
+                alignItems: "center",
+                backgroundColor: "transparent",
+                boxSizing: "border-box",
+                display: "flex",
+                height: `${{toolbarHeight}}px`,
+                justifyContent: "flex-start",
+                padding: "4px 0 6px 0",
+            }});
 
             const button = document.createElement("button");
             button.id = buttonId;
@@ -114,10 +131,6 @@ def aggrid_table(
             button.setAttribute("aria-label", "Filter der Tabelle zurücksetzen");
 
             Object.assign(button.style, {{
-                position: "absolute",
-                top: "6px",
-                left: "8px",
-                zIndex: "20",
                 backgroundColor: "#fff4bf",
                 border: "1px solid #e4c34a",
                 color: "#4f3f00",
@@ -152,7 +165,8 @@ def aggrid_table(
                 params.api.paginationGoToFirstPage();
             }});
 
-            gridRoot.appendChild(button);
+            toolbar.appendChild(button);
+            gridParent.insertBefore(toolbar, gridRoot);
         }}
     """)
 
@@ -190,7 +204,7 @@ def aggrid_table(
         _ = AgGrid(
             df,
             gridOptions=grid_options,
-            height=height,
+            height=height + _GRID_TOOLBAR_HEIGHT,
             theme=theme,
             allow_unsafe_jscode=True,
             update_mode=GridUpdateMode.NO_UPDATE,
