@@ -3,8 +3,6 @@
 
 """AgGrid helpers for rendering reporting tables."""
 
-import json
-
 import pandas as pd
 import streamlit as st
 from st_aggrid import (  # type: ignore[import-untyped]
@@ -12,7 +10,6 @@ from st_aggrid import (  # type: ignore[import-untyped]
     ColumnsAutoSizeMode,
     GridOptionsBuilder,
     GridUpdateMode,
-    JsCode,
 )
 
 _GRID_HEADER_HEIGHT = 40
@@ -90,41 +87,8 @@ def aggrid_table(
         suppressAutoSize=True,
     )
 
-    # Fit columns on first load
     grid_options = gb.build()
-    grid_options["onGridReady"] = JsCode(f"""
-        function(params) {{
-            const gridKey = {json.dumps(key_prefix)};
-            const messageType = "cs-reporting-reset-aggrid-filters";
-            window.__csReportingAgGridResetHandlers =
-                window.__csReportingAgGridResetHandlers || {{}};
-
-            const previousHandler =
-                window.__csReportingAgGridResetHandlers[gridKey];
-            if (previousHandler) {{
-                window.removeEventListener("message", previousHandler);
-            }}
-
-            const resetFilters = function() {{
-                params.api.setFilterModel(null);
-                params.api.onFilterChanged();
-                params.api.paginationGoToFirstPage();
-            }};
-
-            const handler = function(event) {{
-                if (
-                    event.data &&
-                    event.data.type === messageType &&
-                    event.data.gridKey === gridKey
-                ) {{
-                    resetFilters();
-                }}
-            }};
-
-            window.__csReportingAgGridResetHandlers[gridKey] = handler;
-            window.addEventListener("message", handler);
-        }}
-    """)
+    reset_counter = int(st.session_state.get(f"{key_prefix}_reset_counter", 0))
 
     # --- Scoped CSS: restrained header + clean grid lines ---
     container_id = f"agc_{key_prefix}"
@@ -167,6 +131,6 @@ def aggrid_table(
             update_on=[],
             fit_columns_on_grid_load=False,
             columns_auto_size_mode=ColumnsAutoSizeMode.NO_AUTOSIZE,
-            key=key_prefix,
+            key=f"{key_prefix}_{reset_counter}",
         )
         st.markdown("</div>", unsafe_allow_html=True)
