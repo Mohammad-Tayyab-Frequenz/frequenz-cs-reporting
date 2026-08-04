@@ -109,20 +109,6 @@ def _style_download_button(
     )
 
 
-def _render_reset_filters_button(key_prefix: str) -> None:
-    """Render a button that clears the matching AgGrid filters."""
-    state_key = f"{key_prefix}_reset_counter"
-    if state_key not in st.session_state:
-        st.session_state[state_key] = 0
-
-    if st.button(
-        "Filter der Tabelle zurücksetzen",
-        key=f"{key_prefix}_reset_table_filters",
-        help="Setzt Sortierung, Filter und Seitenauswahl dieser Tabelle zurück.",
-    ):
-        st.session_state[state_key] = int(st.session_state[state_key]) + 1
-
-
 def render_table_section(
     df: pd.DataFrame | None,
     *,
@@ -149,8 +135,6 @@ def render_table_section(
         header_cols[0].caption(caption)
     else:
         header_cols[0].markdown("", unsafe_allow_html=True)
-    with header_cols[0]:
-        _render_reset_filters_button(key_prefix)
 
     if not safe_df.empty:
         csv_bytes = display_df.to_csv(index=False, sep=";", decimal=",").encode("utf-8")
@@ -182,8 +166,6 @@ def render_master_df(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
     if master_df is not None and not master_df.empty:
         header_cols = st.columns([1, 0.125])
         header_cols[0].caption("Standardisierter Haupt-DataFrame")
-        with header_cols[0]:
-            _render_reset_filters_button("master_df")
         display_df = _round_numeric_columns(
             mapper.to_display(master_df).rename(columns=_MASTER_DF_DISPLAY_RENAMES)
         )

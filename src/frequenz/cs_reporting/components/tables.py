@@ -3,6 +3,8 @@
 
 """AgGrid helpers for rendering reporting tables."""
 
+import json
+
 import pandas as pd
 import streamlit as st
 from st_aggrid import (  # type: ignore[import-untyped]
@@ -10,6 +12,7 @@ from st_aggrid import (  # type: ignore[import-untyped]
     ColumnsAutoSizeMode,
     GridOptionsBuilder,
     GridUpdateMode,
+    JsCode,
 )
 
 _GRID_HEADER_HEIGHT = 40
@@ -88,7 +91,70 @@ def aggrid_table(
     )
 
     grid_options = gb.build()
-    reset_counter = int(st.session_state.get(f"{key_prefix}_reset_counter", 0))
+    grid_options["onGridReady"] = JsCode(f"""
+        function(params) {{
+            const buttonId = {json.dumps(f"{key_prefix}_reset_table_filters")};
+            const existingButton = document.getElementById(buttonId);
+            if (existingButton) {{
+                return;
+            }}
+
+            const gridRoot = document.querySelector(".ag-root-wrapper");
+            if (!gridRoot) {{
+                return;
+            }}
+
+            gridRoot.style.position = "relative";
+
+            const button = document.createElement("button");
+            button.id = buttonId;
+            button.type = "button";
+            button.textContent = "Filter zurücksetzen";
+            button.title = "Filter der Tabelle zurücksetzen";
+            button.setAttribute("aria-label", "Filter der Tabelle zurücksetzen");
+
+            Object.assign(button.style, {{
+                position: "absolute",
+                top: "6px",
+                right: "8px",
+                zIndex: "20",
+                backgroundColor: "#fff4bf",
+                border: "1px solid #e4c34a",
+                color: "#4f3f00",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "12px",
+                fontWeight: "600",
+                lineHeight: "1.1",
+                minHeight: "26px",
+                padding: "4px 8px",
+                whiteSpace: "nowrap",
+            }});
+
+            button.addEventListener("mouseenter", function() {{
+                button.style.backgroundColor = "#ffe88a";
+                button.style.borderColor = "#c7a629";
+                button.style.color = "#3f3200";
+            }});
+            button.addEventListener("mouseleave", function() {{
+                button.style.backgroundColor = "#fff4bf";
+                button.style.borderColor = "#e4c34a";
+                button.style.color = "#4f3f00";
+            }});
+
+            button.addEventListener("click", function(event) {{
+                event.preventDefault();
+                event.stopPropagation();
+
+                params.api.setFilterModel(null);
+                params.api.onFilterChanged();
+                params.api.paginationGoToFirstPage();
+            }});
+
+            gridRoot.appendChild(button);
+        }}
+    """)
 
     # --- Scoped CSS: restrained header + clean grid lines ---
     container_id = f"agc_{key_prefix}"
@@ -131,6 +197,6 @@ def aggrid_table(
             update_on=[],
             fit_columns_on_grid_load=False,
             columns_auto_size_mode=ColumnsAutoSizeMode.NO_AUTOSIZE,
-            key=f"{key_prefix}_{reset_counter}",
+            key=key_prefix,
         )
         st.markdown("</div>", unsafe_allow_html=True)
