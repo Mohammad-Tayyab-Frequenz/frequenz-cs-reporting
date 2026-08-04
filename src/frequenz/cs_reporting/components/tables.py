@@ -116,7 +116,7 @@ def aggrid_table(
             Object.assign(button.style, {{
                 position: "absolute",
                 top: "6px",
-                right: "8px",
+                left: "8px",
                 zIndex: "20",
                 backgroundColor: "#fff4bf",
                 border: "1px solid #e4c34a",
