@@ -7,6 +7,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from frequenz.cs_reporting.views.metric_renderers import (
+    SECTION_SPECS,
+    _section_matches_component_types,
+)
 from frequenz.cs_reporting.utils import time
 
 
@@ -28,3 +32,15 @@ def test_validate_range_rejects_invalid_order() -> None:
         time.validate_range("2024-01-02", "2024-01-02")
     with pytest.raises(ValueError):
         time.validate_range("2024-01-03", "2024-01-02")
+
+
+def test_battery_metrics_section_requires_battery_component_type() -> None:
+    """Battery KPI section is hidden when the microgrid has no battery."""
+    battery_section = next(
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "Batteriekennzahlen"
+    )
+
+    assert not _section_matches_component_types(battery_section, {"pv", "grid"})
+    assert _section_matches_component_types(battery_section, {"battery", "grid"})

@@ -115,6 +115,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Batteriekennzahlen",
+        "component_type": "battery",
         "per_row": 3,
         "boxes": [
             {
@@ -177,6 +178,19 @@ def _materialize_boxes(
 
         boxes.append((label, value))
     return boxes
+
+
+def _section_matches_component_types(
+    section: dict[str, Any],
+    component_type_set: set[str],
+) -> bool:
+    """Return whether a KPI section should be shown for the component types."""
+    section_component_type = section.get("component_type")
+    return (
+        not component_type_set
+        or section_component_type is None
+        or section_component_type in component_type_set
+    )
 
 
 def render_box_grid(
@@ -289,6 +303,9 @@ def render_summary_boxes(
     )
 
     for section in SECTION_SPECS:
+        if not _section_matches_component_types(section, component_type_set):
+            continue
+
         box_specs = section["boxes"]
         if component_type_set:
             box_specs = [
