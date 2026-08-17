@@ -10,7 +10,7 @@ from typing import Any, Iterable
 import streamlit as st
 
 from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
-from frequenz.cs_reporting.ui_resources import inject_style
+from frequenz.cs_reporting.ui_resources import inject_style_once
 
 
 def _fmt_de(val: float, decimals: int) -> str:
@@ -37,11 +37,6 @@ _SECTION_ICONS: dict[str, str] = {
     "Batteriekennzahlen": "🔋",
     "Bilanzkennzahlen": "⚖",
 }
-
-
-def _ensure_kpi_css() -> None:
-    """Inject KPI styles for the current Streamlit run."""
-    inject_style("kpi.css")
 
 
 def _peak_label(metrics: dict[str, object]) -> str:
@@ -201,7 +196,7 @@ def render_box_grid(
     Returns:
         Streamlit markup is written directly to the page.
     """
-    _ensure_kpi_css()
+    inject_style_once("kpi.css")
 
     for i in range(0, len(boxes), per_row):
         row = boxes[i : i + per_row]
@@ -279,7 +274,7 @@ def render_summary_boxes(
         st.info("Keine Übersichtskennzahlen verfügbar.")
         return
 
-    _ensure_kpi_css()
+    inject_style_once("kpi.css")
     component_type_set = set(component_types or [])
 
     # Section heading

@@ -20,7 +20,7 @@ from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sideba
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import get_microgrid_config
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
-from frequenz.cs_reporting.views.solar_results import render_workflow_results
+from frequenz.cs_reporting.views.solar_renderers import render_workflow_results
 
 DEFAULT_START_DATE = datetime.date(
     datetime.datetime.now(tz=datetime.timezone.utc).year, 1, 1

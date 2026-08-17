@@ -1,0 +1,19 @@
+/* Solar workflow result card styles */
+
+.solar-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+    padding: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    margin-bottom: 18px;
+}
+.solar-card__title {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.solar-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+}

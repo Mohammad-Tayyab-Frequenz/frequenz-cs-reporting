@@ -21,6 +21,8 @@ from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import (
 )
 from matplotlib.figure import Figure
 
+from frequenz.cs_reporting.ui_resources import inject_style_once
+
 
 def _render_production_table(plot_data: SolarAnalysisData) -> None:
     """Render the production statistics dashboard, if available.
@@ -59,34 +61,6 @@ def _render_production_table(plot_data: SolarAnalysisData) -> None:
     )
 
 
-def _ensure_card_styles() -> None:
-    """Inject basic card styling for plot containers."""
-    st.markdown(
-        """
-        <style>
-            .solar-card {
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                background: #ffffff;
-                padding: 16px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-                margin-bottom: 18px;
-            }
-            .solar-card__title {
-                font-weight: 600;
-                margin-bottom: 8px;
-            }
-            .solar-card img {
-                width: 100%;
-                height: auto;
-                display: block;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def _figure_to_base64(fig: Figure) -> str:
     """Convert a matplotlib figure to a base64-encoded PNG."""
     buffer = BytesIO()
@@ -99,7 +73,7 @@ def _figure_to_base64(fig: Figure) -> str:
 
 def _render_figure_card(fig: Figure, title: str | None = None) -> None:
     """Render a matplotlib figure inside a styled card with spacing."""
-    _ensure_card_styles()
+    inject_style_once("solar_card.css")
     title_html = f"<div class='solar-card__title'>{title}</div>" if title else ""
     encoded_img = _figure_to_base64(fig)
     st.markdown(

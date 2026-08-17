@@ -42,3 +42,12 @@ def inject_style(style_name: str, **tokens: str) -> None:
         style_text = style_text.replace(f"__{key.upper()}__", value)
 
     st.markdown(f"<style>\n{style_text}\n</style>", unsafe_allow_html=True)
+
+
+def inject_style_once(style_name: str, **tokens: str) -> None:
+    """Inject a packaged stylesheet at most once per Streamlit session."""
+    flag_key = f"_style_injected::{style_name}"
+    if st.session_state.get(flag_key):
+        return
+    inject_style(style_name, **tokens)
+    st.session_state[flag_key] = True

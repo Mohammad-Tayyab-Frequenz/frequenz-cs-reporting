@@ -25,18 +25,15 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 )
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
-from frequenz.cs_reporting.ui_resources import inject_style, render_template
-from frequenz.cs_reporting.views import sections
-
-
-def _inject_dashboard_css() -> None:
-    """Inject dashboard section styles for the current Streamlit run."""
-    inject_style("dashboard.css")
+from frequenz.cs_reporting.ui_resources import inject_style_once, render_template
+from frequenz.cs_reporting.views.metric_renderers import render_summary_boxes
+from frequenz.cs_reporting.views.plot_renderers import render_plots_tabs
+from frequenz.cs_reporting.views.table_renderers import render_data_tabs
 
 
 def _section_divider(label: str = "", badge: str = "") -> None:
     """Render a styled section divider with optional label."""
-    _inject_dashboard_css()
+    inject_style_once("dashboard.css")
     badge_html = (
         f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
     )
@@ -239,13 +236,13 @@ def render_dashboard(
 
     # --- Overview section---
     _section_divider("Übersicht", "KPIs")
-    sections.render_summary_boxes(tables["metrics"], component_types, microgrid_id)
+    render_summary_boxes(tables["metrics"], component_types, microgrid_id)
 
     # --- Plots section---
     _section_divider("Diagramme & Zeitreihen")
-    sections.render_plots_tabs(tables, mapper, component_types)
+    render_plots_tabs(tables, mapper, component_types)
 
     # --- Tables section---
     st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
     _section_divider("Datentabellen")
-    sections.render_data_tabs(master_df, tables, mapper)
+    render_data_tabs(master_df, tables, mapper)

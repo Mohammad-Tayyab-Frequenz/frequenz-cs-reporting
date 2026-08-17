@@ -7,12 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from matplotlib.figure import Figure
 
-from frequenz.cs_reporting.ui_resources import inject_style
-
-
-def _ensure_plot_card_css() -> None:
-    """Inject card styling CSS for the current Streamlit run."""
-    inject_style("plot_card.css")
+from frequenz.cs_reporting.ui_resources import inject_style_once
 
 
 def render_plot_card(title: str, fig: object) -> None:
@@ -25,7 +20,7 @@ def render_plot_card(title: str, fig: object) -> None:
     Returns:
         Streamlit components are rendered directly.
     """
-    _ensure_plot_card_css()
+    inject_style_once("plot_card.css")
 
     with st.container():
         st.markdown(
