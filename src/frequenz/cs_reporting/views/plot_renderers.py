@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -19,6 +19,9 @@ from frequenz.lib.notebooks.reporting.plotter import (
     plot_time_series_battery_usecase,
 )
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
+from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
+    build_component_analysis,
+)
 
 from frequenz.cs_reporting.components.ui import render_plot_card
 from frequenz.cs_reporting.constants import COLOR_DICT, COMPONENT_CONFIGS, TablesResult
@@ -33,6 +36,44 @@ _COMPONENT_TABS = [
 _TIME_SERIES_HEIGHT = 500
 _TIME_SERIES_MARGIN = {"t": 80, "r": 64, "b": 96, "l": 64}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
+_PLOT_SOURCE_OPTIONS = ("meter", "inverter")
+_PLOT_SOURCE_ANALYSIS_KEYS = frozenset({"pv", "batt", "wind", "chp"})
+
+
+def _component_type_from_analysis_key(analysis_key: str) -> str:
+    """Return the microgrid component type for an analysis table key."""
+    if analysis_key == "batt":
+        return "battery"
+    return analysis_key
+
+
+def _component_ids_for_plot_source(
+    mcfg: Any,
+    component_types: Iterable[str],
+    component_plot_source: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return component ID filters for the selected HTH plot source."""
+    component_type_set = set(component_types)
+    analysis_ids: dict[str, tuple[str, ...]] = {}
+
+    for analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS:
+        component_type = _component_type_from_analysis_key(analysis_key)
+        if component_type not in component_type_set:
+            continue
+
+        category_ids = mcfg.component_type_ids(
+            component_type,
+            component_category=component_plot_source,
+        )
+        if component_plot_source == "inverter" and not category_ids:
+            category_ids = mcfg.component_type_ids(
+                component_type,
+                component_category="component",
+            )
+
+        analysis_ids[analysis_key] = tuple(str(cid) for cid in sorted(category_ids))
+
+    return analysis_ids
 
 
 def _left_align_plot_title(fig: object) -> None:
@@ -52,7 +93,7 @@ def _apply_compact_time_series_layout(fig: go.Figure) -> None:
     fig.update_yaxes(autorange=True, range=None)
 
 
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments, too-many-locals
 def render_time_series(
     df: pd.DataFrame,
     *,
@@ -69,6 +110,8 @@ def render_time_series(
     fill_cols: list[str] | None = None,
     plot_order: list[str] | None = None,
     dotted_cols: list[str] | None = None,
+    header_control: Callable[[], None] | None = None,
+    key: str | None = None,
 ) -> None:
     """Render a generic time-series plot inside a card.
 
@@ -88,6 +131,9 @@ def render_time_series(
         fill_cols: Columns to fill under the curve for stacked plots.
         plot_order: Explicit ordering of series when rendering.
         dotted_cols: Columns to render with dotted lines.
+        header_control: Optional Streamlit control rendered at the right side of
+            the plot card header.
+        key: Optional key used to style plot cards with header controls.
 
     Returns:
         Streamlit components are rendered directly.
@@ -123,7 +169,7 @@ def render_time_series(
     _apply_compact_time_series_layout(fig)
     _left_align_plot_title(fig)
 
-    render_plot_card(title, fig)
+    render_plot_card(title, fig, header_control=header_control, key=key)
 
 
 def render_energy_pie_chart(
@@ -158,10 +204,15 @@ def render_energy_pie_chart(
     render_plot_card("Energie-Mix", fig)
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
+# pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
+@st.fragment
 def _render_component_tab(
     tables: TablesResult,
+    master_df: pd.DataFrame,
     mapper: ColumnMapper,
+    mcfg: Any,
+    component_types: Iterable[str],
+    analysis_key: str,
     table_key: str,
     title: str,
     category_col: str,
@@ -172,7 +223,11 @@ def _render_component_tab(
 
     Args:
         tables: Dictionary of analysis tables.
+        master_df: Master dataframe used to rebuild filtered plot analyses.
         mapper: Column mapper for display names.
+        mcfg: Microgrid configuration object containing component metadata.
+        component_types: Component type identifiers present in the microgrid.
+        analysis_key: Component analysis key, such as ``pv`` or ``batt``.
         table_key: Key to lookup the table in ``tables``.
         title: Title for the plot.
         category_col: Category column name in the long-format dataframe.
@@ -187,6 +242,36 @@ def _render_component_tab(
         st.info(f"Keine Daten für {title}.")
         return
 
+    selectbox_key = f"{table_key}_component_plot_source"
+    selected_source = st.session_state.get(selectbox_key, _PLOT_SOURCE_OPTIONS[0])
+    if analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS:
+        selected_ids = _component_ids_for_plot_source(
+            mcfg,
+            component_types,
+            str(selected_source),
+        ).get(analysis_key)
+        df = build_component_analysis(
+            master_df,
+            selection_filter=["All"],
+            component_label=category_col,
+            value_col_name=value_col,
+            allowed_component_ids=(
+                set(selected_ids) if selected_ids is not None else None
+            ),
+        )
+
+    def source_selector() -> None:
+        st.selectbox(
+            "Komponentenquelle",
+            options=_PLOT_SOURCE_OPTIONS,
+            format_func=lambda value: {
+                "meter": "Meter",
+                "inverter": "Inverter / Komponenten",
+            }[value],
+            key=selectbox_key,
+            label_visibility="collapsed",
+        )
+
     palette = color_dict or COLOR_DICT
     df = mapper.to_display(df)
     render_time_series(
@@ -200,6 +285,10 @@ def _render_component_tab(
         category_col=category_col,
         value_col=value_col,
         color_dict=palette,
+        header_control=(
+            source_selector if analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS else None
+        ),
+        key=table_key,
     )
 
 
@@ -313,9 +402,12 @@ def _render_battery_soc_plot(battery_usecase_df: pd.DataFrame | None) -> None:
     render_plot_card("Batterie Ladezustand", fig)
 
 
+# pylint: disable=too-many-locals
 def _get_active_tabs(
     tables: TablesResult,
+    master_df: pd.DataFrame,
     mapper: ColumnMapper,
+    mcfg: Any,
     palette: dict[str, str],
     component_types: Iterable[str],
 ) -> list[tuple[str, Callable[[], None]]]:
@@ -359,7 +451,11 @@ def _get_active_tabs(
             render_fn = partial(
                 _render_component_tab,
                 tables=tables,
+                master_df=master_df,
                 mapper=mapper,
+                mcfg=mcfg,
+                component_types=component_types,
+                analysis_key=key,
                 table_key=f"{key}_analysis",
                 title=config["title"],
                 category_col=config["label"],
@@ -378,6 +474,8 @@ def render_plots_tabs(
     tables: TablesResult,
     mapper: ColumnMapper,
     component_types: Iterable[str],
+    master_df: pd.DataFrame,
+    mcfg: Any,
     color_dict: dict[str, str] | None = None,
 ) -> None:
     """
@@ -387,12 +485,21 @@ def render_plots_tabs(
         tables: The tables result containing data for the plots.
         mapper: The column mapper for renaming columns.
         component_types: Component type identifiers present in the microgrid.
+        master_df: Master dataframe used to rebuild filtered plot analyses.
+        mcfg: Microgrid configuration object containing component metadata.
         color_dict: Optional color mapping for the plots.
     """
     palette = color_dict or COLOR_DICT
 
     # Get configuration of what to render
-    plot_tabs_config = _get_active_tabs(tables, mapper, palette, component_types)
+    plot_tabs_config = _get_active_tabs(
+        tables,
+        master_df,
+        mapper,
+        mcfg,
+        palette,
+        component_types,
+    )
 
     if not plot_tabs_config:
         st.info("Keine Plot-Daten verfügbar.")

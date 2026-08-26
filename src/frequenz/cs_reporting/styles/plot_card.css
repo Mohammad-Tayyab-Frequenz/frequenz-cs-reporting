@@ -43,3 +43,35 @@
 .plot-card__body {
     padding: 6px 4px 2px;
 }
+
+div[class*="_plot_card"] {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(15, 41, 74, 0.06);
+    margin-bottom: 20px;
+}
+div[class*="_plot_card"]:hover {
+    box-shadow: 0 6px 24px rgba(15, 41, 74, 0.10);
+}
+div[class*="_plot_header"] {
+    padding: 8px 18px;
+    background: linear-gradient(90deg, #f8fafc 0%, #f1f5fb 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+div[class*="_plot_header"] [data-testid="stMarkdownContainer"] {
+    margin: 0;
+}
+div[class*="_plot_header"] [data-testid="stSelectbox"] {
+    width: 170px;
+    min-width: 170px;
+}
+div[class*="_plot_header"] [data-testid="stSelectbox"] label {
+    display: none;
+}
+.plot-card__native-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
