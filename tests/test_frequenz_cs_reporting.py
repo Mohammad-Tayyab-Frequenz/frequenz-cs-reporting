@@ -20,7 +20,36 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _filter_section_box_specs,
     _skip_missing_day_ahead_price_specs,
 )
-from frequenz.cs_reporting.views.plot_renderers import _render_overview_plot
+from frequenz.cs_reporting.views.plot_renderers import (
+    _component_ids_for_plot_source,
+    _render_overview_plot,
+)
+
+
+class _FakeMicrogridConfig:
+    """Small test double for component category lookup."""
+
+    def __init__(self) -> None:
+        self._ids = {
+            ("pv", "meter"): [10, 2],
+            ("pv", "inverter"): [3, 4],
+            ("wind", "meter"): [20],
+            ("wind", "inverter"): [],
+            ("wind", "component"): [21],
+            ("chp", "meter"): [30],
+            ("chp", "inverter"): [],
+            ("chp", "component"): [31, 32],
+            ("battery", "meter"): [40],
+            ("battery", "inverter"): [41],
+            ("ev", "meter"): [50],
+            ("ev", "inverter"): [51],
+        }
+
+    def component_type_ids(
+        self, component_type: str, component_category: str | None = None
+    ) -> list[int]:
+        """Return configured fake IDs for a component type/category pair."""
+        return self._ids.get((component_type, component_category or ""), [])
 
 
 def test_validate_range_accepts_chronological_values() -> None:
@@ -285,3 +314,32 @@ def test_overview_plot_renders_without_day_ahead_price(
     )
 
     assert rendered_titles == ["Lastgang Übersicht"]
+
+
+def test_component_ids_for_plot_source_filters_requested_hth_components() -> None:
+    """HTH plot source selection returns IDs only for requested plot components."""
+    config = _FakeMicrogridConfig()
+
+    meter_ids = _component_ids_for_plot_source(
+        config,
+        component_types=["pv", "wind", "chp", "battery", "ev"],
+        component_plot_source="meter",
+    )
+    inverter_ids = _component_ids_for_plot_source(
+        config,
+        component_types=["pv", "wind", "chp", "battery", "ev"],
+        component_plot_source="inverter",
+    )
+
+    assert meter_ids == {
+        "pv": ("2", "10"),
+        "wind": ("20",),
+        "chp": ("30",),
+        "batt": ("40",),
+    }
+    assert inverter_ids == {
+        "pv": ("3", "4"),
+        "wind": ("21",),
+        "chp": ("31", "32"),
+        "batt": ("41",),
+    }
