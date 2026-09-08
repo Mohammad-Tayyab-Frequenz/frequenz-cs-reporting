@@ -37,11 +37,10 @@ def _build_client_site_info(config: MicrogridConfig) -> dict[str, float]:
     pv_peaks = sum(pv.peak_power for pv in pv_components.values())
     pv_rated = sum(pv.rated_power for pv in pv_components.values())
 
-    meta = getattr(config, "meta", None)
     return {
-        "latitude": getattr(meta, "latitude", 0.0) if meta else 0.0,
-        "longitude": getattr(meta, "longitude", 0.0) if meta else 0.0,
-        "altitude": getattr(meta, "altitude", 0.0) if meta else 0.0,
+        "latitude": config.latitude or 0.0,
+        "longitude": config.longitude or 0.0,
+        "altitude": config.altitude or 0.0,
         "peak_power_watts": pv_peaks,
         "rated_power_watts": pv_rated,
         "efficiency": 0.85,

@@ -74,6 +74,7 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
     """
     server_url = require_env("REPORTING_API_URL")
     auth_key = require_env("FREQUENZ_API_KEY")
+    sign_secret = require_env("FREQUENZ_API_SECRET")
 
     configs = _load_microgrid_configs()
     if microgrid_id not in configs:
@@ -81,7 +82,7 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
     return component_data.MicrogridData(
         server_url=server_url,
         auth_key=auth_key,
-        sign_secret=None,  # type: ignore[arg-type]
+        sign_secret=sign_secret,
         microgrid_configs=configs,
     )
 
