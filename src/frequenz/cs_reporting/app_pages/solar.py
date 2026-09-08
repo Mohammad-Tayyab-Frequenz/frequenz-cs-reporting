@@ -9,12 +9,13 @@ import asyncio
 import datetime
 import traceback
 from contextlib import contextmanager
+from threading import Lock
 from typing import Iterator
 
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import streamlit as st
+from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import run_workflow
-from matplotlib.figure import Figure
 
 from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
@@ -27,26 +28,41 @@ DEFAULT_START_DATE = datetime.date(
 )
 DEFAULT_RESAMPLE_PERIOD = "3600"
 DEFAULT_BASELINE_MODELS: list[str] = []
+_WORKFLOW_DISPLAY_LOCK = Lock()
 
 
 @contextmanager
-def capture_figures() -> Iterator[list[Figure]]:
-    """Capture new Matplotlib figures created within the context.
+def capture_workflow_figures() -> Iterator[list[go.Figure]]:
+    """Capture Plotly figures when the workflow attempts to display them.
 
     Yields:
-        A list that will be populated with new figures after the context exits.
+        A list populated with Plotly figures while the workflow runs.
     """
-    closed_figures: list[Figure] = []
-    # Close any existing figures to start fresh (optional, depending on desired behavior)
-    # plt.close("all") # Careful with this if other pages rely on state
+    figures: list[go.Figure] = []
 
-    existing_nums = set(plt.get_fignums())
-    try:
-        yield closed_figures
-    finally:
-        current_nums = set(plt.get_fignums())
-        new_nums = current_nums - existing_nums
-        closed_figures.extend([plt.figure(num) for num in new_nums])
+    def capture_figures(manager: plot_manager.PlotManager) -> None:
+        figures.extend(
+            figure
+            for figure in manager.figures.values()
+            if isinstance(figure, go.Figure) and figure.data
+        )
+
+    def suppress_notebook_display(_: object) -> None:
+        return
+
+    # frequenz-lib-notebooks keeps figures in local PlotManager instances and
+    # renders them as a side effect. Capture the managers directly before the
+    # figures reach IPython's display machinery.
+    with _WORKFLOW_DISPLAY_LOCK:
+        original_show_all = plot_manager.PlotManager.show_all
+        original_table_display = getattr(plot_styles, "display")
+        setattr(plot_manager.PlotManager, "show_all", capture_figures)
+        setattr(plot_styles, "display", suppress_notebook_display)
+        try:
+            yield figures
+        finally:
+            setattr(plot_manager.PlotManager, "show_all", original_show_all)
+            setattr(plot_styles, "display", original_table_display)
 
 
 def render() -> None:
@@ -102,10 +118,10 @@ def render() -> None:
         return
 
     with st.spinner("Workflow wird ausgeführt..."):
-        with capture_figures() as new_figures:
+        with capture_workflow_figures() as figures:
             plot_data = asyncio.run(run_workflow(user_config_changes=user_request))
 
-    render_workflow_results(plot_data, new_figures)
+    render_workflow_results(plot_data, figures)
 
 
 PAGE = PageSpec(
