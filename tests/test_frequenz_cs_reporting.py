@@ -13,11 +13,13 @@ from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.dashboard import (
     _aggregate_metrics,
     _filter_component_types_for_master_df,
+    split_periods,
 )
 from frequenz.cs_reporting.views.metric_renderers import (
     SECTION_SPECS,
     _build_consumption_breakdown,
     _filter_section_box_specs,
+    _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
 )
 from frequenz.cs_reporting.views.plot_renderers import (
@@ -256,6 +258,67 @@ def test_aggregate_metrics_uses_day_ahead_price_when_prices_exist(
     assert captured_price_columns == ["day_ahead_price"]
     assert metrics["average_da_price_grid_import"] == 20.0
     assert metrics["average_da_price_grid_feed_in"] == 10.0
+
+
+def test_split_periods_returns_selected_and_previous_ranges() -> None:
+    """Fetched data is split into equal-length previous and selected periods."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": pd.date_range(
+                "2026-01-01T00:00:00Z",
+                periods=4,
+                freq="D",
+            ),
+            "grid_consumption": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+
+    current_df, previous_df = split_periods(
+        master_df,
+        datetime(2026, 1, 3, tzinfo=UTC),
+        datetime(2026, 1, 5, tzinfo=UTC),
+        timedelta(days=1),
+    )
+
+    assert previous_df["grid_consumption"].tolist() == [1.0, 2.0]
+    assert current_df["grid_consumption"].tolist() == [3.0, 4.0]
+
+
+def test_split_periods_caps_previous_range_to_available_current_data() -> None:
+    """Previous-period comparison does not use a full day for partial current data."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [
+                datetime(2026, 1, 1, 0, tzinfo=UTC),
+                datetime(2026, 1, 1, 6, tzinfo=UTC),
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+                datetime(2026, 1, 2, 0, tzinfo=UTC),
+                datetime(2026, 1, 2, 6, tzinfo=UTC),
+            ],
+            "grid_consumption": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+
+    current_df, previous_df = split_periods(
+        master_df,
+        datetime(2026, 1, 2, tzinfo=UTC),
+        datetime(2026, 1, 3, tzinfo=UTC),
+        timedelta(hours=6),
+    )
+
+    assert previous_df["grid_consumption"].tolist() == [1.0, 2.0]
+    assert current_df["grid_consumption"].tolist() == [4.0, 5.0]
+
+
+def test_materialize_boxes_includes_previous_metric_values() -> None:
+    """KPI box materialization preserves matching previous-period values."""
+    boxes = _materialize_boxes(
+        [{"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"}],
+        {"grid_consumption_sum": 110.0},
+        {"grid_consumption_sum": 100.0},
+    )
+
+    assert boxes == [("Netzbezug (kWh)", 110.0, 100.0)]
 
 
 def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
