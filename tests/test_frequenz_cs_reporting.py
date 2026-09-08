@@ -6,8 +6,11 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
+from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
+from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.dashboard import (
@@ -52,6 +55,23 @@ class _FakeMicrogridConfig:
     ) -> list[int]:
         """Return configured fake IDs for a component type/category pair."""
         return self._ids.get((component_type, component_category or ""), [])
+
+
+def test_capture_workflow_figures_redirects_notebook_displays() -> None:
+    """Solar workflow output is captured without leaking notebook display calls."""
+    original_show_all = plot_manager.PlotManager.show_all
+    original_table_display = getattr(plot_styles, "display")
+    figure = go.Figure(go.Scatter(x=[1, 2], y=[3, 4]))
+    manager = plot_manager.PlotManager()
+    manager.figures["test"] = figure
+
+    with capture_workflow_figures() as figures:
+        manager.show_all()
+        getattr(plot_styles, "display")("table output")
+
+    assert figures == [figure]
+    assert plot_manager.PlotManager.show_all is original_show_all
+    assert getattr(plot_styles, "display") is original_table_display
 
 
 def test_validate_range_accepts_chronological_values() -> None:
