@@ -42,8 +42,8 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
 ### Environment
 
 - `REPORTING_API_URL` **(required)**: Base URL for the Frequenz reporting API.
-- `FREQUENZ_API_KEY` **(required)**: Credential used by the data client.
-- `FREQUENZ_API_SECRET` **(required)**: Signing secret used for Assets API requests.
+- `FREQUENZ_API_KEY` and `FREQUENZ_API_SECRET` **(required)**: Credentials used
+  to authenticate and sign Reporting and Assets API requests.
 - `MICROGRID_CONFIG_DIR` *(optional)*: Directory containing TOML microgrid
   configs. Defaults to `toml_directory/`.
 
