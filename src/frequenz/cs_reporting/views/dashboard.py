@@ -268,6 +268,7 @@ def render_dashboard(
     component_types: Iterable[str],
     mapper: ColumnMapper,
     microgrid_id: int,
+    mcfg: Any,
 ) -> None:
     """Render the complete microgrid reporting dashboard.
 
@@ -284,6 +285,7 @@ def render_dashboard(
             dynamic tab generation.
         mapper: Column name mapper for display name standardization.
         microgrid_id: Identifier of the selected microgrid.
+        mcfg: Microgrid configuration object containing component metadata.
 
     Returns:
         Renders Streamlit components directly to the app interface.
@@ -301,7 +303,7 @@ def render_dashboard(
 
     # --- Plots section---
     _section_divider("Diagramme & Zeitreihen")
-    sections.render_plots_tabs(tables, mapper, component_types)
+    sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
 
     # --- Tables section---
     st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
