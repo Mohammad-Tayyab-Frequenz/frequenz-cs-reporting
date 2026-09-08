@@ -26,8 +26,8 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
 2. Provide environment variables (see below). A `.env` file works with Streamlit:
    ```bash
    REPORTING_API_URL=https://your-reporting-endpoint
-   API_KEY=your-api-key
-   API_SECRET=your-api-secret
+   FREQUENZ_API_KEY=your-api-key
+   FREQUENZ_API_SECRET=your-signing-secret
    MICROGRID_CONFIG_DIR=toml_directory/
    ```
 3. Add .toml files to the toml_directory.
@@ -42,7 +42,8 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
 ### Environment
 
 - `REPORTING_API_URL` **(required)**: Base URL for the Frequenz reporting API.
-- `API_KEY` and `API_SECRET` **(required)**: Credentials used by the data client.
+- `FREQUENZ_API_KEY` **(required)**: Credential used by the data client.
+- `FREQUENZ_API_SECRET` **(required)**: Signing secret used for Assets API requests.
 - `MICROGRID_CONFIG_DIR` *(optional)*: Directory containing TOML microgrid
   configs. Defaults to `toml_directory/`.
 
