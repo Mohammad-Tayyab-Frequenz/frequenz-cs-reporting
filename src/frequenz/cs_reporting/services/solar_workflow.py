@@ -9,7 +9,7 @@ import datetime
 import os
 from typing import Any
 
-from frequenz.gridpool import MicrogridConfig
+from frequenz.gridpool.config import MicrogridConfig
 
 
 def _build_client_site_info(config: MicrogridConfig) -> dict[str, float]:
