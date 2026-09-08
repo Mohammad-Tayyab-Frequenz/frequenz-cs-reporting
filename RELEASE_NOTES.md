@@ -2,13 +2,14 @@
 
 ## Summary
 
-- v0.4.8 and v0.4.9 was not released because `pytest_min` was not satisfied. Everything else remains the same, but the minimum library requirements have been updated.
 
 ## Upgrading
 
 
 ## New Features
 
+- Component plots for PV, battery, wind, and CHP now include a plot header
+  selector to switch between meter data and inverter/component data.
 
 ## Bug Fixes
 
