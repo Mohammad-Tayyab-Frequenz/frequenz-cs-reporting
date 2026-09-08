@@ -9,12 +9,18 @@ import pandas as pd
 import pytest
 
 from frequenz.cs_reporting.utils import time
-from frequenz.cs_reporting.views.dashboard import _filter_component_types_for_master_df
+from frequenz.cs_reporting.views import dashboard
+from frequenz.cs_reporting.views.dashboard import (
+    _aggregate_metrics,
+    _filter_component_types_for_master_df,
+)
 from frequenz.cs_reporting.views.metric_renderers import (
     SECTION_SPECS,
     _build_consumption_breakdown,
     _filter_section_box_specs,
+    _skip_missing_day_ahead_price_specs,
 )
+from frequenz.cs_reporting.views.plot_renderers import _render_overview_plot
 
 
 def test_validate_range_accepts_chronological_values() -> None:
@@ -108,3 +114,174 @@ def test_component_types_exclude_battery_without_master_battery_power_flow() -> 
     )
 
     assert component_types == ("grid", "consumption", "pv")
+
+
+def test_aggregate_metrics_omits_day_ahead_price_metrics_when_prices_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Day-ahead price metrics are removed when no price column is available."""
+    captured_price_columns: list[str | None] = []
+
+    def fake_aggregate_metrics(
+        energy_report_df: pd.DataFrame,
+        resolution: timedelta,
+        *,
+        price_column: str | None = None,
+    ) -> dict[str, float | None | str]:
+        del energy_report_df, resolution
+        captured_price_columns.append(price_column)
+        return {
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "grid_import_cost_sum": 0.0,
+            "grid_feed_in_revenue_sum": 0.0,
+        }
+
+    monkeypatch.setattr(dashboard, "aggregate_metrics", fake_aggregate_metrics)
+
+    metrics = _aggregate_metrics(
+        pd.DataFrame({"timestamp": pd.date_range("2026-01-01", periods=1)}),
+        timedelta(minutes=15),
+    )
+
+    assert captured_price_columns == [None]
+    assert metrics == {
+        "grid_consumption_sum": 10.0,
+        "grid_feed_in_sum": 5.0,
+    }
+
+
+def test_aggregate_metrics_omits_day_ahead_price_metrics_when_prices_are_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Day-ahead price metrics are removed when the price column is all null."""
+    captured_price_columns: list[str | None] = []
+
+    def fake_aggregate_metrics(
+        energy_report_df: pd.DataFrame,
+        resolution: timedelta,
+        *,
+        price_column: str | None = None,
+    ) -> dict[str, float | None | str]:
+        del energy_report_df, resolution
+        captured_price_columns.append(price_column)
+        return {
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "grid_import_cost_sum": 0.0,
+            "grid_feed_in_revenue_sum": 0.0,
+        }
+
+    monkeypatch.setattr(dashboard, "aggregate_metrics", fake_aggregate_metrics)
+
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=1),
+                "day_ahead_price": [None],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert captured_price_columns == [None]
+    assert metrics == {
+        "grid_consumption_sum": 10.0,
+        "grid_feed_in_sum": 5.0,
+    }
+
+
+def test_aggregate_metrics_uses_day_ahead_price_when_prices_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Day-ahead average price metrics are added when prices are available."""
+    captured_price_columns: list[str | None] = []
+
+    def fake_aggregate_metrics(
+        energy_report_df: pd.DataFrame,
+        resolution: timedelta,
+        *,
+        price_column: str | None = None,
+    ) -> dict[str, float | None | str]:
+        del energy_report_df, resolution
+        captured_price_columns.append(price_column)
+        return {
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "grid_import_cost_sum": 2.0,
+            "grid_feed_in_revenue_sum": 0.5,
+        }
+
+    monkeypatch.setattr(dashboard, "aggregate_metrics", fake_aggregate_metrics)
+
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=1),
+                "day_ahead_price": [100.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert captured_price_columns == ["day_ahead_price"]
+    assert metrics["average_da_price_grid_import"] == 20.0
+    assert metrics["average_da_price_grid_feed_in"] == 10.0
+
+
+def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
+    """Day-ahead price KPI boxes are hidden when ENTSOE prices are unavailable."""
+    grid_section = next(
+        section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
+    )
+    box_specs = _filter_section_box_specs(
+        grid_section,
+        component_type_set={"grid"},
+        component_types_provided=True,
+        microgrid_id=231,
+    )
+
+    filtered_specs = _skip_missing_day_ahead_price_specs(
+        box_specs,
+        metrics={"grid_consumption_sum": 10.0, "grid_feed_in_sum": 5.0},
+    )
+
+    assert [spec.get("key") for spec in filtered_specs] == [
+        "grid_consumption_sum",
+        "grid_feed_in_sum",
+        "peak",
+    ]
+
+
+def test_overview_plot_renders_without_day_ahead_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overview plot does not require a secondary price y-axis."""
+    rendered_titles: list[str] = []
+
+    def fake_render_plot_card(title: str, fig: object) -> None:
+        del fig
+        rendered_titles.append(title)
+
+    monkeypatch.setattr(
+        "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
+        fake_render_plot_card,
+    )
+
+    _render_overview_plot(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="h"),
+                "grid_consumption": [10.0, 8.0],
+                "mid_consumption": [12.0, 9.0],
+                "battery_power_flow": [1.0, -1.0],
+                "battery_charge": [1.0, 0.0],
+                "battery_discharge": [0.0, -1.0],
+                "battery_soc_pct": [50.0, 55.0],
+                "peak_before_optimization": [12.0, 12.0],
+                "peak_after_optimization": [10.0, 10.0],
+            }
+        )
+    )
+
+    assert rendered_titles == ["Lastgang Übersicht"]
