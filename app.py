@@ -61,6 +61,12 @@ def _inject_global_theme() -> None:
             --radius-md: 10px;
             --radius-sm: 8px;
             --shadow: 0 8px 24px rgba(16, 40, 74, 0.06);
+            --sidebar-bg: #eaf0f8;
+            --sidebar-bg-soft: #dfe8f4;
+            --sidebar-accent: #1e4f87;
+            --sidebar-text: var(--text-main);
+            --sidebar-muted: var(--text-muted);
+            --sidebar-border: var(--border);
         }
 
         [data-testid="stAppViewContainer"] {
@@ -75,15 +81,128 @@ def _inject_global_theme() -> None:
         }
 
         [data-testid="stSidebar"] {
-            background: #eaf0f8;
-            border-right: 1px solid var(--border);
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--sidebar-border);
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            padding: 1.25rem 1rem 1rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stImage"] {
+            margin: 0 0 1.15rem;
         }
 
         [data-testid="stSidebar"] [data-testid="stImage"] img {
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            background: #fff;
-            padding: 8px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            padding: 0;
+        }
+
+        [data-testid="stSidebar"] hr {
+            border-color: var(--sidebar-border);
+            margin: 0.85rem 0 1.05rem;
+        }
+
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] label {
+            color: var(--sidebar-text);
+        }
+
+        [data-testid="stSidebar"] h2 {
+            font-size: 1.35rem;
+            line-height: 1.25;
+            padding: 0;
+            margin: 0 0 0.45rem;
+        }
+
+        [data-testid="stSidebar"] h3 {
+            font-size: 1.05rem;
+            line-height: 1.2;
+            margin: 0.55rem 0 0.45rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+        [data-testid="stSidebar"] .sidebar-section-label {
+            color: var(--sidebar-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            line-height: 1.2;
+            margin: 0 0 0.65rem;
+            text-transform: uppercase;
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] {
+            gap: 0.08rem;
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] label {
+            min-height: 2.15rem;
+            padding: 0.28rem 0.55rem;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            color: var(--text-muted);
+            transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+            background: rgba(30, 79, 135, 0.08);
+            border-color: rgba(30, 79, 135, 0.22);
+            color: var(--sidebar-text);
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+            background: var(--sidebar-bg-soft);
+            border-color: rgba(30, 79, 135, 0.36);
+            box-shadow: inset 3px 0 0 var(--sidebar-accent);
+            color: var(--sidebar-text);
+            font-weight: 700;
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) * {
+            color: var(--sidebar-text);
+        }
+
+        [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
+            transform: scale(0.78);
+        }
+
+        [data-testid="stSidebar"] [data-testid="stForm"] {
+            border: 1px solid var(--sidebar-border);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.28);
+            padding: 0.9rem 0.85rem 0.85rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stForm"] [data-testid="stVerticalBlock"] {
+            gap: 0.55rem;
+        }
+
+        [data-testid="stSidebar"] .stSelectbox,
+        [data-testid="stSidebar"] .stDateInput {
+            margin-bottom: 0;
+        }
+
+        [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
+        [data-testid="stSidebar"] .stDateInput input {
+            min-height: 2.55rem;
+            border-color: transparent;
+            background: #ffffff;
+        }
+
+        [data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button {
+            min-height: 2.7rem;
+            margin-top: 0.15rem;
+            border: 1px solid #ff4b4b;
+            background: #ff4b4b;
+        }
+
+        [data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button:hover {
+            border-color: #ff6262;
+            background: #ff6262;
         }
 
         h1, h2, h3 {
@@ -253,10 +372,15 @@ def _load_logo_bytes() -> bytes | None:
     return None
 
 
+def _nav_label(page: PageSpec) -> str:
+    """Return compact sidebar labels without changing page metadata."""
+    return page.title
+
+
 # Sidebar navigation
 def sidebar(pages: list[PageSpec]) -> PageSpec:
     if logo_bytes := _load_logo_bytes():
-        st.sidebar.image(logo_bytes, width="stretch")
+        st.sidebar.image(logo_bytes, width=245)
 
     st.sidebar.divider()
 
@@ -272,10 +396,10 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
         default_key = pages[0].key
 
     # Map display labels to internal keys
-    options = {p.title: p.key for p in pages}
+    options = {_nav_label(p): p.key for p in pages}
     display_options = list(options.keys())
-    labels_by_key = {p.key: p.title for p in pages}
-    default_label = labels_by_key.get(default_key, pages[0].title)
+    labels_by_key = {p.key: _nav_label(p) for p in pages}
+    default_label = labels_by_key.get(default_key, _nav_label(pages[0]))
     nav_sync_key = "_last_synced_query_page"
 
     # Consume programmatic navigation signal (set by _navigate_to in home.py)
@@ -304,8 +428,10 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     elif st.session_state["navigation_radio"] not in options:
         st.session_state["navigation_radio"] = default_label
 
-    # Add page navigation header
-    st.sidebar.header("Seiten")
+    st.sidebar.markdown(
+        '<div class="sidebar-section-label">Übersicht</div>',
+        unsafe_allow_html=True,
+    )
 
     selected_label = st.sidebar.radio(
         "Seiten",
