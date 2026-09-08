@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 import pandas as pd
@@ -115,6 +115,55 @@ def _aggregate_metrics(
         metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
     )
     return metrics
+
+
+def _timestamp_series_utc(master_df: pd.DataFrame) -> pd.Series:
+    """Return the master dataframe timestamp column normalized to UTC."""
+    timestamps = pd.to_datetime(master_df["timestamp"], errors="coerce")
+    if timestamps.dt.tz is None:
+        return timestamps.dt.tz_localize("UTC")
+    return timestamps.dt.tz_convert("UTC")
+
+
+def _timestamp_utc(value: datetime) -> pd.Timestamp:
+    """Return a datetime as a UTC pandas timestamp."""
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
+
+def split_periods(
+    master_df: pd.DataFrame,
+    start_time: datetime,
+    end_time: datetime,
+    resolution: timedelta,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a fetched master dataframe into selected and previous periods."""
+    if master_df.empty:
+        return master_df.copy(), master_df.copy()
+
+    period = end_time - start_time
+    previous_start = start_time - period
+
+    timestamps = _timestamp_series_utc(master_df)
+    selected_start = _timestamp_utc(start_time)
+    selected_end = _timestamp_utc(end_time)
+    previous_start_ts = _timestamp_utc(previous_start)
+
+    current_mask = (timestamps >= selected_start) & (timestamps < selected_end)
+    current_timestamps = timestamps.loc[current_mask]
+    if current_timestamps.empty:
+        return master_df.loc[current_mask].copy(), master_df.loc[current_mask].copy()
+
+    actual_selected_end = min(
+        selected_end,
+        current_timestamps.max() + pd.Timedelta(resolution),
+    )
+    previous_end_ts = previous_start_ts + (actual_selected_end - selected_start)
+    previous_mask = (timestamps >= previous_start_ts) & (timestamps < previous_end_ts)
+
+    return master_df.loc[current_mask].copy(), master_df.loc[previous_mask].copy()
 
 
 def _filter_component_types_for_master_df(
@@ -269,6 +318,7 @@ def render_dashboard(
     mapper: ColumnMapper,
     microgrid_id: int,
     mcfg: Any,
+    previous_master_df: pd.DataFrame | None = None,
 ) -> None:
     """Render the complete microgrid reporting dashboard.
 
@@ -286,6 +336,8 @@ def render_dashboard(
         mapper: Column name mapper for display name standardization.
         microgrid_id: Identifier of the selected microgrid.
         mcfg: Microgrid configuration object containing component metadata.
+        previous_master_df: Optional master dataframe for the immediately
+            preceding period, used for KPI comparison cards.
 
     Returns:
         Renders Streamlit components directly to the app interface.
@@ -296,10 +348,20 @@ def render_dashboard(
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     tables = _build_tables(master_df, resolution, component_types)
+    previous_metrics = (
+        _aggregate_metrics(previous_master_df, resolution)
+        if previous_master_df is not None and not previous_master_df.empty
+        else None
+    )
 
     # --- Overview section---
     _section_divider("Übersicht", "KPIs")
-    sections.render_summary_boxes(tables["metrics"], component_types, microgrid_id)
+    sections.render_summary_boxes(
+        tables["metrics"],
+        component_types,
+        microgrid_id,
+        previous_metrics=previous_metrics,
+    )
 
     # --- Plots section---
     _section_divider("Diagramme & Zeitreihen")

@@ -26,7 +26,11 @@ from frequenz.cs_reporting.services.data_service import (
     get_microgrid_data,
     get_microgrid_soc_data,
 )
-from frequenz.cs_reporting.views.dashboard import build_master_df, render_dashboard
+from frequenz.cs_reporting.views.dashboard import (
+    build_master_df,
+    render_dashboard,
+    split_periods,
+)
 
 
 def _scroll_to_section_if_requested() -> None:
@@ -147,7 +151,7 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
     )
 
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals, too-many-statements
 def render() -> None:
     """Render the Frequenz Reporting Dashboard page.
 
@@ -188,6 +192,9 @@ def render() -> None:
         )
         st.stop()
 
+    selected_period = end_time - start_time
+    previous_start_time = start_time - selected_period
+
     try:
         resolution = _parse_resolution(selections["resolution"])
     except ValueError as exc:
@@ -204,7 +211,7 @@ def render() -> None:
             mcfg = get_microgrid_config(microgrid_id)
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
-                start_date=start_time,
+                start_date=previous_start_time,
                 # Use the extended date here to ensure we get the full last day
                 end_date=end_time,
                 resolution=resolution,
@@ -220,7 +227,7 @@ def render() -> None:
                 try:
                     fetched_soc_df = get_microgrid_soc_data(
                         microgrid_id=microgrid_id,
-                        start_date=start_time,
+                        start_date=previous_start_time,
                         end_date=end_time,
                         resolution=resolution,
                     )
@@ -252,13 +259,24 @@ def render() -> None:
         timezone=timezone,
         battery_soc_df=battery_soc_df,
     )
-    render_dashboard(
+    current_master_df, previous_master_df = split_periods(
         master_df,
+        start_time,
+        end_time,
+        resolution,
+    )
+    if current_master_df.empty:
+        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.stop()
+
+    render_dashboard(
+        current_master_df,
         resolution=resolution,
         component_types=component_types,
         mapper=mapper,
         microgrid_id=microgrid_id,
         mcfg=mcfg,
+        previous_master_df=previous_master_df,
     )
     _scroll_to_section_if_requested()
 

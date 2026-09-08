@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from typing import Any, Iterable
 
 import streamlit as st
@@ -17,6 +19,50 @@ def _fmt_de(val: float, decimals: int) -> str:
     """Format a number in German locale (period thousands, comma decimal)."""
     formatted = f"{val:,.{decimals}f}"
     return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_metric_value(val: object) -> str:
+    """Format a KPI value for display."""
+    if val is None:
+        return "—"
+    if isinstance(val, (int, float)):
+        if float(val) == int(val):
+            return _fmt_de(float(val), 0)
+        return _fmt_de(float(val), 2)
+    return str(val)
+
+
+def _unit_from_label(label: str) -> str:
+    """Extract a display unit from a KPI label like ``Netzbezug (kWh)``."""
+    match = re.search(r"\(([^)]+)\)", label)
+    return match.group(1) if match else ""
+
+
+def _format_previous_value(label: str, value: object) -> str:
+    """Format the previous-period text for a KPI card."""
+    unit = _unit_from_label(label)
+    unit_suffix = f" {unit}" if unit else ""
+    return f"Vorperiode: {_fmt_metric_value(value)}{unit_suffix}"
+
+
+def _delta_html(current: object, previous: object) -> str:
+    """Build a percentage-delta badge for numeric KPI values."""
+    if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
+        return ""
+    if previous == 0:
+        return ""
+
+    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
+    delta_class = (
+        "kpi-card__delta--positive"
+        if delta > 0
+        else "kpi-card__delta--negative" if delta < 0 else "kpi-card__delta--neutral"
+    )
+    sign = "+" if delta > 0 else ""
+    return (
+        f'<span class="kpi-card__delta {delta_class}">'
+        f"{sign}{_fmt_de(delta, 1)}%</span>"
+    )
 
 
 # ── Section accent colours ─────────────────────────────────────────────────────
@@ -175,20 +221,28 @@ SECTION_SPECS: list[dict[str, Any]] = [
 def _materialize_boxes(
     box_specs: list[dict[str, Any]],
     metrics: dict[str, Any],
-) -> list[tuple[str, object]]:
+    previous_metrics: dict[str, Any] | None = None,
+) -> list[tuple[str, object, object]]:
     """Resolve box specifications to label/value tuples."""
-    boxes: list[tuple[str, object]] = []
+    boxes: list[tuple[str, object, object]] = []
     for spec in box_specs:
         label = spec.get("label", "")
         if "label_fn" in spec:
             label = spec["label_fn"](metrics)
 
         value = metrics.get(spec["key"]) if spec.get("key") else None
+        previous_value = (
+            previous_metrics.get(spec["key"])
+            if previous_metrics is not None and spec.get("key")
+            else None
+        )
         transform = spec.get("transform")
         if transform is not None and value is not None:
             value = transform(value)
+        if transform is not None and previous_value is not None:
+            previous_value = transform(previous_value)
 
-        boxes.append((label, value))
+        boxes.append((label, value, previous_value))
     return boxes
 
 
@@ -242,7 +296,7 @@ def _filter_section_box_specs(
 
 
 def render_box_grid(
-    boxes: list[tuple[str, object]],
+    boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
     per_row: int = 3,
     row_gap: int = 12,
     accent: str = "#3b82f6",
@@ -261,12 +315,15 @@ def render_box_grid(
     _ensure_kpi_css()
 
     for i in range(0, len(boxes), per_row):
-        row = boxes[i : i + per_row]
+        row = [
+            item if len(item) == 3 else (item[0], item[1], None)
+            for item in boxes[i : i + per_row]
+        ]
         while len(row) < per_row:
-            row.append(("", None))
+            row.append(("", None, None))
 
         cols = st.columns(per_row, gap="small")
-        for col, (label, val) in zip(cols, row):
+        for col, (label, val, previous_val) in zip(cols, row):
             if label == "" and val is None:
                 col.markdown(
                     '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
@@ -277,18 +334,28 @@ def render_box_grid(
                     value_html = (
                         '<div class="kpi-card__value kpi-card__value--null">—</div>'
                     )
-                elif isinstance(val, float) and val == int(val):
-                    value_html = f'<div class="kpi-card__value">{_fmt_de(val, 0)}</div>'
-                elif isinstance(val, (int, float)):
-                    value_html = f'<div class="kpi-card__value">{_fmt_de(val, 2)}</div>'
                 else:
-                    value_html = f'<div class="kpi-card__value">{val}</div>'
+                    delta_html = _delta_html(val, previous_val)
+                    value_html = (
+                        '<div class="kpi-card__value-row">'
+                        f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
+                        f"{delta_html}"
+                        "</div>"
+                    )
+
+                previous_html = (
+                    f'<div class="kpi-card__previous">'
+                    f"{_format_previous_value(label, previous_val)}</div>"
+                    if previous_val is not None
+                    else ""
+                )
 
                 col.markdown(
                     f"""
                     <div class="kpi-card" style="--kpi-accent:{accent};">
                         <div class="kpi-card__label">{label}</div>
                         {value_html}
+                        {previous_html}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -321,6 +388,7 @@ def render_summary_boxes(
     metrics: dict[str, Any],
     component_types: Iterable[str] | None = None,
     microgrid_id: int | None = None,
+    previous_metrics: dict[str, Any] | None = None,
 ) -> None:
     """Render overview metrics grouped into styled subsections.
 
@@ -330,6 +398,8 @@ def render_summary_boxes(
             in the microgrid (e.g., ``{"pv", "chp"}``).
         microgrid_id: Optional microgrid identifier used for microgrid-specific
             KPI cards.
+        previous_metrics: Optional metrics for the immediately preceding period,
+            used to render previous values and percentage deltas.
 
     Returns:
         Streamlit components are rendered directly.
@@ -390,7 +460,7 @@ def render_summary_boxes(
             unsafe_allow_html=True,
         )
 
-        boxes = _materialize_boxes(box_specs, metrics)
+        boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         per_row = section.get("per_row", 3)
         render_box_grid(boxes, per_row=per_row, accent=accent)
 
