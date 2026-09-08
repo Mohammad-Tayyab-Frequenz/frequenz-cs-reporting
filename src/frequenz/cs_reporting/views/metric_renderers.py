@@ -57,6 +57,13 @@ _INVOICING_WARNING = (
     "möglich."
 )
 
+_DAY_AHEAD_PRICE_METRIC_KEYS = {
+    "grid_import_cost_sum",
+    "grid_feed_in_revenue_sum",
+    "average_da_price_grid_import",
+    "average_da_price_grid_feed_in",
+}
+
 
 SECTION_SPECS: list[dict[str, Any]] = [
     {
@@ -183,6 +190,23 @@ def _materialize_boxes(
 
         boxes.append((label, value))
     return boxes
+
+
+def _skip_missing_day_ahead_price_specs(
+    box_specs: list[dict[str, Any]],
+    metrics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Remove day-ahead price KPI boxes when ENTSOE prices are unavailable."""
+    missing_price_metrics = _DAY_AHEAD_PRICE_METRIC_KEYS.difference(metrics)
+    if not missing_price_metrics:
+        return box_specs
+
+    return [
+        spec
+        for spec in box_specs
+        if spec.get("key") not in _DAY_AHEAD_PRICE_METRIC_KEYS
+        and not (spec.get("key") is None and spec.get("microgrid_ids") is not None)
+    ]
 
 
 def _filter_section_box_specs(
@@ -336,6 +360,7 @@ def render_summary_boxes(
             component_types_provided,
             microgrid_id,
         )
+        box_specs = _skip_missing_day_ahead_price_specs(box_specs, metrics)
         if not box_specs:
             continue
 

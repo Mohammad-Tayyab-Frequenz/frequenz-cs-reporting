@@ -16,6 +16,7 @@ from frequenz.lib.notebooks.reporting.plotter import (
     plot_time_series,
     plot_time_series_battery_soc,
     plot_time_series_battery_soc_and_usecase,
+    plot_time_series_battery_usecase,
 )
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 
@@ -232,29 +233,46 @@ def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
         return
 
     cols_list = battery_usecase_df.columns.tolist()
-    secondary_y_cols = (
-        ["day_ahead_price"] if "day_ahead_price" in battery_usecase_df.columns else None
+    price_cols = (
+        ["day_ahead_price"] if "day_ahead_price" in battery_usecase_df.columns else []
     )
-    fig = plot_time_series_battery_soc_and_usecase(
-        battery_usecase_df,
-        cols=cols_list,
-        time_col="timestamp",
-        battery_power_flow="battery_power_flow",
-        soc_pct="battery_soc_pct",
-        legend_title=None,
-        secondary_y_cols=secondary_y_cols,
-        secondary_y_title="EUR/MWh",
-        title="",
-        dotted_cols=[
-            "grid_consumption_without_battery",
-            "peak_before_optimization",
-            "day_ahead_price",
-        ],
-        stack_mode="psc",
-        xaxis_title="Zeitpunkt",
-        yaxis_title="kW",
-        soc_secondary_y_title="SOC [%]",
-    )
+    if price_cols:
+        fig = plot_time_series_battery_soc_and_usecase(
+            battery_usecase_df,
+            cols=cols_list,
+            time_col="timestamp",
+            battery_power_flow="battery_power_flow",
+            soc_pct="battery_soc_pct",
+            legend_title=None,
+            secondary_y_cols=price_cols,
+            secondary_y_title="EUR/MWh",
+            title="",
+            dotted_cols=[
+                "grid_consumption_without_battery",
+                "peak_before_optimization",
+                *price_cols,
+            ],
+            stack_mode="psc",
+            xaxis_title="Zeitpunkt",
+            yaxis_title="kW",
+            soc_secondary_y_title="SOC [%]",
+        )
+    else:
+        fig = plot_time_series_battery_usecase(
+            battery_usecase_df,
+            cols=cols_list,
+            time_col="timestamp",
+            battery_power_flow="battery_power_flow",
+            legend_title=None,
+            title="",
+            dotted_cols=[
+                "grid_consumption_without_battery",
+                "peak_before_optimization",
+            ],
+            stack_mode="psc",
+            xaxis_title="Zeitpunkt",
+            yaxis_title="kW",
+        )
     _apply_compact_time_series_layout(fig)
     _left_align_plot_title(fig)
     render_plot_card("Lastgang Übersicht", fig)

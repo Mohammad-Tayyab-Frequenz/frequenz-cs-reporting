@@ -27,6 +27,17 @@ from frequenz.cs_reporting.services.client_factory import get_meter_display_name
 from frequenz.cs_reporting.ui_resources import inject_style, render_template
 from frequenz.cs_reporting.views import sections
 
+_DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+_DAY_AHEAD_PRICE_METRIC_KEYS = {
+    "grid_import_cost_sum",
+    "grid_feed_in_revenue_sum",
+    "average_da_price_grid_import",
+    "average_da_price_grid_feed_in",
+}
+_ENTSOE_FETCH_WARNING = (
+    "We were not able to fetch the data from ENTSOE, please try again later."
+)
+
 
 def _inject_dashboard_css() -> None:
     """Inject dashboard section styles for the current Streamlit run."""
@@ -72,6 +83,38 @@ def _average_price_ct_per_kwh(
     if value is None or energy is None or energy == 0.0:
         return None
     return (value * 100) / energy
+
+
+def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:
+    """Return whether the dataframe contains usable day-ahead price data."""
+    return (
+        _DAY_AHEAD_PRICE_COLUMN in master_df.columns
+        and not master_df[_DAY_AHEAD_PRICE_COLUMN].isna().all()
+    )
+
+
+def _aggregate_metrics(
+    master_df: pd.DataFrame, resolution: timedelta
+) -> dict[str, float | str | None]:
+    """Aggregate dashboard metrics, omitting price metrics when prices are missing."""
+    has_day_ahead_prices = _has_day_ahead_prices(master_df)
+    metrics = aggregate_metrics(
+        master_df,
+        resolution,
+        price_column=_DAY_AHEAD_PRICE_COLUMN if has_day_ahead_prices else None,
+    )
+    if not has_day_ahead_prices:
+        for key in _DAY_AHEAD_PRICE_METRIC_KEYS:
+            metrics.pop(key, None)
+        return metrics
+
+    metrics["average_da_price_grid_import"] = _average_price_ct_per_kwh(
+        metrics, "grid_import_cost_sum", "grid_consumption_sum"
+    )
+    metrics["average_da_price_grid_feed_in"] = _average_price_ct_per_kwh(
+        metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
+    )
+    return metrics
 
 
 def _filter_component_types_for_master_df(
@@ -129,13 +172,7 @@ def _build_tables(
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     power_table = compute_energy_summary(master_df, resolution)
-    metrics = aggregate_metrics(master_df, resolution, price_column="day_ahead_price")
-    metrics["average_da_price_grid_import"] = _average_price_ct_per_kwh(
-        metrics, "grid_import_cost_sum", "grid_consumption_sum"
-    )
-    metrics["average_da_price_grid_feed_in"] = _average_price_ct_per_kwh(
-        metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
-    )
+    metrics = _aggregate_metrics(master_df, resolution)
 
     # Build component analyses using configuration
     analyses = {
@@ -217,8 +254,11 @@ def build_master_df(
             master_df.set_index("timestamp"),
             dayahead_country_code="DE_LU",
         ).reset_index()
-    except (ModuleNotFoundError, ValueError) as exc:
-        st.warning(f"Day-ahead prices could not be loaded: {exc}")
+    except Exception:  # pylint: disable=broad-exception-caught
+        st.warning(_ENTSOE_FETCH_WARNING)
+    else:
+        if not _has_day_ahead_prices(master_df):
+            st.warning(_ENTSOE_FETCH_WARNING)
     return master_df
 
 
