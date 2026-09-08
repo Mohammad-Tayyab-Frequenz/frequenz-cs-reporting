@@ -5,9 +5,17 @@
 
 ## Upgrading
 
+- The minimum supported `frequenz-gridpool` version is now 0.7.1. Configuration
+  loading now uses the `AssetsConfig.microgrids` mapping introduced by that
+  release.
+- Rename `API_KEY` to `FREQUENZ_API_KEY` and `API_SECRET` to
+  `FREQUENZ_API_SECRET` in the application environment or `.env` file. Both
+  variables are required for authenticated and signed Assets API requests.
 
 ## New Features
 
+- Solar monitoring plots are now rendered as interactive Plotly charts instead
+  of static Matplotlib images.
 - Reporting KPI cards now show the previous-period value and percentage change.
   When the selected period includes the current day and only partial current-day
   data is available, the previous period is capped to the same elapsed duration
