@@ -287,7 +287,7 @@ def build_master_df(
         for c in component_types
         if pd.to_numeric(raw_df[c], errors="coerce").fillna(0).sum() != 0
     ]
-    component_display_names = get_meter_display_names(mcfg.meta.microgrid_id)
+    component_display_names = get_meter_display_names(mcfg.microgrid_id)
     master_df = create_energy_report_df(
         raw_df,
         component_types,
