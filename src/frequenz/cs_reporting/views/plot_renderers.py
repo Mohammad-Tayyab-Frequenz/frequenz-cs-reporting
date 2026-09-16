@@ -19,13 +19,19 @@ from frequenz.lib.notebooks.reporting.plotter import (
     plot_time_series_battery_usecase,
 )
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
-from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
-    build_component_analysis,
-)
 
 from frequenz.cs_reporting.components.ui import render_plot_card
 from frequenz.cs_reporting.constants import COLOR_DICT, COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.views.component_sources import (
+    PLOT_SOURCE_ANALYSIS_KEYS,
+    component_analysis_for_source,
+    component_ids_for_plot_source,
+    component_source_has_data,
+    render_component_source_selector,
+    selected_component_plot_source,
+)
 
+_component_ids_for_plot_source = component_ids_for_plot_source
 _COMPONENT_TABS = [
     ("PV Leistung", "pv"),
     ("Batterie", "batt"),
@@ -33,47 +39,9 @@ _COMPONENT_TABS = [
     ("KWK", "chp"),
     ("EV", "ev"),
 ]
-_TIME_SERIES_HEIGHT = 500
-_TIME_SERIES_MARGIN = {"t": 80, "r": 64, "b": 96, "l": 64}
+_TIME_SERIES_HEIGHT = 650
+_TIME_SERIES_MARGIN = {"t": 160, "r": 80, "b": 140, "l": 80}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
-_PLOT_SOURCE_OPTIONS = ("meter", "inverter")
-_PLOT_SOURCE_ANALYSIS_KEYS = frozenset({"pv", "batt", "wind", "chp"})
-
-
-def _component_type_from_analysis_key(analysis_key: str) -> str:
-    """Return the microgrid component type for an analysis table key."""
-    if analysis_key == "batt":
-        return "battery"
-    return analysis_key
-
-
-def _component_ids_for_plot_source(
-    mcfg: Any,
-    component_types: Iterable[str],
-    component_plot_source: str,
-) -> dict[str, tuple[str, ...]]:
-    """Return component ID filters for the selected HTH plot source."""
-    component_type_set = set(component_types)
-    analysis_ids: dict[str, tuple[str, ...]] = {}
-
-    for analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS:
-        component_type = _component_type_from_analysis_key(analysis_key)
-        if component_type not in component_type_set:
-            continue
-
-        category_ids = mcfg.component_type_ids(
-            component_type,
-            component_category=component_plot_source,
-        )
-        if component_plot_source == "inverter" and not category_ids:
-            category_ids = mcfg.component_type_ids(
-                component_type,
-                component_category="component",
-            )
-
-        analysis_ids[analysis_key] = tuple(str(cid) for cid in sorted(category_ids))
-
-    return analysis_ids
 
 
 def _left_align_plot_title(fig: object) -> None:
@@ -238,39 +206,56 @@ def _render_component_tab(
         Streamlit components are rendered directly.
     """
     df = tables.get(table_key)
-    if not isinstance(df, pd.DataFrame) or df.empty:
+    if analysis_key not in PLOT_SOURCE_ANALYSIS_KEYS and (
+        not isinstance(df, pd.DataFrame) or df.empty
+    ):
         st.info(f"Keine Daten für {title}.")
         return
 
-    selectbox_key = f"{table_key}_component_plot_source"
-    selected_source = st.session_state.get(selectbox_key, _PLOT_SOURCE_OPTIONS[0])
-    if analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS:
-        selected_ids = _component_ids_for_plot_source(
+    source_state_key = f"{table_key}_component_plot_source"
+    if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS:
+        selected_source = selected_component_plot_source(
             mcfg,
             component_types,
-            str(selected_source),
-        ).get(analysis_key)
-        df = build_component_analysis(
-            master_df,
-            selection_filter=["All"],
-            component_label=category_col,
-            value_col_name=value_col,
-            allowed_component_ids=(
-                set(selected_ids) if selected_ids is not None else None
+            analysis_key,
+            state_key=source_state_key,
+            source_has_data=lambda source: component_source_has_data(
+                master_df,
+                mcfg,
+                component_types,
+                analysis_key,
+                category_col,
+                value_col,
+                source,
             ),
+        )
+        df = component_analysis_for_source(
+            master_df,
+            mcfg,
+            component_types,
+            analysis_key,
+            category_col,
+            value_col,
+            selected_source,
         )
 
     def source_selector() -> None:
-        st.selectbox(
-            "Komponentenquelle",
-            options=_PLOT_SOURCE_OPTIONS,
-            format_func=lambda value: {
-                "meter": "Meter",
-                "inverter": "Inverter / Komponenten",
-            }[value],
-            key=selectbox_key,
+        render_component_source_selector(
+            mcfg,
+            component_types,
+            analysis_key,
+            state_key=source_state_key,
+            widget_key=f"{table_key}_plot_component_plot_source",
             label_visibility="collapsed",
         )
+
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS and selected_source == "meter":
+            source_selector()
+            st.warning("Meter-Daten sind nicht verfügbar.")
+        else:
+            st.info(f"Keine Daten für {title}.")
+        return
 
     palette = color_dict or COLOR_DICT
     df = mapper.to_display(df)
@@ -286,7 +271,7 @@ def _render_component_tab(
         value_col=value_col,
         color_dict=palette,
         header_control=(
-            source_selector if analysis_key in _PLOT_SOURCE_ANALYSIS_KEYS else None
+            source_selector if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS else None
         ),
         key=table_key,
     )
@@ -445,8 +430,26 @@ def _get_active_tabs(
     for label, key in _COMPONENT_TABS:
         df = tables.get(f"{key}_analysis")
         config = COMPONENT_CONFIGS.get(key)
+        has_component_source_data = (
+            config is not None
+            and key in PLOT_SOURCE_ANALYSIS_KEYS
+            and any(
+                component_source_has_data(
+                    master_df,
+                    mcfg,
+                    component_types,
+                    key,
+                    config["label"],
+                    config["value_col"],
+                    source,
+                )
+                for source in ("meter", "inverter")
+            )
+        )
 
-        if isinstance(df, pd.DataFrame) and not df.empty and config:
+        if config and (
+            has_component_source_data or (isinstance(df, pd.DataFrame) and not df.empty)
+        ):
             # partial creates a typed callable and captures 'key' and 'config' correctly
             render_fn = partial(
                 _render_component_tab,

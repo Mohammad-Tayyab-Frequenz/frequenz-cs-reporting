@@ -11,8 +11,13 @@ import pytest
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
+from frequenz.cs_reporting.components.ui import (
+    _plot_card_height,
+    _plotly_component_height,
+)
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
+from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
     _aggregate_metrics,
     _filter_component_types_for_master_df,
@@ -52,7 +57,7 @@ class _FakeMicrogridConfig:
 
     def component_type_ids(
         self, component_type: str, component_category: str | None = None
-    ) -> list[int]:
+    ) -> list[int] | None:
         """Return configured fake IDs for a component type/category pair."""
         return self._ids.get((component_type, component_category or ""), [])
 
@@ -370,10 +375,12 @@ def test_overview_plot_renders_without_day_ahead_price(
 ) -> None:
     """The overview plot does not require a secondary price y-axis."""
     rendered_titles: list[str] = []
+    rendered_figures: list[go.Figure] = []
 
     def fake_render_plot_card(title: str, fig: object) -> None:
-        del fig
         rendered_titles.append(title)
+        assert isinstance(fig, go.Figure)
+        rendered_figures.append(fig)
 
     monkeypatch.setattr(
         "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
@@ -397,6 +404,23 @@ def test_overview_plot_renders_without_day_ahead_price(
     )
 
     assert rendered_titles == ["Lastgang Übersicht"]
+    assert rendered_figures[0].layout.height == 650
+
+
+def test_plotly_component_height_adds_room_around_fixed_height_figures() -> None:
+    """Plotly charts render in a taller Streamlit slot than the figure itself."""
+    figure = go.Figure()
+    figure.update_layout(height=650)
+
+    assert _plotly_component_height(figure) == 770
+
+
+def test_plot_card_height_wraps_plotly_component_and_card_chrome() -> None:
+    """The outer card grows with the Plotly component it contains."""
+    figure = go.Figure()
+    figure.update_layout(height=650)
+
+    assert _plot_card_height(figure) == 862
 
 
 def test_component_ids_for_plot_source_filters_requested_hth_components() -> None:
@@ -426,3 +450,59 @@ def test_component_ids_for_plot_source_filters_requested_hth_components() -> Non
         "chp": ("31", "32"),
         "batt": ("41",),
     }
+
+
+def test_component_ids_for_plot_source_handles_missing_component_categories() -> None:
+    """HTH plot source selection tolerates configs without category IDs."""
+
+    class ConfigWithoutCategoryIds(_FakeMicrogridConfig):
+        """Fake config that returns no PV meter category IDs."""
+
+        def component_type_ids(
+            self, component_type: str, component_category: str | None = None
+        ) -> list[int] | None:
+            if component_type == "pv" and component_category == "meter":
+                return None
+            return super().component_type_ids(component_type, component_category)
+
+    ids = _component_ids_for_plot_source(
+        ConfigWithoutCategoryIds(),
+        component_types=["pv"],
+        component_plot_source="meter",
+    )
+
+    assert ids == {"pv": ()}
+
+
+def test_default_component_plot_source_prefers_inverters_without_meter_ids() -> None:
+    """The default source uses inverters when meter IDs are unavailable."""
+
+    class ConfigWithoutMeterIds(_FakeMicrogridConfig):
+        """Fake config that returns no PV meter IDs."""
+
+        def component_type_ids(
+            self, component_type: str, component_category: str | None = None
+        ) -> list[int] | None:
+            if component_type == "pv" and component_category == "meter":
+                return None
+            return super().component_type_ids(component_type, component_category)
+
+    selected_source = default_component_plot_source(
+        ConfigWithoutMeterIds(),
+        component_types=["pv"],
+        analysis_key="pv",
+    )
+
+    assert selected_source == "inverter"
+
+
+def test_default_component_plot_source_prefers_inverters_with_meterless_data() -> None:
+    """The default source uses inverters when meter analysis has no data."""
+    selected_source = default_component_plot_source(
+        _FakeMicrogridConfig(),
+        component_types=["pv"],
+        analysis_key="pv",
+        source_has_data=lambda source: source == "inverter",
+    )
+
+    assert selected_source == "inverter"

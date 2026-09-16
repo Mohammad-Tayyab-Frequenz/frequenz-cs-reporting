@@ -48,7 +48,7 @@ div[class*="_plot_card"] {
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
     box-shadow: 0 2px 12px rgba(15, 41, 74, 0.06);
     margin-bottom: 20px;
 }
