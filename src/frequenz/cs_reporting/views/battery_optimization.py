@@ -1,0 +1,323 @@
+# License: MIT
+# Copyright © 2026 Frequenz Energy-as-a-Service GmbH
+
+"""Battery optimization savings calculations and rendering."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+from frequenz.cs_reporting.components.ui import render_plot_card
+from frequenz.cs_reporting.views.metric_renderers import render_box_grid
+
+_BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
+_DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+_SUMMARY_VALUE_COLUMNS = [
+    "battery_charging_kwh",
+    "battery_discharging_kwh",
+    "charging_cost_eur",
+    "discharging_value_eur",
+    "optimization_savings_eur",
+]
+_AGGREGATION_OPTIONS = {
+    "daily": "Täglich",
+    "weekly": "Wöchentlich",
+    "monthly": "Monatlich",
+}
+
+
+def _format_full_eur(value: float) -> str:
+    """Format a monetary value as whole euros."""
+    rounded_value = round(value)
+    formatted_value = f"{abs(rounded_value):,}".replace(",", ".")
+    if rounded_value < 0:
+        return f"-€{formatted_value}"
+    return f"€{formatted_value}"
+
+
+def calculate_battery_optimization_summary(
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+) -> tuple[float, pd.DataFrame]:
+    """Calculate total and daily battery optimization savings.
+
+    The input power column follows PSC convention: positive battery power charges
+    the battery, negative battery power discharges it. Day-ahead prices are
+    expected in EUR/MWh, so interval kWh values are divided by 1000 for EUR.
+
+    Args:
+        master_df: Canonical reporting dataframe with battery and price columns.
+        resolution: Sampling interval used to convert power (kW) to energy (kWh).
+
+    Returns:
+        A tuple with the total optimization savings in EUR and a daily summary
+            dataframe.
+
+    Raises:
+        ValueError: If required columns are missing or resolution is not positive.
+    """
+    missing_cols = {
+        "timestamp",
+        _BATTERY_POWER_FLOW_COLUMN,
+        _DAY_AHEAD_PRICE_COLUMN,
+    }.difference(master_df.columns)
+    if missing_cols:
+        raise ValueError(
+            "Required columns are missing: " + ", ".join(sorted(missing_cols))
+        )
+
+    hours_factor = float(pd.to_timedelta(resolution).total_seconds()) / 3600.0
+    if hours_factor <= 0:
+        raise ValueError("resolution must be positive")
+
+    df = master_df[
+        ["timestamp", _BATTERY_POWER_FLOW_COLUMN, _DAY_AHEAD_PRICE_COLUMN]
+    ].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df[_BATTERY_POWER_FLOW_COLUMN] = pd.to_numeric(
+        df[_BATTERY_POWER_FLOW_COLUMN], errors="coerce"
+    ).fillna(0.0)
+    df[_DAY_AHEAD_PRICE_COLUMN] = pd.to_numeric(
+        df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce"
+    )
+    df = df.dropna(subset=["timestamp", _DAY_AHEAD_PRICE_COLUMN])
+
+    df["battery_charging_kwh"] = (
+        df[_BATTERY_POWER_FLOW_COLUMN].clip(lower=0.0) * hours_factor
+    )
+    df["battery_discharging_kwh"] = (
+        -df[_BATTERY_POWER_FLOW_COLUMN].clip(upper=0.0) * hours_factor
+    )
+    df["charging_cost_eur"] = (
+        df["battery_charging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+    )
+    df["discharging_value_eur"] = (
+        df["battery_discharging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+    )
+    df["optimization_savings_eur"] = (
+        df["discharging_value_eur"] - df["charging_cost_eur"]
+    )
+
+    if df.empty:
+        return 0.0, pd.DataFrame(
+            columns=[
+                "date",
+                *_SUMMARY_VALUE_COLUMNS,
+            ]
+        )
+
+    df["date"] = df["timestamp"].dt.date
+    daily_summary = (
+        df.groupby("date", as_index=False)[_SUMMARY_VALUE_COLUMNS]
+        .sum()
+        .sort_values("date")
+    )
+
+    return float(df["optimization_savings_eur"].sum()), daily_summary
+
+
+def aggregate_battery_optimization_summary(
+    daily_summary: pd.DataFrame,
+    aggregation: str,
+) -> pd.DataFrame:
+    """Aggregate daily battery optimization savings by day, week, or month."""
+    if aggregation not in _AGGREGATION_OPTIONS:
+        raise ValueError(f"Unsupported aggregation: {aggregation}")
+    if daily_summary.empty:
+        return pd.DataFrame(columns=["period", "period_label", *_SUMMARY_VALUE_COLUMNS])
+
+    summary = daily_summary.copy()
+    for column in _SUMMARY_VALUE_COLUMNS:
+        if column not in summary.columns:
+            summary[column] = 0.0
+
+    summary["date"] = pd.to_datetime(summary["date"], errors="coerce")
+    summary = summary.dropna(subset=["date"])
+
+    if aggregation == "daily":
+        summary["period"] = summary["date"].dt.date
+        summary["period_label"] = summary["date"].dt.strftime("%d.%m.%Y")
+    elif aggregation == "weekly":
+        week_start = summary["date"] - pd.to_timedelta(
+            summary["date"].dt.weekday, unit="D"
+        )
+        summary["period"] = week_start.dt.date
+        summary["period_label"] = summary["date"].dt.strftime("KW %V %G")
+    else:
+        month_start = summary["date"].dt.to_period("M").dt.to_timestamp()
+        summary["period"] = month_start.dt.date
+        summary["period_label"] = summary["date"].dt.strftime("%m.%Y")
+
+    return (
+        summary.groupby(["period", "period_label"], as_index=False)[
+            _SUMMARY_VALUE_COLUMNS
+        ]
+        .sum()
+        .sort_values("period")
+    )
+
+
+def build_daily_battery_optimization_figure(
+    daily_summary: pd.DataFrame,
+    aggregation: str = "daily",
+) -> go.Figure:
+    """Build a battery optimization savings bar chart."""
+    fig = go.Figure()
+    period_summary = aggregate_battery_optimization_summary(daily_summary, aggregation)
+    if period_summary.empty:
+        fig.update_layout(
+            height=420,
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#f8fafc",
+            showlegend=False,
+            annotations=[
+                {
+                    "text": "Keine Tagesdaten zur Anzeige",
+                    "x": 0.5,
+                    "xref": "paper",
+                    "y": 0.5,
+                    "yref": "paper",
+                    "showarrow": False,
+                    "font": {"size": 13, "color": "#94a3b8"},
+                }
+            ],
+        )
+        return fig
+
+    positive_values = period_summary["optimization_savings_eur"].where(
+        period_summary["optimization_savings_eur"] >= 0
+    )
+    negative_values = period_summary["optimization_savings_eur"].where(
+        period_summary["optimization_savings_eur"] < 0
+    )
+    positive_labels = positive_values.map(
+        lambda value: _format_full_eur(float(value)) if pd.notna(value) else ""
+    )
+    negative_labels = negative_values.map(
+        lambda value: _format_full_eur(float(value)) if pd.notna(value) else ""
+    )
+    fig.add_trace(
+        go.Bar(
+            x=period_summary["period_label"],
+            y=positive_values,
+            marker={
+                "color": "#10b981",
+                "line": {"color": "#047857", "width": 1},
+            },
+            text=positive_labels,
+            textposition="outside",
+            hovertemplate=(
+                "<b>%{x}</b><br>" "Einsparung: €%{y:,.0f}" "<extra></extra>"
+            ),
+            name="Einsparung",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=period_summary["period_label"],
+            y=negative_values,
+            marker={
+                "color": "#ef4444",
+                "line": {"color": "#b91c1c", "width": 1},
+            },
+            text=negative_labels,
+            textposition="outside",
+            hovertemplate=("<b>%{x}</b><br>" "Kosten: €%{y:,.0f}" "<extra></extra>"),
+            name="Kosten",
+        )
+    )
+    fig.update_layout(
+        barmode="relative",
+        height=460,
+        margin={"t": 40, "r": 36, "b": 82, "l": 72},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#fbfdff",
+        font={
+            "family": "Inter, Segoe UI, Arial, sans-serif",
+            "size": 12,
+            "color": "#374151",
+        },
+        showlegend=True,
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "bgcolor": "rgba(255,255,255,0.85)",
+            "bordercolor": "#e2e8f0",
+            "borderwidth": 1,
+            "font": {"size": 11, "color": "#374151"},
+        },
+        xaxis_title=_AGGREGATION_OPTIONS[aggregation],
+        yaxis_title="Einsparung/Kosten (€)",
+        hoverlabel={
+            "bgcolor": "#1e293b",
+            "font_size": 12,
+            "font_color": "#f8fafc",
+            "bordercolor": "#334155",
+        },
+        separators=",.",
+        uniformtext={"mode": "hide", "minsize": 10},
+    )
+    fig.update_xaxes(
+        gridcolor="#edf2f7",
+        linecolor="#cbd5e1",
+        tickfont={"size": 11, "color": "#64748b"},
+        title_font={"size": 12, "color": "#475569"},
+    )
+    fig.update_yaxes(
+        gridcolor="#e2e8f0",
+        linecolor="#cbd5e1",
+        tickfont={"size": 11, "color": "#64748b"},
+        tickprefix="€",
+        title_font={"size": 12, "color": "#475569"},
+        zeroline=True,
+        zerolinecolor="#64748b",
+        zerolinewidth=1.5,
+    )
+    return fig
+
+
+def render_battery_optimization(
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+) -> None:
+    """Render the battery optimization savings KPI and daily summary plot."""
+    try:
+        total_savings, daily_summary = calculate_battery_optimization_summary(
+            master_df,
+            resolution,
+        )
+    except ValueError as exc:
+        st.info(str(exc))
+        return
+
+    render_box_grid(
+        [("Kostenwirkung der Batterieoptimierung (€)", round(total_savings))],
+        per_row=3,
+        accent="#14b8a6",
+    )
+    aggregation_key = "battery_optimization_plot_aggregation"
+    aggregation = st.session_state.get(aggregation_key, "daily")
+
+    def aggregation_selector() -> None:
+        st.selectbox(
+            "Aggregation",
+            options=tuple(_AGGREGATION_OPTIONS),
+            format_func=lambda value: _AGGREGATION_OPTIONS[str(value)],
+            key=aggregation_key,
+            label_visibility="collapsed",
+        )
+
+    fig = build_daily_battery_optimization_figure(daily_summary, str(aggregation))
+    render_plot_card(
+        "Kostenwirkung der Batterieoptimierung",
+        fig,
+        header_control=aggregation_selector,
+        key="battery_optimization",
+    )
