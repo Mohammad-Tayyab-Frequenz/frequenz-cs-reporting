@@ -10,6 +10,10 @@ import plotly.graph_objects as go
 import pytest
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
+from frequenz.cs_reporting.app_pages.battery_optimization import (
+    _SIDEBAR_KEY_PREFIX,
+    _previous_month_date,
+)
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
@@ -17,6 +21,11 @@ from frequenz.cs_reporting.components.ui import (
 )
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
+from frequenz.cs_reporting.views.battery_optimization import (
+    aggregate_battery_optimization_summary,
+    build_daily_battery_optimization_figure,
+    calculate_battery_optimization_summary,
+)
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
     _aggregate_metrics,
@@ -97,6 +106,17 @@ def test_validate_range_rejects_invalid_order() -> None:
         time.validate_range("2024-01-02", "2024-01-02")
     with pytest.raises(ValueError):
         time.validate_range("2024-01-03", "2024-01-02")
+
+
+def test_battery_optimization_default_start_uses_previous_month() -> None:
+    """Battery optimization defaults start date to the previous month."""
+    assert _previous_month_date(date(2026, 9, 16)) == date(2026, 8, 16)
+    assert _previous_month_date(date(2026, 3, 31)) == date(2026, 2, 28)
+
+
+def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
+    """Battery optimization sidebar state is isolated from reporting filters."""
+    assert _SIDEBAR_KEY_PREFIX == "battery_optimization_"
 
 
 def test_battery_kpi_section_is_hidden_without_battery_component() -> None:
@@ -506,3 +526,136 @@ def test_default_component_plot_source_prefers_inverters_with_meterless_data() -
     )
 
     assert selected_source == "inverter"
+
+
+def test_battery_optimization_summary_uses_charge_and_discharge_prices() -> None:
+    """Battery optimization savings are discharge value minus charge cost."""
+    total_savings, daily_summary = calculate_battery_optimization_summary(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    [
+                        "2026-01-01T00:00:00Z",
+                        "2026-01-01T00:15:00Z",
+                        "2026-01-02T00:00:00Z",
+                    ]
+                ),
+                "battery_power_flow": [4.0, -8.0, -4.0],
+                "day_ahead_price": [50.0, 100.0, 200.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert total_savings == pytest.approx(0.35)
+    assert daily_summary["optimization_savings_eur"].tolist() == pytest.approx(
+        [0.15, 0.2]
+    )
+    assert daily_summary["battery_charging_kwh"].tolist() == pytest.approx([1.0, 0.0])
+    assert daily_summary["battery_discharging_kwh"].tolist() == pytest.approx(
+        [2.0, 1.0]
+    )
+
+
+def test_battery_optimization_summary_ignores_rows_without_prices() -> None:
+    """Rows without day-ahead prices are excluded from monetary calculation."""
+    total_savings, daily_summary = calculate_battery_optimization_summary(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    ["2026-01-01T00:00:00Z", "2026-01-01T00:15:00Z"]
+                ),
+                "battery_power_flow": [4.0, -8.0],
+                "day_ahead_price": [None, 100.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert total_savings == pytest.approx(0.2)
+    assert daily_summary["optimization_savings_eur"].tolist() == pytest.approx([0.2])
+
+
+def test_battery_optimization_summary_requires_battery_and_price_columns() -> None:
+    """Battery optimization calculation reports missing required inputs."""
+    with pytest.raises(ValueError, match="battery_power_flow"):
+        calculate_battery_optimization_summary(
+            pd.DataFrame(
+                {
+                    "timestamp": pd.date_range("2026-01-01", periods=1),
+                    "day_ahead_price": [100.0],
+                }
+            ),
+            timedelta(minutes=15),
+        )
+
+
+def test_daily_battery_optimization_figure_has_legends_and_euro_labels() -> None:
+    """Daily optimization chart renders legend traces and euro value labels."""
+    fig = build_daily_battery_optimization_figure(
+        pd.DataFrame(
+            {
+                "date": [date(2026, 1, 1), date(2026, 1, 2)],
+                "optimization_savings_eur": [1234.34, -5678.67],
+            }
+        )
+    )
+
+    assert fig.layout.showlegend is True
+    assert [trace.name for trace in fig.data] == ["Einsparung", "Kosten"]
+    assert "€" in fig.layout.yaxis.title.text
+    assert fig.layout.yaxis.tickprefix == "€"
+    assert fig.data[0].y[0] == pytest.approx(1234.34)
+    assert fig.data[1].y[1] == pytest.approx(-5678.67)
+    assert fig.data[0].text[0] == "€1.234"
+    assert fig.data[1].text[1] == "-€5.679"
+
+
+def test_battery_optimization_summary_can_be_aggregated_weekly_and_monthly() -> None:
+    """Daily savings summaries can be rolled up for the plot selector."""
+    daily_summary = pd.DataFrame(
+        {
+            "date": [
+                date(2026, 1, 1),
+                date(2026, 1, 2),
+                date(2026, 2, 1),
+            ],
+            "battery_charging_kwh": [1.0, 2.0, 3.0],
+            "battery_discharging_kwh": [4.0, 5.0, 6.0],
+            "charging_cost_eur": [0.1, 0.2, 0.3],
+            "discharging_value_eur": [0.5, 0.6, 0.7],
+            "optimization_savings_eur": [10.0, -2.0, 5.0],
+        }
+    )
+
+    weekly_summary = aggregate_battery_optimization_summary(daily_summary, "weekly")
+    monthly_summary = aggregate_battery_optimization_summary(daily_summary, "monthly")
+
+    assert weekly_summary["optimization_savings_eur"].tolist() == pytest.approx(
+        [8.0, 5.0]
+    )
+    assert monthly_summary["period_label"].tolist() == ["01.2026", "02.2026"]
+    assert monthly_summary["optimization_savings_eur"].tolist() == pytest.approx(
+        [8.0, 5.0]
+    )
+
+
+def test_battery_optimization_figure_uses_selected_aggregation() -> None:
+    """The plot uses the requested aggregation for its visible bars."""
+    fig = build_daily_battery_optimization_figure(
+        pd.DataFrame(
+            {
+                "date": [date(2026, 1, 1), date(2026, 1, 2)],
+                "battery_charging_kwh": [1.0, 2.0],
+                "battery_discharging_kwh": [2.0, 3.0],
+                "charging_cost_eur": [1.0, 2.0],
+                "discharging_value_eur": [4.0, 5.0],
+                "optimization_savings_eur": [12.34, -5.67],
+            }
+        ),
+        "monthly",
+    )
+
+    assert fig.layout.xaxis.title.text == "Monatlich"
+    assert fig.data[0].x[0] == "01.2026"
+    assert fig.data[0].y[0] == pytest.approx(6.67)
