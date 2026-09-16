@@ -25,6 +25,7 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
 )
+from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.plot_renderers import (
     _component_ids_for_plot_source,
     _render_overview_plot,
@@ -52,7 +53,7 @@ class _FakeMicrogridConfig:
 
     def component_type_ids(
         self, component_type: str, component_category: str | None = None
-    ) -> list[int]:
+    ) -> list[int] | None:
         """Return configured fake IDs for a component type/category pair."""
         return self._ids.get((component_type, component_category or ""), [])
 
@@ -426,3 +427,59 @@ def test_component_ids_for_plot_source_filters_requested_hth_components() -> Non
         "chp": ("31", "32"),
         "batt": ("41",),
     }
+
+
+def test_component_ids_for_plot_source_handles_missing_component_categories() -> None:
+    """HTH plot source selection tolerates configs without category IDs."""
+
+    class ConfigWithoutCategoryIds(_FakeMicrogridConfig):
+        """Fake config that returns no PV meter category IDs."""
+
+        def component_type_ids(
+            self, component_type: str, component_category: str | None = None
+        ) -> list[int] | None:
+            if component_type == "pv" and component_category == "meter":
+                return None
+            return super().component_type_ids(component_type, component_category)
+
+    ids = _component_ids_for_plot_source(
+        ConfigWithoutCategoryIds(),
+        component_types=["pv"],
+        component_plot_source="meter",
+    )
+
+    assert ids == {"pv": ()}
+
+
+def test_default_component_plot_source_prefers_inverters_without_meter_ids() -> None:
+    """The default source uses inverters when meter IDs are unavailable."""
+
+    class ConfigWithoutMeterIds(_FakeMicrogridConfig):
+        """Fake config that returns no PV meter IDs."""
+
+        def component_type_ids(
+            self, component_type: str, component_category: str | None = None
+        ) -> list[int] | None:
+            if component_type == "pv" and component_category == "meter":
+                return None
+            return super().component_type_ids(component_type, component_category)
+
+    selected_source = default_component_plot_source(
+        ConfigWithoutMeterIds(),
+        component_types=["pv"],
+        analysis_key="pv",
+    )
+
+    assert selected_source == "inverter"
+
+
+def test_default_component_plot_source_prefers_inverters_with_meterless_data() -> None:
+    """The default source uses inverters when meter analysis has no data."""
+    selected_source = default_component_plot_source(
+        _FakeMicrogridConfig(),
+        component_types=["pv"],
+        analysis_key="pv",
+        source_has_data=lambda source: source == "inverter",
+    )
+
+    assert selected_source == "inverter"

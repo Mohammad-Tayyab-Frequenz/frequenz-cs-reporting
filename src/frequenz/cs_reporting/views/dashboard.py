@@ -370,4 +370,4 @@ def render_dashboard(
     # --- Tables section---
     st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
     _section_divider("Datentabellen")
-    sections.render_data_tabs(master_df, tables, mapper)
+    sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
