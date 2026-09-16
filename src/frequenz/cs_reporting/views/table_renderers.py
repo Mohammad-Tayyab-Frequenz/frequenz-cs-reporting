@@ -355,7 +355,7 @@ def render_data_tabs(
                     selected_source,
                 )
 
-                def header_control(
+                def render_source_selector(
                     analysis_key: str = analysis_key,
                     table_key: str = table_key,
                 ) -> None:
@@ -368,6 +368,8 @@ def render_data_tabs(
                         label_visibility="collapsed",
                     )
 
+                header_control = render_source_selector
+
             render_table_section(
                 value if isinstance(value, pd.DataFrame) else None,
                 key_prefix=spec["key_prefix"],
@@ -377,10 +379,7 @@ def render_data_tabs(
                     if (
                         analysis_key in PLOT_SOURCE_ANALYSIS_KEYS
                         and selected_source == "meter"
-                        and (
-                            not isinstance(value, pd.DataFrame)
-                            or value.empty
-                        )
+                        and (not isinstance(value, pd.DataFrame) or value.empty)
                     )
                     else empty_info
                 ),

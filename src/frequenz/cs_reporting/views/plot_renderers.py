@@ -39,9 +39,10 @@ _COMPONENT_TABS = [
     ("KWK", "chp"),
     ("EV", "ev"),
 ]
-_TIME_SERIES_HEIGHT = 500
-_TIME_SERIES_MARGIN = {"t": 80, "r": 64, "b": 96, "l": 64}
+_TIME_SERIES_HEIGHT = 650
+_TIME_SERIES_MARGIN = {"t": 160, "r": 80, "b": 140, "l": 80}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
+
 
 def _left_align_plot_title(fig: object) -> None:
     """Align Plotly figure titles with the left edge of the chart container."""
@@ -205,9 +206,8 @@ def _render_component_tab(
         Streamlit components are rendered directly.
     """
     df = tables.get(table_key)
-    if (
-        analysis_key not in PLOT_SOURCE_ANALYSIS_KEYS
-        and (not isinstance(df, pd.DataFrame) or df.empty)
+    if analysis_key not in PLOT_SOURCE_ANALYSIS_KEYS and (
+        not isinstance(df, pd.DataFrame) or df.empty
     ):
         st.info(f"Keine Daten für {title}.")
         return
@@ -250,10 +250,7 @@ def _render_component_tab(
         )
 
     if not isinstance(df, pd.DataFrame) or df.empty:
-        if (
-            analysis_key in PLOT_SOURCE_ANALYSIS_KEYS
-            and selected_source == "meter"
-        ):
+        if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS and selected_source == "meter":
             source_selector()
             st.warning("Meter-Daten sind nicht verfügbar.")
         else:
@@ -450,12 +447,8 @@ def _get_active_tabs(
             )
         )
 
-        if (
-            config
-            and (
-                has_component_source_data
-                or (isinstance(df, pd.DataFrame) and not df.empty)
-            )
+        if config and (
+            has_component_source_data or (isinstance(df, pd.DataFrame) and not df.empty)
         ):
             # partial creates a typed callable and captures 'key' and 'config' correctly
             render_fn = partial(

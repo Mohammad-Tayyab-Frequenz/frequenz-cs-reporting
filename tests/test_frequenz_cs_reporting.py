@@ -11,8 +11,13 @@ import pytest
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
+from frequenz.cs_reporting.components.ui import (
+    _plot_card_height,
+    _plotly_component_height,
+)
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
+from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
     _aggregate_metrics,
     _filter_component_types_for_master_df,
@@ -25,7 +30,6 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
 )
-from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.plot_renderers import (
     _component_ids_for_plot_source,
     _render_overview_plot,
@@ -371,10 +375,12 @@ def test_overview_plot_renders_without_day_ahead_price(
 ) -> None:
     """The overview plot does not require a secondary price y-axis."""
     rendered_titles: list[str] = []
+    rendered_figures: list[go.Figure] = []
 
     def fake_render_plot_card(title: str, fig: object) -> None:
-        del fig
         rendered_titles.append(title)
+        assert isinstance(fig, go.Figure)
+        rendered_figures.append(fig)
 
     monkeypatch.setattr(
         "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
@@ -398,6 +404,23 @@ def test_overview_plot_renders_without_day_ahead_price(
     )
 
     assert rendered_titles == ["Lastgang Übersicht"]
+    assert rendered_figures[0].layout.height == 650
+
+
+def test_plotly_component_height_adds_room_around_fixed_height_figures() -> None:
+    """Plotly charts render in a taller Streamlit slot than the figure itself."""
+    figure = go.Figure()
+    figure.update_layout(height=650)
+
+    assert _plotly_component_height(figure) == 770
+
+
+def test_plot_card_height_wraps_plotly_component_and_card_chrome() -> None:
+    """The outer card grows with the Plotly component it contains."""
+    figure = go.Figure()
+    figure.update_layout(height=650)
+
+    assert _plot_card_height(figure) == 862
 
 
 def test_component_ids_for_plot_source_filters_requested_hth_components() -> None:
