@@ -27,7 +27,7 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_config,
 )
 from frequenz.cs_reporting.services.data_service import (
-    get_battery_capacity_kwh,
+    get_battery_capacity_data_kwh,
     get_microgrid_data,
     get_microgrid_soc_data,
 )
@@ -93,9 +93,9 @@ def render() -> None:
                 st.info("Dieses Microgrid enthält keine Batterie.")
                 st.stop()
 
-            battery_capacity_kwh = None
+            battery_capacity_data = None
             try:
-                battery_capacity_kwh = get_battery_capacity_kwh(
+                battery_capacity_data = get_battery_capacity_data_kwh(
                     microgrid_id,
                     start_time,
                     end_time,
@@ -155,7 +155,7 @@ def render() -> None:
     render_battery_optimization(
         current_master_df,
         resolution,
-        battery_capacity_kwh=battery_capacity_kwh,
+        battery_capacity_data=battery_capacity_data,
     )
 
 
