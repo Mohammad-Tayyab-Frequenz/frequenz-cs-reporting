@@ -88,6 +88,13 @@ def _format_full_eur(value: float) -> str:
     return f"€{formatted_value}"
 
 
+def _format_eur_with_decimals(value: float) -> str:
+    """Format a monetary value with two decimal places."""
+    formatted_value = f"{abs(value):,.2f}".replace(",", "X")
+    formatted_value = formatted_value.replace(".", ",").replace("X", ".")
+    return f"-€{formatted_value}" if value < 0 else f"€{formatted_value}"
+
+
 def _format_cycle_count(value: float) -> str:
     """Format an equivalent full-cycle count for a bar label."""
     return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -447,7 +454,15 @@ def build_normalized_battery_optimization_figure(
     title, unit_prefix = metric_specs[metric_key]
     labels = [
         (
-            (_format_full_eur(value) if unit_prefix else _format_cycle_count(value))
+            (
+                _format_eur_with_decimals(value)
+                if metric_key == "value_per_kwh_capacity"
+                else (
+                    _format_full_eur(value)
+                    if unit_prefix
+                    else _format_cycle_count(value)
+                )
+            )
             if value is not None
             else ""
         )

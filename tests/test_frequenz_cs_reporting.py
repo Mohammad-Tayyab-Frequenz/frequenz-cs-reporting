@@ -756,6 +756,14 @@ def test_normalized_battery_optimization_figure_aggregates_metric_totals() -> No
     assert fig.data[0].y[0] == pytest.approx(250.0 / 1.5)
     assert fig.data[0].text[0] == "€167"
 
+    capacity_fig = build_normalized_battery_optimization_figure(
+        daily_summary,
+        "value_per_kwh_capacity",
+        "monthly",
+        battery_capacity_kwh=500.0,
+    )
+    assert capacity_fig.data[0].text[0] == "€0,50"
+
 
 def test_battery_cycles_figure_uses_period_discharge_and_capacity() -> None:
     """Cycle charts aggregate discharged energy before normalizing by capacity."""
