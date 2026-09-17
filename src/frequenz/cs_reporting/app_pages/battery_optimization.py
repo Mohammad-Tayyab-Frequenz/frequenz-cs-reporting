@@ -23,6 +23,7 @@ from frequenz.cs_reporting.app_pages.reporting import (
 from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
+    get_battery_capacity_kwh,
     get_component_types,
     get_microgrid_config,
 )
@@ -92,6 +93,14 @@ def render() -> None:
                 st.info("Dieses Microgrid enthält keine Batterie.")
                 st.stop()
 
+            battery_capacity_kwh = None
+            try:
+                battery_capacity_kwh = get_battery_capacity_kwh(microgrid_id)
+            except Exception as exc:  # pylint: disable=broad-except
+                st.warning(
+                    f"Batteriekapazität konnte nicht geladen werden: {exc}"
+                )
+
             mcfg = get_microgrid_config(microgrid_id)
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
@@ -140,7 +149,11 @@ def render() -> None:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    render_battery_optimization(current_master_df, resolution)
+    render_battery_optimization(
+        current_master_df,
+        resolution,
+        battery_capacity_kwh=battery_capacity_kwh,
+    )
 
 
 PAGE = PageSpec(
