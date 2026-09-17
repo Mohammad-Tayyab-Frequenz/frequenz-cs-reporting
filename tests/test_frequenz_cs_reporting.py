@@ -22,10 +22,14 @@ from frequenz.cs_reporting.components.ui import (
 from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
 )
+from frequenz.cs_reporting.services.battery_optimization_calculations import (
+    calculate_battery_optimization_intervals,
+)
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.battery_optimization import (
     aggregate_battery_optimization_summary,
+    build_battery_optimization_results_table,
     build_daily_battery_optimization_figure,
     build_normalized_battery_optimization_figure,
     calculate_battery_optimization_summary,
@@ -612,6 +616,98 @@ def test_normalized_battery_optimization_metrics_handle_missing_throughput() -> 
     assert metrics["battery_price_spread_eur_per_mwh"] is None
     assert metrics["value_per_kwh_capacity"] is None
     assert metrics["battery_cycles"] is None
+
+
+def test_battery_optimization_results_table_includes_interval_inputs_and_calculations() -> (
+    None
+):
+    """Export data contains timestamped source values and interval calculations."""
+    results = build_battery_optimization_results_table(
+        pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2026-01-01T00:00:00Z")],
+                "grid_consumption": [100.0],
+                "mid_consumption": [120.0],
+                "pv_asset_production": [20.0],
+                "wind_asset_production": [30.0],
+                "chp_asset_production": [10.0],
+                "battery_power_flow": [400.0],
+                "day_ahead_price": [50.0],
+            }
+        ),
+        timedelta(minutes=15),
+        battery_capacity_kwh=500.0,
+    )
+
+    assert results.columns.tolist() == [
+        "Zeitpunkt",
+        "Netzbezug (kW)",
+        "Gesamtverbrauch (kW)",
+        "Gesamterzeugung (kW)",
+        "PV-Erzeugung (kW)",
+        "Wind-Erzeugung (kW)",
+        "KWK-Erzeugung (kW)",
+        "Batterieleistungsfluss (kW)",
+        "Day-Ahead-Preis (€/MWh)",
+        "Geladene Energie (kWh)",
+        "Entladene Energie (kWh)",
+        "Batteriedurchsatz (kWh)",
+        "Day-Ahead-Preis verfügbar",
+        "Ladekosten (€)",
+        "Entladewert (€)",
+        "Kostenwirkung der Batterieoptimierung (€)",
+        "Batteriekapazität (kWh)",
+        "Batteriezyklen (Vollzyklen)",
+    ]
+    assert results.loc[0, "Zeitpunkt"] == pd.Timestamp("2026-01-01T00:00:00Z")
+    assert results.loc[0, "Gesamterzeugung (kW)"] == pytest.approx(60.0)
+    assert results.loc[0, "Geladene Energie (kWh)"] == pytest.approx(100.0)
+    assert results.loc[0, "Ladekosten (€)"] == pytest.approx(5.0)
+
+
+def test_battery_optimization_results_table_is_timestamp_descending() -> None:
+    """Interval export always starts with the newest timestamp."""
+    results = build_battery_optimization_results_table(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    ["2026-01-01T00:00:00Z", "2026-01-01T00:15:00Z"]
+                ),
+                "battery_power_flow": [0.0, 0.0],
+                "day_ahead_price": [50.0, 50.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert results["Zeitpunkt"].tolist() == [
+        pd.Timestamp("2026-01-01T00:15:00Z"),
+        pd.Timestamp("2026-01-01T00:00:00Z"),
+    ]
+
+
+def test_interval_calculations_use_nearest_capacity_before_first_sample() -> None:
+    """Capacity stays available when the first sample follows the date-range start."""
+    intervals = calculate_battery_optimization_intervals(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    ["2026-01-01T00:15:00Z", "2026-01-01T00:00:00Z"]
+                ),
+                "battery_power_flow": [-4.0, -4.0],
+                "day_ahead_price": [50.0, 50.0],
+            }
+        ),
+        timedelta(minutes=15),
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-01-01T00:15:00Z"]),
+                "battery_capacity_kwh": [500.0],
+            }
+        ),
+    )
+
+    assert intervals["battery_capacity_kwh"].tolist() == [500.0, 500.0]
 
 
 def test_battery_capacity_uses_latest_reporting_metric_sample() -> None:
