@@ -28,6 +28,30 @@ _AGGREGATION_OPTIONS = {
     "weekly": "Wöchentlich",
     "monthly": "Monatlich",
 }
+_KWH_PER_MWH = 1000.0
+_KPI_TOOLTIPS = {
+    "total_savings": (
+        "Entladewert minus Ladekosten. "
+        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis / 1000) - "
+        "Summe(geladene kWh * Day-Ahead-Preis / 1000)."
+    ),
+    "value_per_mwh_throughput": (
+        "Kostenwirkung je bewegter Batterieenergie. "
+        "Berechnung: Kostenwirkung / ((geladene kWh + entladene kWh) / 1000)."
+    ),
+    "battery_price_spread_eur_per_mwh": (
+        "Durchschnittlicher Entladepreis minus durchschnittlicher Ladepreis. "
+        "Berechnung: Entladewert / entladene MWh - Ladekosten / geladene MWh."
+    ),
+    "value_per_mwh_discharged": (
+        "Kostenwirkung je abgegebener Batterieenergie. "
+        "Berechnung: Kostenwirkung / (entladene kWh / 1000)."
+    ),
+    "value_per_kwh_capacity": (
+        "Kostenwirkung relativ zur installierten Batteriekapazität. "
+        "Berechnung: Kostenwirkung / Batteriekapazität (kWh)."
+    ),
+}
 
 
 def _format_full_eur(value: float) -> str:
@@ -118,6 +142,65 @@ def calculate_battery_optimization_summary(
     )
 
     return float(df["optimization_savings_eur"].sum()), daily_summary
+
+
+def calculate_normalized_battery_optimization_metrics(
+    daily_summary: pd.DataFrame,
+    battery_capacity_kwh: float | None = None,
+) -> dict[str, float | None]:
+    """Calculate normalized battery optimization KPIs from summary values."""
+    if daily_summary.empty:
+        return {
+            "value_per_mwh_throughput": None,
+            "value_per_mwh_discharged": None,
+            "battery_price_spread_eur_per_mwh": None,
+            "value_per_kwh_capacity": None,
+        }
+
+    summary = daily_summary.copy()
+    for column in _SUMMARY_VALUE_COLUMNS:
+        if column not in summary.columns:
+            summary[column] = 0.0
+        summary[column] = pd.to_numeric(summary[column], errors="coerce").fillna(0.0)
+
+    charging_mwh = float(summary["battery_charging_kwh"].sum()) / _KWH_PER_MWH
+    discharging_mwh = (
+        float(summary["battery_discharging_kwh"].sum()) / _KWH_PER_MWH
+    )
+    throughput_mwh = charging_mwh + discharging_mwh
+    savings_eur = float(summary["optimization_savings_eur"].sum())
+    charging_cost_eur = float(summary["charging_cost_eur"].sum())
+    discharging_value_eur = float(summary["discharging_value_eur"].sum())
+
+    value_per_mwh_throughput = (
+        savings_eur / throughput_mwh if throughput_mwh else None
+    )
+    value_per_mwh_discharged = (
+        savings_eur / discharging_mwh if discharging_mwh else None
+    )
+    average_charge_price = (
+        charging_cost_eur / charging_mwh if charging_mwh else None
+    )
+    average_discharge_price = (
+        discharging_value_eur / discharging_mwh if discharging_mwh else None
+    )
+    price_spread = (
+        average_discharge_price - average_charge_price
+        if average_charge_price is not None and average_discharge_price is not None
+        else None
+    )
+    value_per_kwh_capacity = (
+        savings_eur / battery_capacity_kwh
+        if battery_capacity_kwh is not None and battery_capacity_kwh > 0
+        else None
+    )
+
+    return {
+        "value_per_mwh_throughput": value_per_mwh_throughput,
+        "value_per_mwh_discharged": value_per_mwh_discharged,
+        "battery_price_spread_eur_per_mwh": price_spread,
+        "value_per_kwh_capacity": value_per_kwh_capacity,
+    }
 
 
 def aggregate_battery_optimization_summary(
@@ -286,6 +369,7 @@ def build_daily_battery_optimization_figure(
 def render_battery_optimization(
     master_df: pd.DataFrame,
     resolution: timedelta,
+    battery_capacity_kwh: float | None = None,
 ) -> None:
     """Render the battery optimization savings KPI and daily summary plot."""
     try:
@@ -297,8 +381,43 @@ def render_battery_optimization(
         st.info(str(exc))
         return
 
+    normalized_metrics = calculate_normalized_battery_optimization_metrics(
+        daily_summary,
+        battery_capacity_kwh=battery_capacity_kwh,
+    )
     render_box_grid(
-        [("Kostenwirkung der Batterieoptimierung (€)", round(total_savings))],
+        [
+            (
+                "Kostenwirkung der Batterieoptimierung (€)",
+                round(total_savings),
+                None,
+                _KPI_TOOLTIPS["total_savings"],
+            ),
+            (
+                "Wert pro MWh Batteriedurchsatz (€/MWh)",
+                normalized_metrics["value_per_mwh_throughput"],
+                None,
+                _KPI_TOOLTIPS["value_per_mwh_throughput"],
+            ),
+            (
+                "Preis-Spread Batterie (€/MWh)",
+                normalized_metrics["battery_price_spread_eur_per_mwh"],
+                None,
+                _KPI_TOOLTIPS["battery_price_spread_eur_per_mwh"],
+            ),
+            (
+                "Wert pro MWh entladene Energie (€/MWh)",
+                normalized_metrics["value_per_mwh_discharged"],
+                None,
+                _KPI_TOOLTIPS["value_per_mwh_discharged"],
+            ),
+            (
+                "Wert pro kWh Batteriekapazität (€/kWh)",
+                normalized_metrics["value_per_kwh_capacity"],
+                None,
+                _KPI_TOOLTIPS["value_per_kwh_capacity"],
+            ),
+        ],
         per_row=3,
         accent="#14b8a6",
     )
