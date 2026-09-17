@@ -159,6 +159,19 @@ def _battery_capacity_kwh_from_metric_data(df: pd.DataFrame) -> float | None:
     return capacity_kwh if capacity_kwh > 0 else None
 
 
+def _battery_capacity_kwh_time_series_from_metric_data(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Convert Reporting API component capacity samples from Wh to kWh."""
+    numeric_data = df.apply(lambda column: pd.to_numeric(column, errors="coerce"))
+    capacity_kwh = numeric_data.ffill().sum(axis=1, min_count=1) / 1000.0
+    return (
+        capacity_kwh.rename("battery_capacity_kwh")
+        .reset_index()
+        .rename(columns={"index": "timestamp"})
+    )
+
+
 async def fetch_microgrid_battery_capacity_kwh(
     microgrid_id: int,
     start_date: datetime,
@@ -205,6 +218,52 @@ async def fetch_microgrid_battery_capacity_kwh(
         aggfunc="last",
     )
     return _battery_capacity_kwh_from_metric_data(capacity_data)
+
+
+async def fetch_microgrid_battery_capacity_data_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float = 30.0,
+) -> pd.DataFrame:
+    """Fetch time-varying battery capacity data in kWh from Reporting."""
+    # Reuse the direct Reporting API request path above, but retain timestamps.
+    start_iso, end_iso = validate_range(start_date, end_date)
+    component_ids = get_microgrid_config(microgrid_id).component_type_ids(
+        "battery", "component"
+    )
+    if not component_ids:
+        return pd.DataFrame(columns=["timestamp", "battery_capacity_kwh"])
+    client = get_reporting_client()
+    try:
+        receiver = client.receive_microgrid_components_data(
+            microgrid_components=[(microgrid_id, component_ids)],
+            metrics=Metric.BATTERY_CAPACITY,
+            start_time=start_iso,
+            end_time=end_iso,
+            resampling_period=resolution,
+        )
+        async with asyncio.timeout(timeout):
+            samples = [sample async for sample in receiver]
+    finally:
+        await client.disconnect()
+    if not samples:
+        return pd.DataFrame(columns=["timestamp", "battery_capacity_kwh"])
+    data = pd.DataFrame(samples)
+    metric_name = Metric.BATTERY_CAPACITY.name
+    metric_names = data["metric"].astype(str)
+    capacity_data = data[
+        metric_names.eq(metric_name)
+        | metric_names.eq(f"{metric_name}_avg")
+        | metric_names.str.startswith(f"{metric_name}_raw_")
+    ]
+    if capacity_data.empty:
+        return pd.DataFrame(columns=["timestamp", "battery_capacity_kwh"])
+    pivoted = capacity_data.pivot_table(
+        index="timestamp", columns="component_id", values="value", aggfunc="last"
+    )
+    return _battery_capacity_kwh_time_series_from_metric_data(pivoted)
 
 
 # Cached sync wrapper for Streamlit pages
@@ -311,4 +370,26 @@ def get_battery_capacity_kwh(
     raise RuntimeError(
         "get_battery_capacity_kwh() called from within an active event loop. "
         "Use `await fetch_microgrid_battery_capacity_kwh(...)` in async contexts."
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_battery_capacity_data_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float = 30.0,
+) -> pd.DataFrame:
+    """Sync wrapper for time-varying Reporting API battery capacity data."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(
+            fetch_microgrid_battery_capacity_data_kwh(
+                microgrid_id, start_date, end_date, resolution, timeout=timeout
+            )
+        )
+    raise RuntimeError(
+        "get_battery_capacity_data_kwh() called from an active event loop."
     )
