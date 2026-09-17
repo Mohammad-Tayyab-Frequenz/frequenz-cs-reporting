@@ -28,7 +28,27 @@ _AGGREGATION_OPTIONS = {
     "weekly": "Wöchentlich",
     "monthly": "Monatlich",
 }
+_GERMAN_MONTH_ABBREVIATIONS = (
+    "Jan",
+    "Feb",
+    "Mär",
+    "Apr",
+    "Mai",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Okt",
+    "Nov",
+    "Dez",
+)
 _KWH_PER_MWH = 1000.0
+_NORMALIZED_PLOT_METRICS = (
+    ("value_per_mwh_throughput", "Wert pro MWh Batteriedurchsatz (€/MWh)"),
+    ("value_per_mwh_discharged", "Wert pro MWh entladene Energie (€/MWh)"),
+    ("battery_price_spread_eur_per_mwh", "Preis-Spread Batterie (€/MWh)"),
+    ("value_per_kwh_capacity", "Wert pro kWh Batteriekapazität (€/kWh)"),
+)
 _KPI_TOOLTIPS = {
     "total_savings": (
         "Entladewert minus Ladekosten. "
@@ -164,23 +184,17 @@ def calculate_normalized_battery_optimization_metrics(
         summary[column] = pd.to_numeric(summary[column], errors="coerce").fillna(0.0)
 
     charging_mwh = float(summary["battery_charging_kwh"].sum()) / _KWH_PER_MWH
-    discharging_mwh = (
-        float(summary["battery_discharging_kwh"].sum()) / _KWH_PER_MWH
-    )
+    discharging_mwh = float(summary["battery_discharging_kwh"].sum()) / _KWH_PER_MWH
     throughput_mwh = charging_mwh + discharging_mwh
     savings_eur = float(summary["optimization_savings_eur"].sum())
     charging_cost_eur = float(summary["charging_cost_eur"].sum())
     discharging_value_eur = float(summary["discharging_value_eur"].sum())
 
-    value_per_mwh_throughput = (
-        savings_eur / throughput_mwh if throughput_mwh else None
-    )
+    value_per_mwh_throughput = savings_eur / throughput_mwh if throughput_mwh else None
     value_per_mwh_discharged = (
         savings_eur / discharging_mwh if discharging_mwh else None
     )
-    average_charge_price = (
-        charging_cost_eur / charging_mwh if charging_mwh else None
-    )
+    average_charge_price = charging_cost_eur / charging_mwh if charging_mwh else None
     average_discharge_price = (
         discharging_value_eur / discharging_mwh if discharging_mwh else None
     )
@@ -233,7 +247,11 @@ def aggregate_battery_optimization_summary(
     else:
         month_start = summary["date"].dt.to_period("M").dt.to_timestamp()
         summary["period"] = month_start.dt.date
-        summary["period_label"] = summary["date"].dt.strftime("%m.%Y")
+        summary["period_label"] = month_start.map(
+            lambda value: (
+                f"{_GERMAN_MONTH_ABBREVIATIONS[value.month - 1]} {value.year}"
+            )
+        )
 
     return (
         summary.groupby(["period", "period_label"], as_index=False)[
@@ -366,6 +384,103 @@ def build_daily_battery_optimization_figure(
     return fig
 
 
+def build_normalized_battery_optimization_figure(
+    daily_summary: pd.DataFrame,
+    metric_key: str,
+    aggregation: str = "daily",
+    battery_capacity_kwh: float | None = None,
+) -> go.Figure:
+    """Build a normalized battery optimization metric chart."""
+    metric_labels = dict(_NORMALIZED_PLOT_METRICS)
+    if metric_key not in metric_labels:
+        raise ValueError(f"Unsupported normalized battery metric: {metric_key}")
+
+    fig = go.Figure()
+    period_summary = aggregate_battery_optimization_summary(daily_summary, aggregation)
+    if period_summary.empty:
+        fig.update_layout(
+            height=420,
+            paper_bgcolor="#ffffff",
+            plot_bgcolor="#f8fafc",
+            annotations=[
+                {
+                    "text": "Keine Daten zur Anzeige",
+                    "x": 0.5,
+                    "xref": "paper",
+                    "y": 0.5,
+                    "yref": "paper",
+                    "showarrow": False,
+                    "font": {"size": 13, "color": "#94a3b8"},
+                }
+            ],
+        )
+        return fig
+
+    period_metrics = [
+        calculate_normalized_battery_optimization_metrics(
+            pd.DataFrame([period[_SUMMARY_VALUE_COLUMNS].to_dict()]),
+            battery_capacity_kwh=battery_capacity_kwh,
+        )
+        for _, period in period_summary.iterrows()
+    ]
+    values = [metrics[metric_key] for metrics in period_metrics]
+    labels = [_format_full_eur(value) if value is not None else "" for value in values]
+    colors = [
+        "#10b981" if value is not None and value >= 0 else "#ef4444" for value in values
+    ]
+    title = metric_labels[metric_key]
+    fig.add_trace(
+        go.Bar(
+            x=period_summary["period_label"],
+            y=values,
+            marker={"color": colors, "line": {"color": "#047857", "width": 1}},
+            text=labels,
+            textposition="outside",
+            hovertemplate=(f"<b>%{{x}}</b><br>{title}: €%{{y:,.2f}}<extra></extra>"),
+            name=title,
+        )
+    )
+    fig.update_layout(
+        height=460,
+        margin={"t": 40, "r": 36, "b": 82, "l": 72},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#fbfdff",
+        font={
+            "family": "Inter, Segoe UI, Arial, sans-serif",
+            "size": 12,
+            "color": "#374151",
+        },
+        showlegend=False,
+        xaxis_title=_AGGREGATION_OPTIONS[aggregation],
+        yaxis_title=title,
+        hoverlabel={
+            "bgcolor": "#1e293b",
+            "font_size": 12,
+            "font_color": "#f8fafc",
+            "bordercolor": "#334155",
+        },
+        separators=",.",
+        uniformtext={"mode": "hide", "minsize": 10},
+    )
+    fig.update_xaxes(
+        gridcolor="#edf2f7",
+        linecolor="#cbd5e1",
+        tickfont={"size": 11, "color": "#64748b"},
+        title_font={"size": 12, "color": "#475569"},
+    )
+    fig.update_yaxes(
+        gridcolor="#e2e8f0",
+        linecolor="#cbd5e1",
+        tickfont={"size": 11, "color": "#64748b"},
+        tickprefix="€",
+        title_font={"size": 12, "color": "#475569"},
+        zeroline=True,
+        zerolinecolor="#64748b",
+        zerolinewidth=1.5,
+    )
+    return fig
+
+
 def render_battery_optimization(
     master_df: pd.DataFrame,
     resolution: timedelta,
@@ -421,22 +536,46 @@ def render_battery_optimization(
         per_row=3,
         accent="#14b8a6",
     )
-    aggregation_key = "battery_optimization_plot_aggregation"
-    aggregation = st.session_state.get(aggregation_key, "daily")
-
-    def aggregation_selector() -> None:
-        st.selectbox(
-            "Aggregation",
-            options=tuple(_AGGREGATION_OPTIONS),
-            format_func=lambda value: _AGGREGATION_OPTIONS[str(value)],
-            key=aggregation_key,
-            label_visibility="collapsed",
-        )
-
-    fig = build_daily_battery_optimization_figure(daily_summary, str(aggregation))
-    render_plot_card(
-        "Kostenwirkung der Batterieoptimierung",
-        fig,
-        header_control=aggregation_selector,
-        key="battery_optimization",
+    st.divider()
+    plot_tabs = st.tabs(
+        ["Kostenwirkung", "Durchsatz", "Entladung", "Preis-Spread", "Kapazität"]
     )
+    plot_configs = [
+        ("battery_optimization", "Kostenwirkung der Batterieoptimierung", None),
+        *[
+            (f"battery_optimization_{metric_key}", label, metric_key)
+            for metric_key, label in _NORMALIZED_PLOT_METRICS
+        ],
+    ]
+    for tab, (plot_key, title, metric_key) in zip(plot_tabs, plot_configs):
+        with tab:
+            aggregation_key = f"{plot_key}_aggregation"
+            aggregation = str(st.session_state.get(aggregation_key, "daily"))
+
+            def aggregation_selector(key: str = aggregation_key) -> None:
+                st.selectbox(
+                    "Aggregation",
+                    options=tuple(_AGGREGATION_OPTIONS),
+                    format_func=lambda value: _AGGREGATION_OPTIONS[str(value)],
+                    key=key,
+                    label_visibility="collapsed",
+                )
+
+            if metric_key is None:
+                fig = build_daily_battery_optimization_figure(
+                    daily_summary,
+                    aggregation,
+                )
+            else:
+                fig = build_normalized_battery_optimization_figure(
+                    daily_summary,
+                    metric_key,
+                    aggregation,
+                    battery_capacity_kwh=battery_capacity_kwh,
+                )
+            render_plot_card(
+                title,
+                fig,
+                header_control=aggregation_selector,
+                key=plot_key,
+            )
