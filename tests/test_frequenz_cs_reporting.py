@@ -8,10 +8,6 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
-from frequenz.client.assets.electrical_component import LiIonBattery
-from frequenz.client.assets.metrics import Bounds, Metric
-from frequenz.client.common.microgrid import MicrogridId
-from frequenz.client.common.microgrid.electrical_components import ElectricalComponentId
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.battery_optimization import (
@@ -23,8 +19,8 @@ from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
-from frequenz.cs_reporting.services.client_factory import (
-    _battery_capacity_kwh_from_components,
+from frequenz.cs_reporting.services.data_service import (
+    _battery_capacity_kwh_from_metric_data,
 )
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
@@ -618,28 +614,16 @@ def test_normalized_battery_optimization_metrics_handle_missing_throughput() -> 
     assert metrics["battery_cycles"] is None
 
 
-def test_battery_capacity_uses_battery_component_capacity_bounds() -> None:
-    """Battery capacity is summed from battery component BATTERY_CAPACITY bounds."""
-    components = [
-        LiIonBattery(
-            id=ElectricalComponentId(1),
-            microgrid_id=MicrogridId(2),
-            rated_bounds={Metric.BATTERY_CAPACITY: Bounds(upper=500.0)},
-        ),
-        LiIonBattery(
-            id=ElectricalComponentId(2),
-            microgrid_id=MicrogridId(2),
-            rated_bounds={Metric.BATTERY_CAPACITY: Bounds(upper=250.0)},
-        ),
-        LiIonBattery(
-            id=ElectricalComponentId(3),
-            microgrid_id=MicrogridId(2),
-            rated_bounds={},
-        ),
-        object(),
-    ]
+def test_battery_capacity_uses_latest_reporting_metric_sample() -> None:
+    """Reporting capacity samples are converted from Wh to kWh without summing."""
+    capacity_data = pd.DataFrame(
+        {
+            "battery_one": [500_000.0, 500_000.0],
+            "battery_two": [250_000.0, 250_000.0],
+        }
+    )
 
-    assert _battery_capacity_kwh_from_components(components) == pytest.approx(750.0)
+    assert _battery_capacity_kwh_from_metric_data(capacity_data) == pytest.approx(750.0)
 
 
 def test_battery_optimization_summary_ignores_rows_without_prices() -> None:

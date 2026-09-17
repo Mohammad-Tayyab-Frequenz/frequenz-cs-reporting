@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterable
 from pathlib import Path
 
 import streamlit as st
 from frequenz.client.assets import AssetsApiClient
-from frequenz.client.assets.electrical_component import Battery
-from frequenz.client.assets.metrics import Metric
 from frequenz.client.common.microgrid import MicrogridId
+from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import MicrogridConfig, load_configs
 
@@ -90,6 +88,15 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
     )
 
 
+def get_reporting_client() -> ReportingApiClient:
+    """Create a Reporting API client for direct component metric queries."""
+    return ReportingApiClient(
+        server_url=require_env("REPORTING_API_URL"),
+        auth_key=require_env("FREQUENZ_API_KEY"),
+        sign_secret=require_env("FREQUENZ_API_SECRET"),
+    )
+
+
 def get_component_types(microgrid_id: int) -> tuple[str, ...]:
     """Return all component types configured for the microgrid.
 
@@ -123,52 +130,6 @@ def get_microgrid_ids() -> list[int]:
         List of configured microgrid IDs.
     """
     return sorted(_load_microgrid_configs())
-
-
-def _battery_capacity_kwh_from_components(components: Iterable[object]) -> float | None:
-    """Return the summed battery capacity from electrical component metadata."""
-    battery_capacity_kwh = 0.0
-    for component in components:
-        if not isinstance(component, Battery):
-            continue
-
-        bounds = component.rated_bounds.get(Metric.BATTERY_CAPACITY)
-        if bounds is None or bounds.upper is None:
-            continue
-        battery_capacity_kwh += float(bounds.upper)
-
-    return battery_capacity_kwh or None
-
-
-@st.cache_data(show_spinner=False)
-def get_battery_capacity_kwh(microgrid_id: int) -> float | None:
-    """Return installed battery capacity for a microgrid from the Assets API.
-
-    Args:
-        microgrid_id: Identifier for the target microgrid.
-
-    Returns:
-        Installed battery capacity in kWh, or ``None`` when unavailable.
-    """
-    auth_key = require_env("FREQUENZ_API_KEY")
-    sign_secret = require_env("FREQUENZ_API_SECRET")
-    assets_api_url = require_env("ASSETS_API_URL")
-
-    async def load() -> float | None:
-        assets_client = AssetsApiClient(
-            assets_api_url,
-            auth_key=auth_key,
-            sign_secret=sign_secret,
-        )
-        try:
-            components = await assets_client.list_microgrid_electrical_components(
-                MicrogridId(microgrid_id)
-            )
-            return _battery_capacity_kwh_from_components(components)
-        finally:
-            await assets_client.disconnect()
-
-    return asyncio.run(load())
 
 
 @st.cache_data(show_spinner=False)
