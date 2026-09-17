@@ -44,10 +44,11 @@ _GERMAN_MONTH_ABBREVIATIONS = (
 )
 _KWH_PER_MWH = 1000.0
 _NORMALIZED_PLOT_METRICS = (
-    ("value_per_mwh_throughput", "Wert pro MWh Batteriedurchsatz (€/MWh)"),
-    ("value_per_mwh_discharged", "Wert pro MWh entladene Energie (€/MWh)"),
-    ("battery_price_spread_eur_per_mwh", "Preis-Spread Batterie (€/MWh)"),
-    ("value_per_kwh_capacity", "Wert pro kWh Batteriekapazität (€/kWh)"),
+    ("value_per_mwh_throughput", "Wert pro MWh Batteriedurchsatz (€/MWh)", "€"),
+    ("value_per_mwh_discharged", "Wert pro MWh entladene Energie (€/MWh)", "€"),
+    ("battery_price_spread_eur_per_mwh", "Preis-Spread Batterie (€/MWh)", "€"),
+    ("value_per_kwh_capacity", "Wert pro kWh Batteriekapazität (€/kWh)", "€"),
+    ("battery_cycles", "Batteriezyklen (Vollzyklen)", ""),
 )
 _KPI_TOOLTIPS = {
     "total_savings": (
@@ -71,6 +72,10 @@ _KPI_TOOLTIPS = {
         "Kostenwirkung relativ zur installierten Batteriekapazität. "
         "Berechnung: Kostenwirkung / Batteriekapazität (kWh)."
     ),
+    "battery_cycles": (
+        "Äquivalente Vollzyklen der Batterie. "
+        "Berechnung: entladene Energie (kWh) / Batteriekapazität (kWh)."
+    ),
 }
 
 
@@ -81,6 +86,11 @@ def _format_full_eur(value: float) -> str:
     if rounded_value < 0:
         return f"-€{formatted_value}"
     return f"€{formatted_value}"
+
+
+def _format_cycle_count(value: float) -> str:
+    """Format an equivalent full-cycle count for a bar label."""
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def calculate_battery_optimization_summary(
@@ -175,6 +185,7 @@ def calculate_normalized_battery_optimization_metrics(
             "value_per_mwh_discharged": None,
             "battery_price_spread_eur_per_mwh": None,
             "value_per_kwh_capacity": None,
+            "battery_cycles": None,
         }
 
     summary = daily_summary.copy()
@@ -208,12 +219,18 @@ def calculate_normalized_battery_optimization_metrics(
         if battery_capacity_kwh is not None and battery_capacity_kwh > 0
         else None
     )
+    battery_cycles = (
+        float(summary["battery_discharging_kwh"].sum()) / battery_capacity_kwh
+        if battery_capacity_kwh is not None and battery_capacity_kwh > 0
+        else None
+    )
 
     return {
         "value_per_mwh_throughput": value_per_mwh_throughput,
         "value_per_mwh_discharged": value_per_mwh_discharged,
         "battery_price_spread_eur_per_mwh": price_spread,
         "value_per_kwh_capacity": value_per_kwh_capacity,
+        "battery_cycles": battery_cycles,
     }
 
 
@@ -391,8 +408,11 @@ def build_normalized_battery_optimization_figure(
     battery_capacity_kwh: float | None = None,
 ) -> go.Figure:
     """Build a normalized battery optimization metric chart."""
-    metric_labels = dict(_NORMALIZED_PLOT_METRICS)
-    if metric_key not in metric_labels:
+    metric_specs = {
+        key: (label, unit_prefix)
+        for key, label, unit_prefix in _NORMALIZED_PLOT_METRICS
+    }
+    if metric_key not in metric_specs:
         raise ValueError(f"Unsupported normalized battery metric: {metric_key}")
 
     fig = go.Figure()
@@ -424,11 +444,19 @@ def build_normalized_battery_optimization_figure(
         for _, period in period_summary.iterrows()
     ]
     values = [metrics[metric_key] for metrics in period_metrics]
-    labels = [_format_full_eur(value) if value is not None else "" for value in values]
+    title, unit_prefix = metric_specs[metric_key]
+    labels = [
+        (
+            (_format_full_eur(value) if unit_prefix else _format_cycle_count(value))
+            if value is not None
+            else ""
+        )
+        for value in values
+    ]
     colors = [
         "#10b981" if value is not None and value >= 0 else "#ef4444" for value in values
     ]
-    title = metric_labels[metric_key]
+    hover_value = f"{unit_prefix}%{{y:,.2f}}"
     fig.add_trace(
         go.Bar(
             x=period_summary["period_label"],
@@ -436,7 +464,7 @@ def build_normalized_battery_optimization_figure(
             marker={"color": colors, "line": {"color": "#047857", "width": 1}},
             text=labels,
             textposition="outside",
-            hovertemplate=(f"<b>%{{x}}</b><br>{title}: €%{{y:,.2f}}<extra></extra>"),
+            hovertemplate=(f"<b>%{{x}}</b><br>{title}: {hover_value}<extra></extra>"),
             name=title,
         )
     )
@@ -472,7 +500,7 @@ def build_normalized_battery_optimization_figure(
         gridcolor="#e2e8f0",
         linecolor="#cbd5e1",
         tickfont={"size": 11, "color": "#64748b"},
-        tickprefix="€",
+        tickprefix=unit_prefix,
         title_font={"size": 12, "color": "#475569"},
         zeroline=True,
         zerolinecolor="#64748b",
@@ -532,19 +560,32 @@ def render_battery_optimization(
                 None,
                 _KPI_TOOLTIPS["value_per_kwh_capacity"],
             ),
+            (
+                "Batteriezyklen (Vollzyklen)",
+                normalized_metrics["battery_cycles"],
+                None,
+                _KPI_TOOLTIPS["battery_cycles"],
+            ),
         ],
         per_row=3,
         accent="#14b8a6",
     )
     st.divider()
     plot_tabs = st.tabs(
-        ["Kostenwirkung", "Durchsatz", "Entladung", "Preis-Spread", "Kapazität"]
+        [
+            "Kostenwirkung",
+            "Durchsatz",
+            "Entladung",
+            "Preis-Spread",
+            "Kapazität",
+            "Zyklen",
+        ]
     )
     plot_configs = [
         ("battery_optimization", "Kostenwirkung der Batterieoptimierung", None),
         *[
             (f"battery_optimization_{metric_key}", label, metric_key)
-            for metric_key, label in _NORMALIZED_PLOT_METRICS
+            for metric_key, label, _ in _NORMALIZED_PLOT_METRICS
         ],
     ]
     for tab, (plot_key, title, metric_key) in zip(plot_tabs, plot_configs):

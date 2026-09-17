@@ -594,6 +594,7 @@ def test_normalized_battery_optimization_metrics_use_throughput_and_spread() -> 
     assert metrics["value_per_mwh_discharged"] == pytest.approx(120.0)
     assert metrics["battery_price_spread_eur_per_mwh"] == pytest.approx(120.0)
     assert metrics["value_per_kwh_capacity"] == pytest.approx(0.3)
+    assert metrics["battery_cycles"] == pytest.approx(2.5)
 
 
 def test_normalized_battery_optimization_metrics_handle_missing_throughput() -> None:
@@ -614,6 +615,7 @@ def test_normalized_battery_optimization_metrics_handle_missing_throughput() -> 
     assert metrics["value_per_mwh_discharged"] is None
     assert metrics["battery_price_spread_eur_per_mwh"] is None
     assert metrics["value_per_kwh_capacity"] is None
+    assert metrics["battery_cycles"] is None
 
 
 def test_battery_capacity_uses_battery_component_capacity_bounds() -> None:
@@ -769,3 +771,24 @@ def test_normalized_battery_optimization_figure_aggregates_metric_totals() -> No
     assert fig.data[0].x[0] == "Jan 2026"
     assert fig.data[0].y[0] == pytest.approx(250.0 / 1.5)
     assert fig.data[0].text[0] == "€167"
+
+
+def test_battery_cycles_figure_uses_period_discharge_and_capacity() -> None:
+    """Cycle charts aggregate discharged energy before normalizing by capacity."""
+    fig = build_normalized_battery_optimization_figure(
+        pd.DataFrame(
+            {
+                "date": [date(2026, 1, 1), date(2026, 1, 2)],
+                "battery_discharging_kwh": [200.0, 300.0],
+                "optimization_savings_eur": [0.0, 0.0],
+            }
+        ),
+        "battery_cycles",
+        "weekly",
+        battery_capacity_kwh=500.0,
+    )
+
+    assert fig.layout.yaxis.title.text == "Batteriezyklen (Vollzyklen)"
+    assert fig.layout.yaxis.tickprefix == ""
+    assert fig.data[0].y[0] == pytest.approx(1.0)
+    assert fig.data[0].text[0] == "1,00"
