@@ -8,6 +8,10 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
+from frequenz.client.assets.electrical_component import LiIonBattery
+from frequenz.client.assets.metrics import Bounds, Metric
+from frequenz.client.common.microgrid import MicrogridId
+from frequenz.client.common.microgrid.electrical_components import ElectricalComponentId
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.battery_optimization import (
@@ -19,12 +23,16 @@ from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
+from frequenz.cs_reporting.services.client_factory import (
+    _battery_capacity_kwh_from_components,
+)
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.battery_optimization import (
     aggregate_battery_optimization_summary,
     build_daily_battery_optimization_figure,
     calculate_battery_optimization_summary,
+    calculate_normalized_battery_optimization_metrics,
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
@@ -35,7 +43,9 @@ from frequenz.cs_reporting.views.dashboard import (
 from frequenz.cs_reporting.views.metric_renderers import (
     SECTION_SPECS,
     _build_consumption_breakdown,
+    _delta_html,
     _filter_section_box_specs,
+    _fmt_metric_value,
     _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
 )
@@ -117,6 +127,13 @@ def test_battery_optimization_default_start_uses_previous_month() -> None:
 def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
     """Battery optimization sidebar state is isolated from reporting filters."""
     assert _SIDEBAR_KEY_PREFIX == "battery_optimization_"
+
+
+def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
+    """Missing numeric aggregates do not break the reporting dashboard."""
+    assert _fmt_metric_value(float("nan")) == "—"
+    assert _fmt_metric_value(float("inf")) == "—"
+    assert _delta_html(100.0, float("nan")) == ""
 
 
 def test_battery_kpi_section_is_hidden_without_battery_component() -> None:
@@ -555,6 +572,71 @@ def test_battery_optimization_summary_uses_charge_and_discharge_prices() -> None
     assert daily_summary["battery_discharging_kwh"].tolist() == pytest.approx(
         [2.0, 1.0]
     )
+
+
+def test_normalized_battery_optimization_metrics_use_throughput_and_spread() -> None:
+    """Battery optimization normalization reports throughput value and price spread."""
+    metrics = calculate_normalized_battery_optimization_metrics(
+        pd.DataFrame(
+            {
+                "battery_charging_kwh": [1000.0, 500.0],
+                "battery_discharging_kwh": [800.0, 700.0],
+                "charging_cost_eur": [50.0, 40.0],
+                "discharging_value_eur": [120.0, 150.0],
+                "optimization_savings_eur": [70.0, 110.0],
+            }
+        ),
+        battery_capacity_kwh=600.0,
+    )
+
+    assert metrics["value_per_mwh_throughput"] == pytest.approx(60.0)
+    assert metrics["value_per_mwh_discharged"] == pytest.approx(120.0)
+    assert metrics["battery_price_spread_eur_per_mwh"] == pytest.approx(120.0)
+    assert metrics["value_per_kwh_capacity"] == pytest.approx(0.3)
+
+
+def test_normalized_battery_optimization_metrics_handle_missing_throughput() -> None:
+    """Battery optimization normalization omits values without battery activity."""
+    metrics = calculate_normalized_battery_optimization_metrics(
+        pd.DataFrame(
+            {
+                "battery_charging_kwh": [0.0],
+                "battery_discharging_kwh": [0.0],
+                "charging_cost_eur": [0.0],
+                "discharging_value_eur": [0.0],
+                "optimization_savings_eur": [0.0],
+            }
+        )
+    )
+
+    assert metrics["value_per_mwh_throughput"] is None
+    assert metrics["value_per_mwh_discharged"] is None
+    assert metrics["battery_price_spread_eur_per_mwh"] is None
+    assert metrics["value_per_kwh_capacity"] is None
+
+
+def test_battery_capacity_uses_battery_component_capacity_bounds() -> None:
+    """Battery capacity is summed from battery component BATTERY_CAPACITY bounds."""
+    components = [
+        LiIonBattery(
+            id=ElectricalComponentId(1),
+            microgrid_id=MicrogridId(2),
+            rated_bounds={Metric.BATTERY_CAPACITY: Bounds(upper=500.0)},
+        ),
+        LiIonBattery(
+            id=ElectricalComponentId(2),
+            microgrid_id=MicrogridId(2),
+            rated_bounds={Metric.BATTERY_CAPACITY: Bounds(upper=250.0)},
+        ),
+        LiIonBattery(
+            id=ElectricalComponentId(3),
+            microgrid_id=MicrogridId(2),
+            rated_bounds={},
+        ),
+        object(),
+    ]
+
+    assert _battery_capacity_kwh_from_components(components) == pytest.approx(750.0)
 
 
 def test_battery_optimization_summary_ignores_rows_without_prices() -> None:

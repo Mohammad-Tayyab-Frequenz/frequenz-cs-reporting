@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from html import escape
+from math import isfinite
 from typing import Any, Iterable
 
 import streamlit as st
@@ -26,9 +28,12 @@ def _fmt_metric_value(val: object) -> str:
     if val is None:
         return "—"
     if isinstance(val, (int, float)):
-        if float(val) == int(val):
-            return _fmt_de(float(val), 0)
-        return _fmt_de(float(val), 2)
+        numeric_value = float(val)
+        if not isfinite(numeric_value):
+            return "—"
+        if numeric_value == int(numeric_value):
+            return _fmt_de(numeric_value, 0)
+        return _fmt_de(numeric_value, 2)
     return str(val)
 
 
@@ -49,10 +54,12 @@ def _delta_html(current: object, previous: object) -> str:
     """Build a percentage-delta badge for numeric KPI values."""
     if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
         return ""
-    if previous == 0:
+    current_value = float(current)
+    previous_value = float(previous)
+    if not isfinite(current_value) or not isfinite(previous_value) or previous_value == 0:
         return ""
 
-    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
+    delta = ((current_value - previous_value) / abs(previous_value)) * 100
     delta_class = (
         "kpi-card__delta--positive"
         if delta > 0
@@ -296,7 +303,11 @@ def _filter_section_box_specs(
 
 
 def render_box_grid(
-    boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
     per_row: int = 3,
     row_gap: int = 12,
     accent: str = "#3b82f6",
@@ -315,15 +326,19 @@ def render_box_grid(
     _ensure_kpi_css()
 
     for i in range(0, len(boxes), per_row):
-        row = [
-            item if len(item) == 3 else (item[0], item[1], None)
-            for item in boxes[i : i + per_row]
-        ]
+        row = []
+        for item in boxes[i : i + per_row]:
+            if len(item) == 4:
+                row.append(item)
+            elif len(item) == 3:
+                row.append((item[0], item[1], item[2], None))
+            else:
+                row.append((item[0], item[1], None, None))
         while len(row) < per_row:
-            row.append(("", None, None))
+            row.append(("", None, None, None))
 
         cols = st.columns(per_row, gap="small")
-        for col, (label, val, previous_val) in zip(cols, row):
+        for col, (label, val, previous_val, tooltip) in zip(cols, row):
             if label == "" and val is None:
                 col.markdown(
                     '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
@@ -349,15 +364,26 @@ def render_box_grid(
                     if previous_val is not None
                     else ""
                 )
+                tooltip_html = (
+                    '<span class="kpi-card__tooltip" role="button" tabindex="0" '
+                    f'aria-label="{escape(str(tooltip))}">'
+                    '<span class="kpi-card__tooltip-icon">?</span>'
+                    '<span class="kpi-card__tooltip-text">'
+                    f"{escape(str(tooltip))}</span>"
+                    "</span>"
+                    if tooltip
+                    else ""
+                )
+                card_html = (
+                    f'<div class="kpi-card" style="--kpi-accent:{accent};">'
+                    '<div class="kpi-card__label-row">'
+                    f'<div class="kpi-card__label">{escape(label)}</div>'
+                    f"{tooltip_html}</div>"
+                    f"{value_html}{previous_html}</div>"
+                )
 
                 col.markdown(
-                    f"""
-                    <div class="kpi-card" style="--kpi-accent:{accent};">
-                        <div class="kpi-card__label">{label}</div>
-                        {value_html}
-                        {previous_html}
-                    </div>
-                    """,
+                    card_html,
                     unsafe_allow_html=True,
                 )
 
