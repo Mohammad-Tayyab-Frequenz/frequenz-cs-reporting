@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Iterable
 from pathlib import Path
 
 import streamlit as st
 from frequenz.client.assets import AssetsApiClient
-from frequenz.client.assets.electrical_component import Battery
-from frequenz.client.assets.metrics import Metric
 from frequenz.client.common.microgrid import MicrogridId
+from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import MicrogridConfig, load_configs
 
@@ -87,6 +85,15 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
         auth_key=auth_key,
         sign_secret=sign_secret,
         microgrid_configs=configs,
+    )
+
+
+def get_reporting_client() -> ReportingApiClient:
+    """Create a Reporting API client for direct component metric queries."""
+    return ReportingApiClient(
+        server_url=require_env("REPORTING_API_URL"),
+        auth_key=require_env("FREQUENZ_API_KEY"),
+        sign_secret=require_env("FREQUENZ_API_SECRET"),
     )
 
 

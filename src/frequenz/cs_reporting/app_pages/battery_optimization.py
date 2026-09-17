@@ -23,11 +23,11 @@ from frequenz.cs_reporting.app_pages.reporting import (
 from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
-    get_battery_capacity_kwh,
     get_component_types,
     get_microgrid_config,
 )
 from frequenz.cs_reporting.services.data_service import (
+    get_battery_capacity_kwh,
     get_microgrid_data,
     get_microgrid_soc_data,
 )
@@ -95,11 +95,14 @@ def render() -> None:
 
             battery_capacity_kwh = None
             try:
-                battery_capacity_kwh = get_battery_capacity_kwh(microgrid_id)
-            except Exception as exc:  # pylint: disable=broad-except
-                st.warning(
-                    f"Batteriekapazität konnte nicht geladen werden: {exc}"
+                battery_capacity_kwh = get_battery_capacity_kwh(
+                    microgrid_id,
+                    start_time,
+                    end_time,
+                    resolution,
                 )
+            except Exception as exc:  # pylint: disable=broad-except
+                st.warning(f"Batteriekapazität konnte nicht geladen werden: {exc}")
 
             mcfg = get_microgrid_config(microgrid_id)
             df = get_microgrid_data(
