@@ -31,6 +31,7 @@ from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.battery_optimization import (
     aggregate_battery_optimization_summary,
     build_daily_battery_optimization_figure,
+    build_normalized_battery_optimization_figure,
     calculate_battery_optimization_summary,
     calculate_normalized_battery_optimization_metrics,
 )
@@ -716,7 +717,7 @@ def test_battery_optimization_summary_can_be_aggregated_weekly_and_monthly() -> 
     assert weekly_summary["optimization_savings_eur"].tolist() == pytest.approx(
         [8.0, 5.0]
     )
-    assert monthly_summary["period_label"].tolist() == ["01.2026", "02.2026"]
+    assert monthly_summary["period_label"].tolist() == ["Jan 2026", "Feb 2026"]
     assert monthly_summary["optimization_savings_eur"].tolist() == pytest.approx(
         [8.0, 5.0]
     )
@@ -739,5 +740,32 @@ def test_battery_optimization_figure_uses_selected_aggregation() -> None:
     )
 
     assert fig.layout.xaxis.title.text == "Monatlich"
-    assert fig.data[0].x[0] == "01.2026"
+    assert fig.data[0].x[0] == "Jan 2026"
     assert fig.data[0].y[0] == pytest.approx(6.67)
+
+
+def test_normalized_battery_optimization_figure_aggregates_metric_totals() -> None:
+    """Normalized charts calculate each period from its aggregated totals."""
+    daily_summary = pd.DataFrame(
+        {
+            "date": [date(2026, 1, 1), date(2026, 1, 2)],
+            "battery_charging_kwh": [1000.0, 1000.0],
+            "battery_discharging_kwh": [500.0, 1000.0],
+            "charging_cost_eur": [50.0, 100.0],
+            "discharging_value_eur": [100.0, 300.0],
+            "optimization_savings_eur": [50.0, 200.0],
+        }
+    )
+
+    fig = build_normalized_battery_optimization_figure(
+        daily_summary,
+        "value_per_mwh_discharged",
+        "monthly",
+        battery_capacity_kwh=500.0,
+    )
+
+    assert fig.layout.xaxis.title.text == "Monatlich"
+    assert fig.layout.yaxis.title.text == "Wert pro MWh entladene Energie (€/MWh)"
+    assert fig.data[0].x[0] == "Jan 2026"
+    assert fig.data[0].y[0] == pytest.approx(250.0 / 1.5)
+    assert fig.data[0].text[0] == "€167"
