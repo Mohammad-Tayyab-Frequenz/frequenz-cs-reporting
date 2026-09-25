@@ -129,23 +129,23 @@ SECTION_SPECS: list[dict[str, Any]] = [
             {
                 "label": "Prognostizierte Netzbezugskosten (€)",
                 "key": "grid_import_cost_sum",
-                "microgrid_ids": {231},
+                "microgrid_ids": {231, 252},
             },
             {
                 "label": "Prognostizierte Einspeiseerloese (€)",
                 "key": "grid_feed_in_revenue_sum",
-                "microgrid_ids": {231},
+                "microgrid_ids": {231, 252},
             },
-            {"label": "", "key": None, "microgrid_ids": {231}},
+            {"label": "", "key": None, "microgrid_ids": {231, 252}},
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_import",
-                "microgrid_ids": {231},
+                "microgrid_ids": {231, 252},
             },
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_feed_in",
-                "microgrid_ids": {231},
+                "microgrid_ids": {231, 252},
             },
         ],
     },
