@@ -42,6 +42,7 @@ _COMPONENT_TABS = [
 _TIME_SERIES_HEIGHT = 650
 _TIME_SERIES_MARGIN = {"t": 160, "r": 80, "b": 140, "l": 80}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
+_GERMAN_WEEKDAY_TICK_FORMAT = "%a, %d.%m.%Y<br>%H:%M"
 
 
 def _left_align_plot_title(fig: object) -> None:
@@ -59,6 +60,11 @@ def _apply_compact_time_series_layout(fig: go.Figure) -> None:
     )
     fig.update_xaxes(autorange=True, range=None)
     fig.update_yaxes(autorange=True, range=None)
+
+
+def _apply_german_weekday_xaxis_labels(fig: go.Figure) -> None:
+    """Show German weekday abbreviations alongside date and time tick labels."""
+    fig.update_xaxes(tickformat=_GERMAN_WEEKDAY_TICK_FORMAT)
 
 
 # pylint: disable=too-many-arguments, too-many-locals
@@ -348,8 +354,9 @@ def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
             yaxis_title="kW",
         )
     _apply_compact_time_series_layout(fig)
+    _apply_german_weekday_xaxis_labels(fig)
     _left_align_plot_title(fig)
-    render_plot_card("Lastgang Übersicht", fig)
+    render_plot_card("Lastgang Übersicht", fig, plotly_config={"locale": "de"})
 
 
 def _render_battery_soc_plot(battery_usecase_df: pd.DataFrame | None) -> None:
