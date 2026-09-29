@@ -57,6 +57,7 @@ _NORMALIZED_PLOT_METRICS = (
     ("value_per_kwh_capacity", "Wert pro kWh Batteriekapazität (€/kWh)", "€"),
     ("battery_cycles", "Batteriezyklen (Vollzyklen)", ""),
 )
+_HIDDEN_NORMALIZED_METRICS = frozenset({"value_per_mwh_discharged"})
 _KPI_TOOLTIPS = {
     "total_savings": (
         "Entladewert minus Ladekosten. "
@@ -710,12 +711,13 @@ def render_battery_optimization(
                 None,
                 _KPI_TOOLTIPS["battery_price_spread_eur_per_mwh"],
             ),
-            (
-                "Wert pro MWh entladene Energie (€/MWh)",
-                normalized_metrics["value_per_mwh_discharged"],
-                None,
-                _KPI_TOOLTIPS["value_per_mwh_discharged"],
-            ),
+            # Temporarily hidden from the battery optimization page.
+            # (
+            #     "Wert pro MWh entladene Energie (€/MWh)",
+            #     normalized_metrics["value_per_mwh_discharged"],
+            #     None,
+            #     _KPI_TOOLTIPS["value_per_mwh_discharged"],
+            # ),
             (
                 "Wert pro kWh Batteriekapazität (€/kWh)",
                 normalized_metrics["value_per_kwh_capacity"],
@@ -733,23 +735,21 @@ def render_battery_optimization(
         accent="#14b8a6",
     )
     st.divider()
-    plot_tabs = st.tabs(
-        [
-            "Kostenwirkung",
-            "Durchsatz",
-            "Entladung",
-            "Preis-Spread",
-            "Kapazität",
-            "Zyklen",
-        ]
+    visible_normalized_metrics = tuple(
+        metric
+        for metric in _NORMALIZED_PLOT_METRICS
+        if metric[0] not in _HIDDEN_NORMALIZED_METRICS
     )
     plot_configs = [
         ("battery_optimization", "Kostenwirkung der Batterieoptimierung", None),
         *[
             (f"battery_optimization_{metric_key}", label, metric_key)
-            for metric_key, label, _ in _NORMALIZED_PLOT_METRICS
+            for metric_key, label, _ in visible_normalized_metrics
         ],
     ]
+    plot_tabs = st.tabs(
+        ["Kostenwirkung", "Durchsatz", "Preis-Spread", "Kapazität", "Zyklen"]
+    )
     for tab, (plot_key, title, metric_key) in zip(plot_tabs, plot_configs):
         with tab:
             aggregation_key = f"{plot_key}_aggregation"
@@ -792,9 +792,9 @@ def render_battery_optimization(
             battery_capacity_kwh=battery_capacity_kwh,
         ),
         key_prefix="battery_optimization_results",
-        caption=(
-            "Ausgangsdaten und Berechnungen je Messintervall; die Kennzahlen und "
-            "Diagramme werden daraus täglich, wöchentlich oder monatlich aggregiert."
-        ),
+        # caption=(
+        #     "Ausgangsdaten und Berechnungen je Messintervall; die Kennzahlen und "
+        #     "Diagramme werden daraus täglich, wöchentlich oder monatlich aggregiert."
+        # ),
         empty_info="Keine Berechnungsdaten verfügbar.",
     )
