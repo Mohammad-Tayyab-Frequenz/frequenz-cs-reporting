@@ -4,7 +4,7 @@
 """UI helpers for rendering plots and styled cards."""
 
 from collections.abc import Callable
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -47,6 +47,7 @@ def render_plot_card(
     fig: object,
     header_control: Callable[[], None] | None = None,
     key: str | None = None,
+    plotly_config: dict[str, Any] | None = None,
 ) -> None:
     """Render a plot inside a professional styled card.
 
@@ -56,6 +57,7 @@ def render_plot_card(
         header_control: Optional Streamlit control rendered at the right side of
             the card header.
         key: Optional key used to style cards that include header controls.
+        plotly_config: Optional Plotly configuration passed to Streamlit.
 
     Returns:
         Streamlit components are rendered directly.
@@ -88,6 +90,7 @@ def render_plot_card(
                     fig,
                     width="stretch",
                     height=_plotly_component_height(fig),
+                    config=plotly_config,
                 )
             elif isinstance(fig, Figure):
                 st.pyplot(fig)
@@ -111,6 +114,7 @@ def render_plot_card(
                 fig,
                 width="stretch",
                 height=_plotly_component_height(fig),
+                config=plotly_config,
             )
         elif isinstance(fig, Figure):
             st.pyplot(fig)

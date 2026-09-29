@@ -527,11 +527,13 @@ def test_overview_plot_renders_without_day_ahead_price(
     """The overview plot does not require a secondary price y-axis."""
     rendered_titles: list[str] = []
     rendered_figures: list[go.Figure] = []
+    rendered_configs: list[dict[str, object] | None] = []
 
-    def fake_render_plot_card(title: str, fig: object) -> None:
+    def fake_render_plot_card(title: str, fig: object, **kwargs: object) -> None:
         rendered_titles.append(title)
         assert isinstance(fig, go.Figure)
         rendered_figures.append(fig)
+        rendered_configs.append(kwargs.get("plotly_config"))
 
     monkeypatch.setattr(
         "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
@@ -556,6 +558,8 @@ def test_overview_plot_renders_without_day_ahead_price(
 
     assert rendered_titles == ["Lastgang Übersicht"]
     assert rendered_figures[0].layout.height == 650
+    assert rendered_figures[0].layout.xaxis.tickformat == "%a, %d.%m.%Y<br>%H:%M"
+    assert rendered_configs == [{"locale": "de"}]
 
 
 def test_plotly_component_height_adds_room_around_fixed_height_figures() -> None:
