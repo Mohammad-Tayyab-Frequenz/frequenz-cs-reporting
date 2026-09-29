@@ -18,7 +18,6 @@ from frequenz.cs_reporting.views.component_sources import (
     PLOT_SOURCE_OPTIONS,
     component_analysis_for_source,
     component_source_has_data,
-    render_component_source_selector,
     selected_component_plot_source,
 )
 
@@ -94,43 +93,13 @@ TABLE_TAB_SPECS = [
 ]
 
 
-def _style_download_button(
-    column: st.delta_generator.DeltaGenerator,
-    *,
-    width: int = 170,
-    color: str = "#1e4f87",
-) -> None:
-    """Inject CSS so the download button matches the dashboard styling."""
-    column.markdown(
-        f"""
-        <style>
-        div[data-testid="stDownloadButton"] {{
-            float: right;
-            margin-top: 0;
-            margin-bottom: 0;
-            display: inline-flex;
-        }}
-        div[data-testid="stDownloadButton"] button {{
-            min-width: {width}px;
-            background-color: {color} !important;
-            color: #ffffff !important;
-            border: 1px solid {color} !important;
-            border-radius: 8px !important;
-            font-weight: 600 !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_table_section(
     df: pd.DataFrame | None,
     *,
     key_prefix: str,
-    caption: str | None = None,
     empty_info: str | None = None,
-    header_control: Callable[[], None] | None = None,
+    component_source: str | None = None,
+    component_source_state_key: str | None = None,
 ) -> None:
     """Render a captioned AgGrid table, safely handling None/empty data.
 
@@ -138,39 +107,30 @@ def render_table_section(
         df: The dataframe to display. If ``None`` or empty, an empty table is shown
             and an optional info message is rendered.
         key_prefix: Unique key prefix for the grid instance (used by Streamlit state).
-        caption: Optional caption shown above the table.
         empty_info: Optional info message to show when ``df`` is ``None`` or empty.
-        header_control: Optional control rendered between the caption and download
-            button.
+        component_source: Selected component source shown in the table toolbar.
+        component_source_state_key: Session-state key updated when the source
+            selector in the table toolbar changes.
 
     Returns:
         Streamlit components are rendered directly.
     """
     safe_df = df if (df is not None and not df.empty) else pd.DataFrame()
     display_df = _round_numeric_columns(safe_df)
-    header_cols = st.columns([1, 0.24, 0.125] if header_control else [1, 0.125])
-    if caption:
-        header_cols[0].caption(caption)
-    else:
-        header_cols[0].markdown("", unsafe_allow_html=True)
-    download_col = header_cols[-1]
+    selected_source = tables.aggrid_table(
+        display_df,
+        key_prefix=key_prefix,
+        download_file_name=f"{key_prefix}.csv",
+        component_source=component_source,
+    )
 
-    if header_control:
-        with header_cols[1]:
-            header_control()
-
-    if not safe_df.empty:
-        csv_bytes = display_df.to_csv(index=False, sep=";", decimal=",").encode("utf-8")
-        _style_download_button(download_col)
-        download_col.download_button(
-            label="CSV herunterladen",
-            data=csv_bytes,
-            file_name=f"{key_prefix}.csv",
-            mime="text/csv",
-            key=f"{key_prefix}_download",
-        )
-
-    tables.aggrid_table(display_df, key_prefix=key_prefix)
+    if (
+        component_source_state_key
+        and selected_source
+        and selected_source != component_source
+    ):
+        st.session_state[component_source_state_key] = selected_source
+        st.rerun()
 
     if (df is None or df.empty) and empty_info:
         st.info(empty_info)
@@ -258,25 +218,13 @@ def render_master_df(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
         Streamlit components are rendered directly.
     """
     if master_df is not None and not master_df.empty:
-        header_cols = st.columns([1, 0.125])
-        header_cols[0].caption("Standardisierter Haupt-DataFrame")
         display_df = _round_numeric_columns(
             mapper.to_display(master_df).rename(columns=_MASTER_DF_DISPLAY_RENAMES)
-        )
-        master_csv = display_df.to_csv(index=False, sep=";", decimal=",").encode(
-            "utf-8"
-        )
-        _style_download_button(header_cols[1])
-        header_cols[1].download_button(
-            label="CSV herunterladen",
-            data=master_csv,
-            file_name="master_df.csv",
-            mime="text/csv",
-            key="master_df_download",
         )
         tables.aggrid_table(
             display_df,
             key_prefix="master_df",
+            download_file_name="master_df.csv",
         )
     else:
         st.info("Master-DF nicht verfügbar (keine MicrogridConfig).")
@@ -302,7 +250,6 @@ def render_data_tabs(
     Returns:
         Streamlit components are rendered directly.
     """
-    st.subheader("Datentabellen")
     available_specs = []
     for spec in TABLE_TAB_SPECS:
         if _table_spec_has_data(spec, tables_dict, master_df, mcfg, component_types):
@@ -330,7 +277,6 @@ def render_data_tabs(
         value = tables_dict.get(spec["table_key"])
         with tab:
             analysis_key = spec.get("analysis_key")
-            header_control = None
             empty_info = spec.get("empty_info")
             if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS:
                 table_key = str(spec["table_key"])
@@ -355,25 +301,9 @@ def render_data_tabs(
                     selected_source,
                 )
 
-                def render_source_selector(
-                    analysis_key: str = analysis_key,
-                    table_key: str = table_key,
-                ) -> None:
-                    render_component_source_selector(
-                        mcfg,
-                        component_types,
-                        analysis_key,
-                        state_key=f"{table_key}_component_plot_source",
-                        widget_key=f"{table_key}_table_component_plot_source",
-                        label_visibility="collapsed",
-                    )
-
-                header_control = render_source_selector
-
             render_table_section(
                 value if isinstance(value, pd.DataFrame) else None,
                 key_prefix=spec["key_prefix"],
-                caption=spec.get("caption"),
                 empty_info=(
                     None
                     if (
@@ -383,7 +313,16 @@ def render_data_tabs(
                     )
                     else empty_info
                 ),
-                header_control=header_control,
+                component_source=(
+                    selected_source
+                    if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS
+                    else None
+                ),
+                component_source_state_key=(
+                    f"{table_key}_component_plot_source"
+                    if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS
+                    else None
+                ),
             )
             if (
                 analysis_key in PLOT_SOURCE_ANALYSIS_KEYS

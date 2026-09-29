@@ -8,12 +8,8 @@
 
 ## New Features
 
+- Data tables now provide a compact toolbar in every tab, with controls to
+  select the component data source where applicable, reset active filters, and
+  download the displayed data as CSV.
 
 ## Bug Fixes
-
-- Component plots and tables for PV, battery, wind, and CHP now fall back to
-  inverter/component data when meter data is unavailable, preventing empty tabs
-  or failures for microgrids without meter-level component data.
-- Time-series plot cards now allocate enough vertical space for Plotly charts,
-  legends, and range sliders, preventing clipped chart content.
-
