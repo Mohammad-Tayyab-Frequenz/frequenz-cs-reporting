@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Iterable, cast
 
 import streamlit as st
@@ -25,6 +26,7 @@ def _resolve_container(container: Any | None) -> Any:
 def microgrid_selector(
     label: str = "Microgrid-ID",
     ids: Iterable[int] = range(1, 2),
+    format_func: Callable[[int], str] = str,
     key_prefix: str = "",
     container: Any | None = None,
 ) -> int:
@@ -33,6 +35,7 @@ def microgrid_selector(
     Args:
         label: UI label for the selector.
         ids: Iterable of available microgrid IDs.
+        format_func: Function used to create an option's display label.
         key_prefix: Optional prefix for Streamlit widget keys.
         container: Optional Streamlit container to render into.
 
@@ -42,7 +45,11 @@ def microgrid_selector(
     target = _resolve_container(container)
     options: list[int] = list(ids)
     value = target.selectbox(
-        label, options=options, index=0, key=f"{key_prefix}microgrid_id"
+        label,
+        options=options,
+        index=0,
+        format_func=format_func,
+        key=f"{key_prefix}microgrid_id",
     )
 
     return cast(int, value)

@@ -122,6 +122,45 @@ def get_microgrid_ids() -> list[int]:
     return sorted(_load_microgrid_configs())
 
 
+@st.cache_data(show_spinner=False, ttl=300)
+def get_microgrid_names() -> dict[int, str | None]:
+    """Return current names for the configured microgrids from the Assets API.
+
+    Names are refreshed at most every five minutes.  A configured TOML name is
+    used when the Assets API is unavailable or does not provide a name.
+    """
+    configs = _load_microgrid_configs()
+    names = {microgrid_id: config.name for microgrid_id, config in configs.items()}
+
+    auth_key = require_env("FREQUENZ_API_KEY")
+    sign_secret = require_env("FREQUENZ_API_SECRET")
+    assets_api_url = require_env("ASSETS_API_URL")
+
+    async def load() -> dict[int, str | None]:
+        assets_client = AssetsApiClient(
+            assets_api_url,
+            auth_key=auth_key,
+            sign_secret=sign_secret,
+        )
+        try:
+            microgrids = await assets_client.list_microgrids(
+                microgrid_ids=(MicrogridId(microgrid_id) for microgrid_id in configs)
+            )
+            return {int(microgrid.id): microgrid.name for microgrid in microgrids}
+        finally:
+            await assets_client.disconnect()
+
+    try:
+        asset_names = asyncio.run(load())
+    except Exception:  # pylint: disable=broad-except
+        return names
+
+    return {
+        microgrid_id: asset_names.get(microgrid_id) or configured_name
+        for microgrid_id, configured_name in names.items()
+    }
+
+
 @st.cache_data(show_spinner=False)
 def get_meter_display_names(microgrid_id: int) -> dict[str, str]:
     """Return component display names for a microgrid from the Assets API.

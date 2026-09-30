@@ -21,6 +21,7 @@ from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
     get_microgrid_config,
+    get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
     get_microgrid_data,
@@ -161,9 +162,6 @@ def render() -> None:
     Returns:
         Streamlit components are rendered directly.
     """
-    # Page header
-    st.title("Reporting-Dashboard")
-
     # Collect user inputs from sidebar
     today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
@@ -209,6 +207,11 @@ def render() -> None:
         with st.spinner("Microgrid-Daten werden geladen..."):
             component_types = list(get_component_types(microgrid_id))
             mcfg = get_microgrid_config(microgrid_id)
+            microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
+            heading = f"MID{microgrid_id}"
+            if microgrid_name:
+                heading = f"{heading} - {microgrid_name}"
+            st.title(heading)
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
                 start_date=previous_start_time,

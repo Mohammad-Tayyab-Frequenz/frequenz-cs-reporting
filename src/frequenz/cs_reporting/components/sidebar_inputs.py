@@ -12,7 +12,10 @@ from typing import Any, Sequence
 import streamlit as st
 
 from frequenz.cs_reporting.components import inputs
-from frequenz.cs_reporting.services.client_factory import get_microgrid_ids
+from frequenz.cs_reporting.services.client_factory import (
+    get_microgrid_ids,
+    get_microgrid_names,
+)
 
 TIMEZONE_OPTIONS = (
     "Europe/Berlin",
@@ -65,9 +68,13 @@ def collect_sidebar_inputs(
     with st.sidebar.form(form_key):
         # Microgrid Section
         st.subheader("Microgrid")
+        microgrid_names = get_microgrid_names()
         microgrid_id = inputs.microgrid_selector(
             label="Microgrid-ID",
             ids=get_microgrid_ids(),
+            format_func=lambda microgrid_id: _microgrid_option_label(
+                microgrid_id, microgrid_names
+            ),
             key_prefix=key_prefix,
             container=st,
         )
@@ -163,6 +170,14 @@ def collect_sidebar_inputs(
         st.session_state[state_key] = current_selection
 
     return dict(st.session_state[state_key])
+
+
+def _microgrid_option_label(
+    microgrid_id: int, microgrid_names: dict[int, str | None]
+) -> str:
+    """Return the sidebar label for a microgrid selection option."""
+    name = microgrid_names.get(microgrid_id)
+    return f"{microgrid_id} — {name}" if name else str(microgrid_id)
 
 
 # pylint: disable=too-many-instance-attributes
