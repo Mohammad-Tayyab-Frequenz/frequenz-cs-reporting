@@ -3,7 +3,9 @@
 
 """Tests for the frequenz.cs_reporting package."""
 
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -11,10 +13,13 @@ import pytest
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
+from frequenz.cs_reporting.components import inputs
+from frequenz.cs_reporting.components.sidebar_inputs import _microgrid_option_label
 from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
+from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
@@ -60,6 +65,83 @@ class _FakeMicrogridConfig:
     ) -> list[int] | None:
         """Return configured fake IDs for a component type/category pair."""
         return self._ids.get((component_type, component_category or ""), [])
+
+
+class _FakeSelectboxContainer:
+    """Capture selectbox arguments without rendering a Streamlit widget."""
+
+    def __init__(self) -> None:
+        self.format_func: Callable[[int], str] | None = None
+
+    def selectbox(
+        self,
+        _label: str,
+        *,
+        options: list[int],
+        index: int,
+        format_func: Callable[[int], str],
+        key: str,
+    ) -> int:
+        """Store widget arguments and return the first option."""
+        del key
+        self.format_func = format_func
+        return options[index]
+
+
+def test_microgrid_option_label_includes_configured_name() -> None:
+    """A configured microgrid name is displayed beside its ID."""
+    assert _microgrid_option_label(243, {243: "Solarlandbau Priegendorf"}) == (
+        "243 — Solarlandbau Priegendorf"
+    )
+    assert _microgrid_option_label(244, {243: "Solarlandbau Priegendorf"}) == "244"
+
+
+def test_microgrid_selector_uses_custom_option_formatter() -> None:
+    """The selector preserves IDs while allowing descriptive option labels."""
+    container = _FakeSelectboxContainer()
+
+    selected_id = inputs.microgrid_selector(
+        ids=[243],
+        format_func=lambda microgrid_id: f"{microgrid_id} — Site name",
+        container=container,
+    )
+
+    assert selected_id == 243
+    assert container.format_func is not None
+    assert container.format_func(243) == "243 — Site name"
+
+
+def test_microgrid_names_prefer_current_assets_api_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Current Assets API names take precedence over configured TOML names."""
+    client_factory.get_microgrid_names.clear()
+    monkeypatch.setattr(
+        client_factory,
+        "_load_microgrid_configs",
+        lambda: {243: SimpleNamespace(name="Configured name")},
+    )
+    monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
+
+    class FakeAssetsClient:
+        """Return a current microgrid name from the Assets API."""
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def list_microgrids(
+            self, microgrid_ids: Iterable[int] = ()
+        ) -> list[SimpleNamespace]:
+            assert [int(microgrid_id) for microgrid_id in microgrid_ids] == [243]
+            return [SimpleNamespace(id=243, name="Current API name")]
+
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
+
+    assert client_factory.get_microgrid_names() == {243: "Current API name"}
+    client_factory.get_microgrid_names.clear()
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:
