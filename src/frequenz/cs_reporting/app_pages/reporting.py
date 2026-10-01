@@ -209,10 +209,8 @@ def render() -> None:
             component_types = list(get_component_types(microgrid_id))
             mcfg = get_microgrid_config(microgrid_id)
             microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
-            heading = f"MID{microgrid_id}"
             if microgrid_name:
-                heading = f"{heading} - {microgrid_name}"
-            st.title(heading)
+                st.title(microgrid_name)
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
                 start_date=previous_start_time,

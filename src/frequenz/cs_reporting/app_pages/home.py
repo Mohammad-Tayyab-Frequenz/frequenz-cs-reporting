@@ -223,7 +223,7 @@ def render() -> None:
 
 PAGE = PageSpec(
     key="home",
-    title="Übersicht",
+    title="Startseite",
     icon="",
     order=0,
     render=render,

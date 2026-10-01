@@ -50,6 +50,13 @@ def _format_previous_value(label: str, value: object) -> str:
     return f"Vorperiode: {_fmt_metric_value(value)}{unit_suffix}"
 
 
+def _format_current_value(label: str, value: object) -> str:
+    """Format the current KPI value together with its display unit."""
+    unit = _unit_from_label(label)
+    unit_suffix = f" {unit}" if unit else ""
+    return f"{_fmt_metric_value(value)}{unit_suffix}"
+
+
 _PRIOR_PERIOD_TOOLTIP = (
     "Vorperiode ist immer derselbe Zeitraum davor. "
     "Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen."
@@ -86,19 +93,13 @@ def _delta_html(
     if not isfinite(current_value) or not isfinite(previous_value) or previous_value == 0:
         return ""
 
-    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
+    delta = ((current_value - previous_value) / abs(previous_value)) * 100
     if delta == 0 or comparison == "neutral":
         delta_class = "kpi-card__delta--neutral"
     elif (delta > 0) == (comparison == "more_is_good"):
         delta_class = "kpi-card__delta--positive"
     else:
         delta_class = "kpi-card__delta--negative"
-    delta = ((current_value - previous_value) / abs(previous_value)) * 100
-    delta_class = (
-        "kpi-card__delta--positive"
-        if delta > 0
-        else "kpi-card__delta--negative" if delta < 0 else "kpi-card__delta--neutral"
-    )
     sign = "+" if delta > 0 else ""
     return (
         f'<span class="kpi-card__delta {delta_class}">'
@@ -403,7 +404,8 @@ def render_box_grid(
                     delta_html = _delta_html(val, previous_val, comparison)
                     value_html = (
                         '<div class="kpi-card__value-row">'
-                        f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
+                        f'<div class="kpi-card__value">'
+                        f"{_format_current_value(label, val)}</div>"
                         f"{delta_html}"
                         "</div>"
                     )
@@ -427,19 +429,11 @@ def render_box_grid(
                 card_html = (
                     f'<div class="kpi-card" style="--kpi-accent:{accent};">'
                     '<div class="kpi-card__label-row">'
-                    f'<div class="kpi-card__label">{escape(label)}</div>'
+                    f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
                     f"{tooltip_html}</div>"
                     f"{value_html}{previous_html}</div>"
                 )
-
                 col.markdown(
-                    f"""
-                    <div class="kpi-card" style="--kpi-accent:{accent};">
-                        <div class="kpi-card__label">{_kpi_label_html(label)}</div>
-                        {value_html}
-                        {previous_html}
-                    </div>
-                    """,
                     card_html,
                     unsafe_allow_html=True,
                 )
@@ -494,17 +488,6 @@ def render_summary_boxes(
     _ensure_kpi_css()
     component_types_provided = component_types is not None
     component_type_set = set(component_types or [])
-
-    # Section heading
-    st.markdown(
-        """
-        <div class="metrics-heading">
-            <h2>Leistungskennzahlen</h2>
-            <div class="metrics-heading__line"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
     for section in SECTION_SPECS:
         box_specs = _filter_section_box_specs(

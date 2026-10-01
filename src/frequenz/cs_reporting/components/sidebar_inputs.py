@@ -70,13 +70,14 @@ def collect_sidebar_inputs(
         st.subheader("Microgrid")
         microgrid_names = get_microgrid_names()
         microgrid_id = inputs.microgrid_selector(
-            label="Microgrid-ID",
+            label="Microgrid auswählen",
             ids=get_microgrid_ids(),
             format_func=lambda microgrid_id: _microgrid_option_label(
                 microgrid_id, microgrid_names
             ),
             key_prefix=key_prefix,
             container=st,
+            label_visibility="collapsed",
         )
 
         st.divider()

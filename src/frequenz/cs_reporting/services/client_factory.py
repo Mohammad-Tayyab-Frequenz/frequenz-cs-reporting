@@ -141,38 +141,11 @@ def get_microgrid_names() -> dict[int, str | None]:
     """
     configs = _load_microgrid_configs()
     names = {microgrid_id: config.name for microgrid_id, config in configs.items()}
-
-def _battery_capacity_kwh_from_components(components: Iterable[object]) -> float | None:
-    """Return the summed battery capacity from electrical component metadata."""
-    battery_capacity_kwh = 0.0
-    for component in components:
-        if not isinstance(component, Battery):
-            continue
-
-        bounds = component.rated_bounds.get(Metric.BATTERY_CAPACITY)
-        if bounds is None or bounds.upper is None:
-            continue
-        battery_capacity_kwh += float(bounds.upper)
-
-    return battery_capacity_kwh or None
-
-
-@st.cache_data(show_spinner=False)
-def get_battery_capacity_kwh(microgrid_id: int) -> float | None:
-    """Return installed battery capacity for a microgrid from the Assets API.
-
-    Args:
-        microgrid_id: Identifier for the target microgrid.
-
-    Returns:
-        Installed battery capacity in kWh, or ``None`` when unavailable.
-    """
     auth_key = require_env("FREQUENZ_API_KEY")
     sign_secret = require_env("FREQUENZ_API_SECRET")
     assets_api_url = require_env("ASSETS_API_URL")
 
     async def load() -> dict[int, str | None]:
-    async def load() -> float | None:
         assets_client = AssetsApiClient(
             assets_api_url,
             auth_key=auth_key,
@@ -195,14 +168,6 @@ def get_battery_capacity_kwh(microgrid_id: int) -> float | None:
         microgrid_id: asset_names.get(microgrid_id) or configured_name
         for microgrid_id, configured_name in names.items()
     }
-            components = await assets_client.list_microgrid_electrical_components(
-                MicrogridId(microgrid_id)
-            )
-            return _battery_capacity_kwh_from_components(components)
-        finally:
-            await assets_client.disconnect()
-
-    return asyncio.run(load())
 
 
 @st.cache_data(show_spinner=False)

@@ -24,8 +24,6 @@ from frequenz.cs_reporting.components.ui import (
     _plotly_component_height,
 )
 from frequenz.cs_reporting.services import client_factory
-from frequenz.cs_reporting.services.client_factory import (
-    _battery_capacity_kwh_from_components,
 from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
 )
@@ -105,9 +103,10 @@ class _FakeSelectboxContainer:
         index: int,
         format_func: Callable[[int], str],
         key: str,
+        label_visibility: str,
     ) -> int:
         """Store widget arguments and return the first option."""
-        del key
+        del key, label_visibility
         self.format_func = format_func
         return options[index]
 
