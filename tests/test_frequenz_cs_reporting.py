@@ -29,9 +29,12 @@ from frequenz.cs_reporting.views.dashboard import (
     split_periods,
 )
 from frequenz.cs_reporting.views.metric_renderers import (
+    _DELTA_COMPARISONS,
     SECTION_SPECS,
     _build_consumption_breakdown,
+    _delta_html,
     _filter_section_box_specs,
+    _kpi_label_html,
     _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
 )
@@ -426,6 +429,33 @@ def test_materialize_boxes_includes_previous_metric_values() -> None:
     )
 
     assert boxes == [("Netzbezug (kWh)", 110.0, 100.0)]
+
+
+def test_kpi_delta_colours_follow_metric_comparison_semantics() -> None:
+    """KPI delta colours reflect each metric's intended interpretation."""
+    assert "kpi-card__delta--neutral" in _delta_html(110.0, 100.0, "neutral")
+    assert "kpi-card__delta--positive" in _delta_html(110.0, 100.0, "more_is_good")
+    assert "kpi-card__delta--negative" in _delta_html(90.0, 100.0, "more_is_good")
+
+
+def test_balance_and_battery_kpi_delta_comparisons() -> None:
+    """Balance ratios improve when rising; battery flows remain neutral."""
+    assert _DELTA_COMPARISONS["Autarkiegrad (%)"] == "more_is_good"
+    assert _DELTA_COMPARISONS["Eigenverbrauchsquote (%)"] == "more_is_good"
+    assert _DELTA_COMPARISONS["Erzeugung zu Batterie (kWh)"] == "neutral"
+    assert _DELTA_COMPARISONS["Netz zu Batterie (kWh)"] == "neutral"
+    assert _DELTA_COMPARISONS["Batterie zu Netz (kWh)"] == "neutral"
+    assert _DELTA_COMPARISONS["Batterie zu Verbrauch (kWh)"] == "neutral"
+
+
+def test_kpi_label_includes_prior_period_explanation() -> None:
+    """Every KPI label carries the compact prior-period help tooltip."""
+    label_html = _kpi_label_html("Netzbezug (kWh)")
+
+    assert 'class="kpi-card__help"' in label_html
+    assert ">?<span" in label_html
+    assert "Vorperiode ist immer derselbe Zeitraum davor" in label_html
+    assert "4 ausgewählten Tagen" in label_html
 
 
 def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
