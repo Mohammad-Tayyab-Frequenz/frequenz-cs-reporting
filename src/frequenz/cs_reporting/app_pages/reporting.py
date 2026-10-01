@@ -169,6 +169,7 @@ def render() -> None:
         default_end=today,
         resolution_options=("15min", "30min", "1hour"),
         default_resolution="15min",
+        key_prefix="reporting_",
     )
 
     timezone = selections["timezone"]

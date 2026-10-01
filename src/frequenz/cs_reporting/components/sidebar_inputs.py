@@ -252,11 +252,13 @@ def collect_solar_sidebar_inputs(
             "Microgrid auswählen",
             options=available_microgrids,
             format_func=str,
+            key=f"{key_prefix}microgrid_id",
         )
         component_category = st.selectbox(
             "Komponentenkategorie auswählen",
             options=["inverter", "meter"],
             index=0,
+            key=f"{key_prefix}component_category",
         )
 
         st.divider()
@@ -265,10 +267,12 @@ def collect_solar_sidebar_inputs(
             "Sprache",
             options=["Deutsch", "Englisch"],
             index=0,
+            key=f"{key_prefix}language",
         )
         resample_period = st.text_input(
             "Resampling-Intervall (Sekunden)",
             value=default_resample_period,
+            key=f"{key_prefix}resample_period",
         )
         rolling_view_duration = st.slider(
             "Rolling-View-Dauer (Tage)",
@@ -276,11 +280,13 @@ def collect_solar_sidebar_inputs(
             max_value=60,
             value=30,
             step=1,
+            key=f"{key_prefix}rolling_view_duration",
         )
         baseline_models = st.multiselect(
             "Baseline-Modelle",
             options=list(baseline_model_options),
             default=default_baseline_models,
+            key=f"{key_prefix}baseline_models",
         )
 
         st.divider()
@@ -288,11 +294,13 @@ def collect_solar_sidebar_inputs(
         start_date = st.date_input(
             "Startdatum",
             value=default_start_date,
+            key=f"{key_prefix}start_date",
         )
         time_zone = st.selectbox(
             "Zeitzone",
             options=timezone_options_list,
             index=timezone_default_index,
+            key=f"{key_prefix}timezone",
         )
 
         submit_button = st.form_submit_button("Starten", use_container_width=True)

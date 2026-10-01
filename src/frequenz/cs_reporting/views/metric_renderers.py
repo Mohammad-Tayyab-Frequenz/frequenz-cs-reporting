@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from html import escape
 from typing import Any, Iterable
 
 import streamlit as st
@@ -45,7 +46,34 @@ def _format_previous_value(label: str, value: object) -> str:
     return f"Vorperiode: {_fmt_metric_value(value)}{unit_suffix}"
 
 
-def _delta_html(current: object, previous: object) -> str:
+_PRIOR_PERIOD_TOOLTIP = (
+    "Vorperiode ist immer derselbe Zeitraum davor. "
+    "Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen."
+)
+
+_DELTA_COMPARISONS = {
+    "Netzbezug (kWh)": "neutral",
+    "Netzeinspeisung (kWh)": "neutral",
+    "Gesamtverbrauch Strom (kWh)": "neutral",
+    "Gesamterzeugung (kWh)": "more_is_good",
+    "PV-Erzeugung (kWh)": "more_is_good",
+    "KWK-Erzeugung (kWh)": "more_is_good",
+    "Wind-Erzeugung (kWh)": "more_is_good",
+    "Eigenverbrauch (kWh)": "more_is_good",
+    "Autarkiegrad (%)": "more_is_good",
+    "Eigenverbrauchsquote (%)": "more_is_good",
+    "Erzeugung zu Batterie (kWh)": "neutral",
+    "Netz zu Batterie (kWh)": "neutral",
+    "Batterie zu Netz (kWh)": "neutral",
+    "Batterie zu Verbrauch (kWh)": "neutral",
+}
+
+
+def _delta_html(
+    current: object,
+    previous: object,
+    comparison: str = "less_is_good",
+) -> str:
     """Build a percentage-delta badge for numeric KPI values."""
     if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
         return ""
@@ -53,15 +81,27 @@ def _delta_html(current: object, previous: object) -> str:
         return ""
 
     delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
-    delta_class = (
-        "kpi-card__delta--positive"
-        if delta > 0
-        else "kpi-card__delta--negative" if delta < 0 else "kpi-card__delta--neutral"
-    )
+    if delta == 0 or comparison == "neutral":
+        delta_class = "kpi-card__delta--neutral"
+    elif (delta > 0) == (comparison == "more_is_good"):
+        delta_class = "kpi-card__delta--positive"
+    else:
+        delta_class = "kpi-card__delta--negative"
     sign = "+" if delta > 0 else ""
     return (
         f'<span class="kpi-card__delta {delta_class}">'
         f"{sign}{_fmt_de(delta, 1)}%</span>"
+    )
+
+
+def _kpi_label_html(label: str) -> str:
+    """Render a KPI label together with the prior-period explanation."""
+    tooltip = escape(_PRIOR_PERIOD_TOOLTIP, quote=True)
+    return (
+        f'<span class="kpi-card__label-text">{escape(label)}</span>'
+        f'<span class="kpi-card__help" role="img" tabindex="0" '
+        f'aria-label="{tooltip}">?'
+        f'<span class="kpi-card__help-tooltip">{tooltip}</span></span>'
     )
 
 
@@ -72,7 +112,7 @@ _SECTION_ACCENTS: dict[str, str] = {
     "Netzkennzahlen": "#3b82f6",  # blue  – grid
     "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
     "Verbrauchskennzahlen": "#f59e0b",  # amber – consumption
-    "Batteriekennzahlen": "#14b8a6",  # teal – battery
+    "Batteriekennzahlen": "#64748b",  # gray – neutral battery flows
     "Bilanzkennzahlen": "#8b5cf6",  # purple – balance ratios
 }
 
@@ -295,11 +335,13 @@ def _filter_section_box_specs(
     ]
 
 
+# pylint: disable = too-many-locals
 def render_box_grid(
     boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
     per_row: int = 3,
     row_gap: int = 12,
     accent: str = "#3b82f6",
+    delta_comparisons: dict[str, str] | None = None,
 ) -> None:
     """Render KPI boxes in a professional card grid.
 
@@ -308,6 +350,8 @@ def render_box_grid(
         per_row: Maximum number of boxes to render per row.
         row_gap: Vertical gap between rows in pixels.
         accent: Left-border accent colour for the cards.
+        delta_comparisons: Mapping of metric labels to comparison semantics. Values
+            are ``"more_is_good"``, ``"less_is_good"``, or ``"neutral"``.
 
     Returns:
         Streamlit markup is written directly to the page.
@@ -335,7 +379,8 @@ def render_box_grid(
                         '<div class="kpi-card__value kpi-card__value--null">—</div>'
                     )
                 else:
-                    delta_html = _delta_html(val, previous_val)
+                    comparison = (delta_comparisons or {}).get(label, "less_is_good")
+                    delta_html = _delta_html(val, previous_val, comparison)
                     value_html = (
                         '<div class="kpi-card__value-row">'
                         f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
@@ -353,7 +398,7 @@ def render_box_grid(
                 col.markdown(
                     f"""
                     <div class="kpi-card" style="--kpi-accent:{accent};">
-                        <div class="kpi-card__label">{label}</div>
+                        <div class="kpi-card__label">{_kpi_label_html(label)}</div>
                         {value_html}
                         {previous_html}
                     </div>
@@ -462,7 +507,12 @@ def render_summary_boxes(
 
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         per_row = section.get("per_row", 3)
-        render_box_grid(boxes, per_row=per_row, accent=accent)
+        render_box_grid(
+            boxes,
+            per_row=per_row,
+            accent=accent,
+            delta_comparisons=_DELTA_COMPARISONS,
+        )
 
     # Consumption breakdown bar
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
