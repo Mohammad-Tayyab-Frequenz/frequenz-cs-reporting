@@ -79,6 +79,7 @@ def render() -> None:
             "weather-based-forecast",
         ],
         default_baseline_models=DEFAULT_BASELINE_MODELS,
+        key_prefix="solar_",
     )
 
     if inputs_data is None:

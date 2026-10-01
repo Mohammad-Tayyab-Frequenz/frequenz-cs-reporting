@@ -43,9 +43,6 @@ LOGO_NAME = "neustrom_logo.png"
 
 def _inject_global_theme() -> None:
     """Inject a professional global theme for the Streamlit app."""
-    if st.session_state.get("_global_theme_injected"):
-        return
-
     st.markdown(
         """
         <style>
@@ -86,11 +83,11 @@ def _inject_global_theme() -> None:
         }
 
         [data-testid="stSidebar"] > div:first-child {
-            padding: 1.25rem 1rem 1rem;
+            padding: 0.75rem 0.85rem;
         }
 
         [data-testid="stSidebar"] [data-testid="stImage"] {
-            margin: 0 0 1.15rem;
+            margin: 0 0 0.55rem;
         }
 
         [data-testid="stSidebar"] [data-testid="stImage"] img {
@@ -102,7 +99,7 @@ def _inject_global_theme() -> None:
 
         [data-testid="stSidebar"] hr {
             border-color: var(--sidebar-border);
-            margin: 0.85rem 0 1.05rem;
+            margin: 0.5rem 0;
         }
 
         [data-testid="stSidebar"] h2,
@@ -112,61 +109,75 @@ def _inject_global_theme() -> None:
         }
 
         [data-testid="stSidebar"] h2 {
-            font-size: 1.35rem;
+            font-size: 1.15rem;
             line-height: 1.25;
             padding: 0;
-            margin: 0 0 0.45rem;
+            margin: 0 0 0.25rem;
         }
 
         [data-testid="stSidebar"] h3 {
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             line-height: 1.2;
-            margin: 0.55rem 0 0.45rem;
+            margin: 0.25rem 0;
         }
 
         [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
         [data-testid="stSidebar"] .sidebar-section-label {
             color: var(--sidebar-muted);
-            font-size: 0.78rem;
+            font-size: 0.68rem;
             font-weight: 700;
             letter-spacing: 0.14em;
             line-height: 1.2;
-            margin: 0 0 0.65rem;
+            margin: 0 0 0.35rem;
             text-transform: uppercase;
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] {
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        div[role="radiogroup"] {
             gap: 0.08rem;
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] label {
-            min-height: 2.15rem;
-            padding: 0.28rem 0.55rem;
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        div[role="radiogroup"] label {
+            min-height: 1.9rem;
+            padding: 0.14rem 0.45rem;
             border: 1px solid transparent;
             border-radius: 8px;
             color: var(--text-muted);
-            transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+            transition:
+                background 140ms ease,
+                border-color 140ms ease,
+                color 140ms ease;
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        div[role="radiogroup"] label p {
+            font-weight: 600;
+            line-height: 1.25;
+        }
+
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        div[role="radiogroup"] label:hover {
             background: rgba(30, 79, 135, 0.08);
             border-color: rgba(30, 79, 135, 0.22);
             color: var(--sidebar-text);
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        label:has(input:checked) {
             background: var(--sidebar-bg-soft);
             border-color: rgba(30, 79, 135, 0.36);
             box-shadow: inset 3px 0 0 var(--sidebar-accent);
             color: var(--sidebar-text);
-            font-weight: 700;
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) * {
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        label:has(input:checked) p {
             color: var(--sidebar-text);
         }
 
-        [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
+        [data-testid="stSidebar"] [class*="st-key-sidebar_navigation"]
+        label > div:first-child {
             transform: scale(0.78);
         }
 
@@ -174,11 +185,21 @@ def _inject_global_theme() -> None:
             border: 1px solid var(--sidebar-border);
             border-radius: 8px;
             background: rgba(255, 255, 255, 0.28);
-            padding: 0.9rem 0.85rem 0.85rem;
+            padding: 0.6rem 0.65rem;
         }
 
         [data-testid="stSidebar"] [data-testid="stForm"] [data-testid="stVerticalBlock"] {
-            gap: 0.55rem;
+            gap: 0.3rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stForm"]
+        [data-testid="stWidgetLabel"] {
+            margin-bottom: 0.1rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stForm"]
+        [data-testid="stWidgetLabel"] p {
+            font-size: 0.82rem;
         }
 
         [data-testid="stSidebar"] .stSelectbox,
@@ -188,14 +209,18 @@ def _inject_global_theme() -> None:
 
         [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
         [data-testid="stSidebar"] .stDateInput input {
-            min-height: 2.55rem;
+            min-height: 2.15rem;
             border-color: transparent;
             background: #ffffff;
         }
 
+        [data-testid="stSidebar"] [data-testid="stForm"] hr {
+            margin: 0.35rem 0;
+        }
+
         [data-testid="stSidebar"] div[data-testid="stFormSubmitButton"] > button {
-            min-height: 2.7rem;
-            margin-top: 0.15rem;
+            min-height: 2.3rem;
+            margin-top: 0;
             border: 1px solid #ff4b4b;
             background: #ff4b4b;
         }
@@ -272,7 +297,6 @@ def _inject_global_theme() -> None:
         """,
         unsafe_allow_html=True,
     )
-    st.session_state["_global_theme_injected"] = True
 
 
 def _resolve_package_root() -> Path:
@@ -380,7 +404,7 @@ def _nav_label(page: PageSpec) -> str:
 # Sidebar navigation
 def sidebar(pages: list[PageSpec]) -> PageSpec:
     if logo_bytes := _load_logo_bytes():
-        st.sidebar.image(logo_bytes, width=245)
+        st.sidebar.image(logo_bytes, width=200)
 
     st.sidebar.divider()
 
@@ -428,17 +452,18 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     elif st.session_state["navigation_radio"] not in options:
         st.session_state["navigation_radio"] = default_label
 
-    st.sidebar.markdown(
-        '<div class="sidebar-section-label">Übersicht</div>',
-        unsafe_allow_html=True,
-    )
+    with st.sidebar.container(key="sidebar_navigation"):
+        # st.markdown(
+        #     '<div class="sidebar-section-label">Übersicht</div>',
+        #     unsafe_allow_html=True,
+        # )
 
-    selected_label = st.sidebar.radio(
-        "Seiten",
-        options=display_options,
-        key="navigation_radio",
-        label_visibility="collapsed",
-    )
+        selected_label = st.radio(
+            "Seiten",
+            options=display_options,
+            key="navigation_radio",
+            label_visibility="collapsed",
+        )
 
     # Add divider after navigation
     st.sidebar.divider()
