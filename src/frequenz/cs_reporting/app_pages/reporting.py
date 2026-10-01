@@ -251,10 +251,7 @@ def render() -> None:
                 mcfg = get_microgrid_config(microgrid_id)
             with log_duration("reporting.load_microgrid_names"):
                 microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
-            heading = f"MID{microgrid_id}"
-            if microgrid_name:
-                heading = f"{heading} - {microgrid_name}"
-            st.title(heading)
+            st.title(microgrid_name or f"MID{microgrid_id}")
             snapshot = take_reporting_data_snapshot(data_key)
             if snapshot is not None:
                 df = snapshot.active_power.copy()
