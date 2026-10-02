@@ -53,6 +53,7 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _delta_html,
     _filter_section_box_specs,
     _kpi_label_html,
+    _prior_period_help_html,
     _fmt_metric_value,
     _materialize_boxes,
     _skip_missing_day_ahead_price_specs,
@@ -486,14 +487,16 @@ def test_balance_and_battery_kpi_delta_comparisons() -> None:
     assert _DELTA_COMPARISONS["Batterie zu Verbrauch (kWh)"] == "neutral"
 
 
-def test_kpi_label_includes_prior_period_explanation() -> None:
-    """Every KPI label carries the compact prior-period help tooltip."""
+def test_prior_period_explanation_is_rendered_as_a_separate_tooltip() -> None:
+    """The prior-period help can be placed beside its lower card text."""
     label_html = _kpi_label_html("Netzbezug (kWh)")
+    tooltip_html = _prior_period_help_html()
 
-    assert 'class="kpi-card__help"' in label_html
-    assert ">?<span" in label_html
-    assert "Vorperiode ist immer derselbe Zeitraum davor" in label_html
-    assert "4 ausgewählten Tagen" in label_html
+    assert 'class="kpi-card__help"' not in label_html
+    assert 'class="kpi-card__help"' in tooltip_html
+    assert ">?<span" in tooltip_html
+    assert "Vorperiode ist immer derselbe Zeitraum davor" in tooltip_html
+    assert "4 ausgewählten Tagen" in tooltip_html
 
 
 def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:

@@ -210,7 +210,7 @@ def render() -> None:
             mcfg = get_microgrid_config(microgrid_id)
             microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
             if microgrid_name:
-                st.title(microgrid_name)
+                st.title(f"MID{microgrid_id} - {microgrid_name}")
             df = get_microgrid_data(
                 microgrid_id=microgrid_id,
                 start_date=previous_start_time,

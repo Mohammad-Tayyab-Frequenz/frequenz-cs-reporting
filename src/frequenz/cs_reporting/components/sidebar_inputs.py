@@ -77,7 +77,6 @@ def collect_sidebar_inputs(
             ),
             key_prefix=key_prefix,
             container=st,
-            label_visibility="collapsed",
         )
 
         st.divider()

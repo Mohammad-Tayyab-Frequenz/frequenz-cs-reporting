@@ -108,10 +108,14 @@ def _delta_html(
 
 
 def _kpi_label_html(label: str) -> str:
-    """Render a KPI label together with the prior-period explanation."""
+    """Render a KPI label."""
+    return f'<span class="kpi-card__label-text">{escape(label)}</span>'
+
+
+def _prior_period_help_html() -> str:
+    """Render the help tooltip displayed beside the prior-period value."""
     tooltip = escape(_PRIOR_PERIOD_TOOLTIP, quote=True)
     return (
-        f'<span class="kpi-card__label-text">{escape(label)}</span>'
         f'<span class="kpi-card__help" role="img" tabindex="0" '
         f'aria-label="{tooltip}">?'
         f'<span class="kpi-card__help-tooltip">{tooltip}</span></span>'
@@ -412,7 +416,8 @@ def render_box_grid(
 
                 previous_html = (
                     f'<div class="kpi-card__previous">'
-                    f"{_format_previous_value(label, previous_val)}</div>"
+                    f'<span>{_format_previous_value(label, previous_val)}</span>'
+                    f"{_prior_period_help_html()}</div>"
                     if previous_val is not None
                     else ""
                 )

@@ -219,6 +219,9 @@
     font-size: 0.86rem;
     font-weight: 600;
     line-height: 1.25;
+    display: flex;
+    align-items: center;
+    gap: 5px;
 }
 .kpi-card__help {
     position: relative;
