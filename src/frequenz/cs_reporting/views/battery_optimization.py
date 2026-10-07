@@ -61,12 +61,12 @@ _HIDDEN_NORMALIZED_METRICS = frozenset({"value_per_mwh_discharged"})
 _KPI_TOOLTIPS = {
     "total_savings": (
         "Entladewert minus Ladekosten. "
-        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis / 1000) - "
-        "Summe(geladene kWh * Day-Ahead-Preis / 1000)."
+        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis) - "
+        "Summe(geladene kWh * Day-Ahead-Preis)."
     ),
     "value_per_mwh_throughput": (
         "Kostenwirkung je bewegter Batterieenergie. "
-        "Berechnung: Kostenwirkung / ((geladene kWh + entladene kWh) / 1000)."
+        "Berechnung: Kostenwirkung / ((geladene kWh + entladene kWh))."
     ),
     "battery_price_spread_eur_per_mwh": (
         "Durchschnittlicher Entladepreis minus durchschnittlicher Ladepreis. "
@@ -74,7 +74,7 @@ _KPI_TOOLTIPS = {
     ),
     "value_per_mwh_discharged": (
         "Kostenwirkung je abgegebener Batterieenergie. "
-        "Berechnung: Kostenwirkung / (entladene kWh / 1000)."
+        "Berechnung: Kostenwirkung / (entladene kWh)."
     ),
     "value_per_kwh_capacity": (
         "Kostenwirkung relativ zur installierten Batteriekapazität. "
@@ -82,7 +82,8 @@ _KPI_TOOLTIPS = {
     ),
     "battery_cycles": (
         "Äquivalente Vollzyklen der Batterie. "
-        "Berechnung: entladene Energie (kWh) / Batteriekapazität (kWh)."
+        "Berechnung: (geladene Energie + entladene Energie) (kWh) / "
+        "(2 * Batteriekapazität (kWh))."
     ),
 }
 _RESULTS_TABLE_SOURCE_COLUMNS = (
@@ -283,7 +284,11 @@ def calculate_normalized_battery_optimization_metrics(
         else None
     )
     battery_cycles = (
-        float(summary["battery_discharging_kwh"].sum()) / battery_capacity_kwh
+        (
+            float(summary["battery_charging_kwh"].sum())
+            + float(summary["battery_discharging_kwh"].sum())
+        )
+        / (2 * battery_capacity_kwh)
         if battery_capacity_kwh is not None and battery_capacity_kwh > 0
         else None
     )
@@ -364,7 +369,7 @@ def build_battery_optimization_results_table(
     )
     result["battery_capacity_kwh"] = battery_capacity_kwh
     result["battery_cycles"] = (
-        result["battery_discharging_kwh"] / battery_capacity_kwh
+        result["battery_throughput_kwh"] / (2 * battery_capacity_kwh)
         if battery_capacity_kwh is not None and battery_capacity_kwh > 0
         else None
     )
