@@ -54,7 +54,7 @@ def _previous_month_date(value: date) -> date:
 # pylint: disable=too-many-locals
 def render() -> None:
     """Render the battery optimization savings page."""
-    st.title("Kostenwirkung der Batterieoptimierung")
+    st.title("Batterie Reporting")
 
     today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
@@ -161,8 +161,8 @@ def render() -> None:
 
 PAGE = PageSpec(
     key="battery_optimization",
-    title="Kostenwirkung der Batterieoptimierung",
+    title="Batterie Reporting",
     icon="",
-    order=3,
+    order=2,
     render=render,
 )
