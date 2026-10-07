@@ -26,7 +26,6 @@ _MASTER_DF_DISPLAY_RENAMES = {
     "production_self_usage": "Eigenverbrauch Share",
 }
 
-
 def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `df` with number columns rounded to three decimals."""
     rounded_df = df.copy()
@@ -89,6 +88,13 @@ TABLE_TAB_SPECS = [
         "key_prefix": "ev_analysis",
         "caption": "EV-Komponenten (Zeitreihe)",
         "empty_info": "Keine EV-Daten verfügbar.",
+    },
+    {
+        "label": "Netzeinspeisung",
+        "table_key": "feed_in_table",
+        "key_prefix": "feed_in",
+        "caption": "Netzeinspeisung und zugehörige Day-Ahead-Preise",
+        "empty_info": "Keine Netzeinspeisungs- oder Day-Ahead-Preisdaten verfügbar.",
     },
 ]
 
@@ -256,7 +262,6 @@ def render_data_tabs(
             available_specs.append(spec)
 
     include_master = master_df is not None and not master_df.empty
-
     if not available_specs and not include_master:
         st.info("Keine Datentabellen verfügbar.")
         return
@@ -267,13 +272,13 @@ def render_data_tabs(
     tab_labels.extend(spec["label"] for spec in available_specs)
     tabs = st.tabs(tab_labels)
 
-    table_tabs = tabs
+    table_tab_index = 0
     if include_master:
         with tabs[0]:
             render_master_df(master_df, mapper)
-        table_tabs = tabs[1:]
+        table_tab_index += 1
 
-    for tab, spec in zip(table_tabs, available_specs):
+    for tab, spec in zip(tabs[table_tab_index:], available_specs):
         value = tables_dict.get(spec["table_key"])
         with tab:
             analysis_key = spec.get("analysis_key")

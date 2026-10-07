@@ -33,6 +33,11 @@ from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+_FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
+    "timestamp": "Zeitpunkt",
+    "grid_feed_in": "Netzeinspeisung",
+    _DAY_AHEAD_PRICE_COLUMN: "Day-Ahead-Preis (€/MWh)",
+}
 _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_import_cost_sum",
     "grid_feed_in_revenue_sum",
@@ -191,6 +196,15 @@ def _filter_component_types_for_master_df(
     )
 
 
+def _build_feed_in_day_ahead_price_table(master_df: pd.DataFrame) -> pd.DataFrame:
+    """Build the feed-in and day-ahead-price table for the data section."""
+    if not set(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS).issubset(master_df.columns):
+        return pd.DataFrame(columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.values())
+    return master_df.reindex(columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS).rename(
+        columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS
+    )
+
+
 @st.cache_data(show_spinner="Preparing analysis tables…")
 def _build_tables(
     master_df: pd.DataFrame,
@@ -227,6 +241,7 @@ def _build_tables(
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     power_table = compute_energy_summary(master_df, resolution)
+    feed_in_table = _build_feed_in_day_ahead_price_table(master_df)
     metrics = _aggregate_metrics(master_df, resolution)
 
     analyses = {
@@ -243,6 +258,7 @@ def _build_tables(
 
     return {
         "power_table": power_table,
+        "feed_in_table": feed_in_table,
         "metrics": metrics,
         "pv_analysis": analyses["pv_analysis"],
         "batt_analysis": analyses["batt_analysis"],
