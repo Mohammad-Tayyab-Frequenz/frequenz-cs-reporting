@@ -108,8 +108,9 @@ def _delta_html(
 
 
 def _kpi_label_html(label: str) -> str:
-    """Render a KPI label."""
-    return f'<span class="kpi-card__label-text">{escape(label)}</span>'
+    """Render a KPI label without duplicating the unit shown in its value."""
+    display_label = re.sub(r"\s*\([^)]*\)", "", label)
+    return f'<span class="kpi-card__label-text">{escape(display_label)}</span>'
 
 
 def _prior_period_help_html() -> str:
