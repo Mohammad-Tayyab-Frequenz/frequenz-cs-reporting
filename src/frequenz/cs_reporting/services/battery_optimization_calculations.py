@@ -76,7 +76,7 @@ def calculate_battery_optimization_intervals(
         result[["timestamp"]], battery_capacity_data
     )
     result["battery_cycles"] = (
-        result["battery_discharging_kwh"] / result["battery_capacity_kwh"]
+        result["battery_throughput_kwh"] / (2 * result["battery_capacity_kwh"])
     )
     result["value_per_kwh_capacity_interval"] = (
         result["optimization_savings_eur"] / result["battery_capacity_kwh"]
