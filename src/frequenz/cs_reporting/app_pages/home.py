@@ -69,7 +69,7 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
     _FeatureCard(
         color_class="home-card--green",
         icon="&#9728;",
-        title="Solar-Monitoring",
+        title="Solar-Reporting",
         description=(
             "Wartungsorientierte Solar-Workflow-Prüfungen mit "
             "Baseline-Modellvergleich und rollierenden Performance-Ansichten."
@@ -193,7 +193,7 @@ def render() -> None:
         if st.button("Reporting-Dashboard öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard")
     with col2:
-        if st.button("Solar-Monitoring öffnen", use_container_width=True):
+        if st.button("Solar-Reporting öffnen", use_container_width=True):
             _navigate_to("solar")
     with col3:
         if st.button("Datenexport öffnen", use_container_width=True):
