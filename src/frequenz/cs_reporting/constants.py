@@ -94,6 +94,7 @@ class TablesResult(TypedDict):
     """
 
     power_table: pd.DataFrame
+    feed_in_table: pd.DataFrame
     metrics: dict[str, float | str | None]
     pv_analysis: pd.DataFrame
     batt_analysis: pd.DataFrame
