@@ -172,6 +172,29 @@ def aggrid_table(
                 return;
             }}
 
+            // Apply the grid styling inside the component iframe without adding
+            // surrounding Streamlit containers, which introduce vertical gaps.
+            const gridHeader = gridParent.querySelector(".ag-header");
+            if (gridHeader) {{
+                Object.assign(gridHeader.style, {{
+                    background: {json.dumps(header_color)},
+                    color: "#ffffff",
+                    borderBottom: "1px solid #d9e1ec",
+                }});
+            }}
+            gridParent.querySelectorAll(".ag-header-cell-label").forEach(
+                (label) => {{ label.style.justifyContent = "center"; }}
+            );
+            gridParent.querySelectorAll(".ag-cell").forEach((cell) => {{
+                cell.style.textAlign = "left";
+                cell.style.borderColor = "#eef2f7";
+            }});
+            Object.assign(gridRoot.style, {{
+                border: "1px solid #d9e1ec",
+                borderRadius: "10px",
+                overflow: "hidden",
+            }});
+
             // Streamlit can reuse the component iframe while AgGrid is rebuilt.
             // Discard the toolbar bound to the old grid API before wiring a new one.
             const existingToolbar = document.getElementById(toolbarId);
@@ -356,56 +379,28 @@ def aggrid_table(
         }}
     """)
 
-    container_id = f"agc_{key_prefix}"
-    st.markdown(
-        f"""
-        <style>
-        /* scope to this grid instance only */
-        #{container_id} .ag-theme-{theme} .ag-header {{
-            background: {header_color} !important;
-            color: #fff !important;
-            border-bottom: 1px solid #d9e1ec !important;
-        }}
-        #{container_id} .ag-theme-{theme} .ag-header-cell-label {{
-            justify-content: center;     /* center header text */
-        }}
-        #{container_id} .ag-theme-{theme} .ag-cell {{
-            text-align: left !important; /* left align body */
-            border-color: #eef2f7 !important;
-        }}
-        #{container_id} .ag-theme-{theme} .ag-root-wrapper {{
-            border: 1px solid #d9e1ec !important;
-            border-radius: 10px !important;
-            overflow: hidden !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
+    # Render the grid directly.  Surrounding it with Markdown/container elements
+    # makes Streamlit add vertical gaps before the toolbar inside tab panels.
+    grid_response = AgGrid(
+        df,
+        gridOptions=grid_options,
+        height=height + _GRID_TOOLBAR_HEIGHT,
+        theme=theme,
+        allow_unsafe_jscode=True,
+        update_mode=GridUpdateMode.NO_UPDATE,
+        update_on=(["componentSourceChanged"] if component_source else []),
+        data_return_mode=(
+            DataReturnMode.CUSTOM if component_source else DataReturnMode.FILTERED
+        ),
+        custom_jscode_for_grid_return=(JsCode("""
+                function({eventData}) {
+                    return {component_source: eventData.context.componentSource};
+                }
+                """) if component_source else None),
+        fit_columns_on_grid_load=False,
+        columns_auto_size_mode=ColumnsAutoSizeMode.NO_AUTOSIZE,
+        key=key_prefix,
     )
-
-    with st.container():
-        st.markdown(f'<div id="{container_id}">', unsafe_allow_html=True)
-        grid_response = AgGrid(
-            df,
-            gridOptions=grid_options,
-            height=height + _GRID_TOOLBAR_HEIGHT,
-            theme=theme,
-            allow_unsafe_jscode=True,
-            update_mode=GridUpdateMode.NO_UPDATE,
-            update_on=(["componentSourceChanged"] if component_source else []),
-            data_return_mode=(
-                DataReturnMode.CUSTOM if component_source else DataReturnMode.FILTERED
-            ),
-            custom_jscode_for_grid_return=(JsCode("""
-                    function({eventData}) {
-                        return {component_source: eventData.context.componentSource};
-                    }
-                    """) if component_source else None),
-            fit_columns_on_grid_load=False,
-            columns_auto_size_mode=ColumnsAutoSizeMode.NO_AUTOSIZE,
-            key=key_prefix,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
 
     if component_source and grid_response:
         selected_source = grid_response.get("component_source")
