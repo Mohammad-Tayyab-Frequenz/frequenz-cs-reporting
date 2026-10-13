@@ -317,7 +317,7 @@ def build_master_df(
         return master_df
 
 
-@st.cache_data(ttl=300, show_spinner="Preparing report data…")
+@st.cache_data(ttl=900, show_spinner="Preparing report data…")
 def _build_master_df_cached(
     raw_df: pd.DataFrame,
     component_types: tuple[str, ...],
