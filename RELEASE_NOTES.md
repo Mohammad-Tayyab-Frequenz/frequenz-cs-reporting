@@ -43,5 +43,8 @@ platform scheduler.
 
 ## Bug Fixes
 
+- Page navigation now clears the previous page immediately, preventing stale
+  text and other content from remaining visible while the newly selected page
+  loads.
 - KPI comparison colours now reflect their meaning: grid and total-consumption values remain neutral, production, self-consumption, autonomy, and self-consumption-rate increases are positive, and battery flows remain neutral.
 - The sidebar is more compact, allowing navigation and filter controls to fit without unnecessary scrolling. Reporting and solar sidebar controls also retain separate state in Deepnote.
