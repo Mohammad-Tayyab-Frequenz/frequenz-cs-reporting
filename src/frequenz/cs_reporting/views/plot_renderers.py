@@ -408,7 +408,6 @@ def _get_active_tabs(
     battery_soc_tab: tuple[str, Callable[[], None]] | None = None
     component_type_set = set(component_types)
 
-    # 1. Overview Tab
     overview_df = _prepare_battery_usecase_df(tables)
     if overview_df is not None and not overview_df.empty:
         tabs.append(("Zeitreihen-Plot", lambda: _render_overview_plot(overview_df)))
@@ -418,7 +417,6 @@ def _get_active_tabs(
                 lambda: _render_battery_soc_plot(overview_df),
             )
 
-    # 2. Energy Mix Tab
     power_table = tables.get("power_table")
     required = {"Energy Source", "Energy [kWh]"}
     if (
@@ -433,7 +431,6 @@ def _get_active_tabs(
             )
         )
 
-    # 3. Dynamic Component Tabs
     for label, key in _COMPONENT_TABS:
         df = tables.get(f"{key}_analysis")
         config = COMPONENT_CONFIGS.get(key)
@@ -501,7 +498,6 @@ def render_plots_tabs(
     """
     palette = color_dict or COLOR_DICT
 
-    # Get configuration of what to render
     plot_tabs_config = _get_active_tabs(
         tables,
         master_df,
@@ -515,7 +511,6 @@ def render_plots_tabs(
         st.info("Keine Plot-Daten verfügbar.")
         return
 
-    # Render the UI
     tab_labels = [label for label, _ in plot_tabs_config]
     for tab, (_, render_fn) in zip(st.tabs(tab_labels), plot_tabs_config):
         with tab:

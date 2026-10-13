@@ -62,5 +62,6 @@ def test_page_discovery_uses_lightweight_manifest(
     assert [page.key for page in pages] == [
         "home",
         "reporting_dashboard",
+        "battery_optimization",
         "solar",
     ]

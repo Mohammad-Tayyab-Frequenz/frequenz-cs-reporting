@@ -41,7 +41,7 @@ LOGO_NAME = "neustrom_logo.png"
 
 
 def _inject_global_theme() -> None:
-    """Inject the global theme for the Streamlit app."""
+    """Inject the global theme CSS for the Streamlit app."""
     st.markdown(
         """
         <style>
