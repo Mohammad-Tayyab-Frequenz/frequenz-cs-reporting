@@ -80,6 +80,7 @@ def aggrid_table(
     *,
     key_prefix: str,
     page_size: int = 7,
+    header_color: str = "#1e4f87",
     height: int | None = None,
     theme: str = "balham",  # 'alpine' | 'balham' | 'material' | etc.
     default_col_width: int = 180,
@@ -93,6 +94,7 @@ def aggrid_table(
         df: Dataframe to display; an empty dataframe is used when invalid.
         key_prefix: Unique prefix for Streamlit state keys.
         page_size: Preferred page size for pagination controls.
+        header_color: Header background color.
         height: Height of the grid container in pixels.
         theme: AgGrid theme name.
         default_col_width: Default column width in pixels.
