@@ -1,7 +1,7 @@
 # License: MIT
 # Copyright © 2026 Frequenz Energy-as-a-Service GmbH
 
-"""Async and cached data access helpers for microgrid measurements."""
+"""Async and persistent data access helpers for reporting datasets."""
 
 from __future__ import annotations
 
@@ -13,12 +13,20 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 import pandas as pd
-import streamlit as st
+from frequenz.lib.notebooks.reporting.asset_optimization import (
+    data as asset_optimization_data,
+)
 from pandas.errors import PerformanceWarning
 
+from frequenz.cs_reporting.services.cache_config import get_cache_config
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
     get_microgrid_client,
+)
+from frequenz.cs_reporting.services.parquet_cache import (
+    DatasetKey,
+    ParquetRangeCache,
+    SyncMetadata,
 )
 from frequenz.cs_reporting.utils.time import validate_range
 
@@ -136,23 +144,21 @@ async def fetch_microgrid_soc_data(
     return df.copy()
 
 
-# Cached sync wrapper for Streamlit pages
-@st.cache_data(ttl=300, show_spinner=False)
 def get_microgrid_data(
     microgrid_id: int,
     start_date: datetime,
     end_date: datetime,
     resolution: timedelta,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ) -> pd.DataFrame:
-    """Sync wrapper for Streamlit pages with caching (5 min TTL).
+    """Load active-power data through the persistent Parquet cache.
 
     Args:
         microgrid_id: Identifier for the target microgrid.
         start_date: Inclusive start date of the query range.
         end_date: Exclusive end date of the query range.
         resolution: Resampling period for the returned data.
-        timeout: Request timeout in seconds.
+        timeout: Request timeout in seconds. Uses configuration when omitted.
 
     Returns:
         Dataframe of AC active power measurements. Empty when no
@@ -166,10 +172,26 @@ def get_microgrid_data(
         asyncio.get_running_loop()
     except RuntimeError:
         # No active loop: safe to block
-        return asyncio.run(
-            fetch_microgrid_data(
-                microgrid_id, start_date, end_date, resolution, timeout=timeout
-            )
+        config = get_cache_config()
+        effective_timeout = timeout or float(config.request_timeout_seconds)
+        cache = ParquetRangeCache(
+            config.storage_path,
+            sync_interval=timedelta(minutes=config.sync_interval_minutes),
+            overlap=timedelta(minutes=config.sync_overlap_minutes),
+        )
+        return cache.get(
+            _dataset_key("active_power", microgrid_id, resolution),
+            start_date,
+            end_date,
+            lambda fetch_start, fetch_end: asyncio.run(
+                fetch_microgrid_data(
+                    microgrid_id,
+                    fetch_start,
+                    fetch_end,
+                    resolution,
+                    timeout=effective_timeout,
+                )
+            ),
         )
     # Active loop: force caller to use the async API
     raise RuntimeError(
@@ -178,13 +200,12 @@ def get_microgrid_data(
     )
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def get_microgrid_soc_data(
     microgrid_id: int,
     start_date: datetime,
     end_date: datetime,
     resolution: timedelta,
-    timeout: float = 30.0,
+    timeout: float | None = None,
 ) -> pd.DataFrame:
     """Sync wrapper for battery SOC data with caching.
 
@@ -193,7 +214,7 @@ def get_microgrid_soc_data(
         start_date: Inclusive start date of the query range.
         end_date: Exclusive end date of the query range.
         resolution: Resampling period for the returned data.
-        timeout: Request timeout in seconds.
+        timeout: Request timeout in seconds. Uses configuration when omitted.
 
     Returns:
         Dataframe of battery SOC values. Empty when no SOC data is available.
@@ -205,12 +226,93 @@ def get_microgrid_soc_data(
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(
-            fetch_microgrid_soc_data(
-                microgrid_id, start_date, end_date, resolution, timeout=timeout
-            )
+        config = get_cache_config()
+        effective_timeout = timeout or float(config.request_timeout_seconds)
+        cache = ParquetRangeCache(
+            config.storage_path,
+            sync_interval=timedelta(minutes=config.sync_interval_minutes),
+            overlap=timedelta(minutes=config.sync_overlap_minutes),
+        )
+        return cache.get(
+            _dataset_key("battery_soc", microgrid_id, resolution),
+            start_date,
+            end_date,
+            lambda fetch_start, fetch_end: asyncio.run(
+                fetch_microgrid_soc_data(
+                    microgrid_id,
+                    fetch_start,
+                    fetch_end,
+                    resolution,
+                    timeout=effective_timeout,
+                )
+            ),
         )
     raise RuntimeError(
         "get_microgrid_soc_data() called from within an active event loop. "
         "Use `await fetch_microgrid_soc_data(...)` in async contexts."
     )
+
+
+def _dataset_key(name: str, microgrid_id: int, resolution: timedelta) -> DatasetKey:
+    """Build the stable storage key for a reporting dataset."""
+    seconds = int(resolution.total_seconds())
+    if seconds <= 0:
+        raise ValueError("resolution must be greater than zero")
+    return DatasetKey(name, microgrid_id, seconds)
+
+
+def get_dataset_sync_metadata(
+    name: str, microgrid_id: int, resolution: timedelta
+) -> SyncMetadata:
+    """Return persisted freshness information for a reporting dataset."""
+    config = get_cache_config()
+    cache = ParquetRangeCache(
+        config.storage_path,
+        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+        overlap=timedelta(minutes=config.sync_overlap_minutes),
+    )
+    return cache.metadata(_dataset_key(name, microgrid_id, resolution))
+
+
+def get_day_ahead_prices(
+    country_code: str,
+    start_date: datetime,
+    end_date: datetime,
+) -> pd.Series:
+    """Load ENTSO-E day-ahead prices through the persistent range cache.
+
+    Args:
+        country_code: ENTSO-E bidding-zone country code.
+        start_date: Inclusive beginning of the required price range.
+        end_date: Exclusive end of the required price range.
+
+    Returns:
+        Day-ahead prices indexed by UTC timestamp.
+    """
+    config = get_cache_config()
+    cache = ParquetRangeCache(
+        config.storage_path,
+        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+        # Prices are hourly, so refresh enough of the tail to replace at least
+        # the most recent complete value.
+        overlap=max(timedelta(minutes=config.sync_overlap_minutes), timedelta(hours=2)),
+    )
+
+    def fetch(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        prices = asset_optimization_data.fetch_day_ahead_prices(  # type: ignore[attr-defined]
+            entsoe_key=None,
+            start=fetch_start,
+            end=fetch_end,
+            country_code=country_code,
+        )
+        return prices.rename("day_ahead_price").to_frame()
+
+    frame = cache.get(
+        DatasetKey(f"day_ahead_prices_{country_code}", 0, 3600),
+        start_date,
+        end_date,
+        fetch,
+    )
+    if "day_ahead_price" not in frame.columns:
+        return pd.Series(dtype="float64", name="day_ahead_price")
+    return frame["day_ahead_price"].rename("day_ahead_price")

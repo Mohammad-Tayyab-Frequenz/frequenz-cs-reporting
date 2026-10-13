@@ -24,6 +24,7 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
+    get_dataset_sync_metadata,
     get_microgrid_data,
     get_microgrid_soc_data,
 )
@@ -220,6 +221,15 @@ def render() -> None:
                 end_date=end_time,
                 resolution=resolution,
             )
+            sync_metadata = get_dataset_sync_metadata(
+                "active_power", microgrid_id, resolution
+            )
+            if sync_metadata.status == "error":
+                last_sync = sync_metadata.last_successful_sync or "unbekannt"
+                st.warning(
+                    "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
+                    f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
+                )
             battery_soc_df = None
             battery_formula = (
                 mcfg.ctype["battery"].formula if "battery" in component_types else None

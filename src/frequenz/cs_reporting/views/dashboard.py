@@ -10,9 +10,6 @@ from typing import Any, Iterable
 
 import pandas as pd
 import streamlit as st
-from frequenz.lib.notebooks.reporting.asset_optimization.data import (
-    merge_day_ahead_prices,
-)
 from frequenz.lib.notebooks.reporting.data_processing import create_energy_report_df
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
@@ -24,6 +21,7 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
 from frequenz.cs_reporting.services.client_factory import get_meter_display_names
+from frequenz.cs_reporting.services.data_service import get_day_ahead_prices
 from frequenz.cs_reporting.ui_resources import inject_style, render_template
 from frequenz.cs_reporting.views import sections
 
@@ -279,36 +277,84 @@ def build_master_df(
         analysis and visualization. Includes derived metrics and standardized
         column names.
     """
-    component_types = [col for col in component_types if col in raw_df.columns]
+    return _build_master_df_cached(
+        raw_df,
+        tuple(component_types),
+        int(mcfg.microgrid_id),
+        timezone,
+        battery_soc_df,
+        _mcfg=mcfg,
+        _mapper=mapper,
+    )
+
+
+@st.cache_data(ttl=300, show_spinner="Preparing report data…")
+def _build_master_df_cached(
+    raw_df: pd.DataFrame,
+    component_types: tuple[str, ...],
+    microgrid_id: int,
+    timezone: str,
+    battery_soc_df: pd.DataFrame | None,
+    *,
+    _mcfg: Any,
+    _mapper: ColumnMapper,
+) -> pd.DataFrame:
+    """Build and cache the complete master dataframe transformation."""
+    filtered_component_types = [col for col in component_types if col in raw_df.columns]
 
     # Now drop components whose meters sum to zero
-    component_types = [
+    filtered_component_types = [
         c
-        for c in component_types
+        for c in filtered_component_types
         if pd.to_numeric(raw_df[c], errors="coerce").fillna(0).sum() != 0
     ]
-    component_display_names = get_meter_display_names(mcfg.microgrid_id)
+    component_display_names = get_meter_display_names(microgrid_id)
     master_df = create_energy_report_df(
         raw_df,
-        component_types,
-        mcfg,
-        mapper=mapper,
+        filtered_component_types,
+        _mcfg,
+        mapper=_mapper,
         tz_name=timezone,
         assume_tz="UTC",
         component_display_names=component_display_names,
         battery_soc_df=battery_soc_df,
     )
     try:
-        master_df = merge_day_ahead_prices(
-            master_df.set_index("timestamp"),
-            dayahead_country_code="DE_LU",
-        ).reset_index()
+        master_df = _merge_cached_day_ahead_prices(master_df, "DE_LU")
     except Exception:  # pylint: disable=broad-exception-caught
         st.warning(_ENTSOE_FETCH_WARNING)
     else:
         if not _has_day_ahead_prices(master_df):
             st.warning(_ENTSOE_FETCH_WARNING)
     return master_df
+
+
+def _merge_cached_day_ahead_prices(
+    master_df: pd.DataFrame, country_code: str
+) -> pd.DataFrame:
+    """Merge persistently cached ENTSO-E prices into a master dataframe."""
+    if master_df.empty:
+        return master_df.copy()
+    indexed = master_df.set_index("timestamp")
+    target_index = pd.DatetimeIndex(indexed.index)
+    if len(target_index) > 1:
+        resolution = target_index[1] - target_index[0]
+    else:
+        resolution = pd.Timedelta(hours=1)
+    start = pd.Timestamp(target_index.min()).to_pydatetime()
+    end = (pd.Timestamp(target_index.max()) + resolution).to_pydatetime()
+    prices = get_day_ahead_prices(country_code, start, end)
+    price_index = pd.DatetimeIndex(prices.index)
+    if target_index.tz is not None and price_index.tz is None:
+        prices.index = price_index.tz_localize(target_index.tz)
+    elif target_index.tz is None and price_index.tz is not None:
+        prices.index = price_index.tz_convert("UTC").tz_localize(None)
+    elif target_index.tz is not None and price_index.tz is not None:
+        prices.index = price_index.tz_convert(target_index.tz)
+    indexed["day_ahead_price"] = prices.sort_index().reindex(
+        target_index, method="ffill"
+    )
+    return indexed.reset_index()
 
 
 def render_dashboard(
