@@ -39,8 +39,9 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
 from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
 )
+from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
-from frequenz.cs_reporting.views import dashboard
+from frequenz.cs_reporting.views import dashboard, metric_renderers
 from frequenz.cs_reporting.views.battery_optimization import (
     _HIDDEN_NORMALIZED_METRICS,
     _KPI_CARDS_PER_ROW,
@@ -69,6 +70,8 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _filter_section_box_specs,
     _fmt_metric_value,
     _kpi_label_html,
+    _kpi_tooltip_aria_label,
+    _kpi_tooltip_content_html,
     _materialize_boxes,
     _prior_period_help_html,
     _skip_missing_day_ahead_price_specs,
@@ -526,6 +529,35 @@ def test_kpi_delta_colours_follow_metric_comparison_semantics() -> None:
     assert "kpi-card__delta--negative" in _delta_html(90.0, 100.0, "more_is_good")
 
 
+def test_kpi_value_colour_can_be_set_for_one_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metric-specific value colour is attached only to its KPI card."""
+    rendered_markup: list[str] = []
+
+    class FakeColumn:
+        """Capture KPI markup rendered into a Streamlit column."""
+
+        def markdown(self, markup: str, *, unsafe_allow_html: bool) -> None:
+            assert unsafe_allow_html is True
+            rendered_markup.append(markup)
+
+    monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
+    monkeypatch.setattr(
+        metric_renderers.st,
+        "columns",
+        lambda count, gap: [FakeColumn() for _ in range(count)],
+    )
+
+    metric_renderers.render_box_grid(
+        [("Netto-Einsparung (€)", 42.0)],
+        per_row=1,
+        value_colors={"Netto-Einsparung (€)": "#16a34a"},
+    )
+
+    assert '--kpi-value-color:#16a34a;' in rendered_markup[0]
+
+
 def test_balance_and_battery_kpi_delta_comparisons() -> None:
     """Balance ratios improve when rising; battery flows remain neutral."""
     assert _DELTA_COMPARISONS["Autarkiegrad (%)"] == "more_is_good"
@@ -546,6 +578,50 @@ def test_prior_period_explanation_is_rendered_as_a_separate_tooltip() -> None:
     assert ">i<span" in tooltip_html
     assert "Vorperiode ist immer derselbe Zeitraum davor" in tooltip_html
     assert "4 ausgewählten Tagen" in tooltip_html
+
+
+def test_kpi_tooltip_content_renders_heading_sections() -> None:
+    """Structured KPI help text renders headings and escaped body copy."""
+    tooltip_html = _kpi_tooltip_content_html(
+        "Berechnung\nMenge × Preis\n\nBedeutung\nWert der Energie."
+    )
+
+    assert tooltip_html.count('class="kpi-card__tooltip-heading"') == 2
+    assert ">Berechnung</span>" in tooltip_html
+    assert ">Bedeutung</span>" in tooltip_html
+    assert "Menge × Preis" in tooltip_html
+
+    plain_html = _kpi_tooltip_content_html("Erste Zeile.\nZweite Zeile.")
+    assert plain_html == "Erste Zeile. Zweite Zeile."
+
+
+def test_multiline_kpi_tooltip_has_a_single_line_aria_label() -> None:
+    """Blank lines cannot escape the tooltip's HTML attribute in Markdown."""
+    aria_label = _kpi_tooltip_aria_label(
+        'Berechnung\nMenge × Preis\n\nBedeutung\nText mit "Anführung".'
+    )
+
+    assert "\n" not in aria_label
+    assert aria_label == (
+        "Berechnung Menge × Preis Bedeutung Text mit &quot;Anführung&quot;."
+    )
+
+
+def test_tooltip_copy_is_loaded_from_the_content_catalogue() -> None:
+    """Editable tooltip copy is available from the packaged TOML resource."""
+    battery_tooltips = load_tooltips("battery_optimization")
+
+    assert "Berechnung\nJe Viertelstunde" in battery_tooltips[
+        "discharging_value_eur"
+    ]
+    assert "Berechnung\nJe Viertelstunde: geladene Menge ×" in battery_tooltips[
+        "charging_cost_eur"
+    ]
+    assert "aus dem Netz oder aus Eigenerzeugung stammt" in battery_tooltips[
+        "charging_cost_eur"
+    ]
+    assert load_tooltips("common")["prior_period"].startswith("Vorperiode")
+    assert "Netzbetreiber" in load_tooltips("reporting")["invoicing_warning"]
 
 
 def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
@@ -1019,6 +1095,11 @@ def test_daily_battery_optimization_figure_combines_value_bars_and_result_line()
     assert fig.data[2].mode == "lines+markers"
     assert fig.data[0].text[0] == "€2.234"
     assert fig.data[1].text[1] == "€2.000"
+    assert fig.data[0].textangle == -90
+    assert fig.data[1].textangle == -90
+    assert fig.data[0].cliponaxis is False
+    assert fig.data[1].cliponaxis is False
+    assert fig.layout.uniformtext.mode == "show"
     assert fig.data[0].marker.color == "rgba(146,219,68,1)"
     assert fig.data[1].marker.color == "rgba(236,0,140,1)"
     assert fig.data[2].line.color == "rgba(100,116,139,1)"
