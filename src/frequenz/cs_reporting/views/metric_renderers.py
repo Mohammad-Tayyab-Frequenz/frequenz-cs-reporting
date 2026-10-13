@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from html import escape
 from math import isfinite
 from typing import Any, Iterable
@@ -14,7 +14,7 @@ from typing import Any, Iterable
 import streamlit as st
 
 from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
-from frequenz.cs_reporting.ui_resources import inject_style
+from frequenz.cs_reporting.ui_resources import inject_style, load_tooltips
 
 
 def _fmt_de(val: float, decimals: int) -> str:
@@ -57,10 +57,7 @@ def _format_current_value(label: str, value: object) -> str:
     return f"{_fmt_metric_value(value)}{unit_suffix}"
 
 
-_PRIOR_PERIOD_TOOLTIP = (
-    "Vorperiode ist immer derselbe Zeitraum davor. "
-    "Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen."
-)
+_PRIOR_PERIOD_TOOLTIP = load_tooltips("common")["prior_period"]
 
 _DELTA_COMPARISONS = {
     "Netzbezug (kWh)": "neutral",
@@ -117,6 +114,35 @@ def _kpi_label_html(label: str) -> str:
     return f'<span class="kpi-card__label-text">{escape(display_label)}</span>'
 
 
+def _kpi_tooltip_content_html(tooltip: object) -> str:
+    """Format optional heading/body tooltip sections as safe HTML."""
+    text = str(tooltip)
+    blocks = text.split("\n\n")
+    if len(blocks) == 1:
+        return escape(" ".join(text.split()))
+
+    sections: list[str] = []
+    for block in blocks:
+        heading, separator, body = block.partition("\n")
+        safe_heading = escape(" ".join(heading.split()))
+        if not separator:
+            sections.append(
+                f'<span class="kpi-card__tooltip-body">{safe_heading}</span>'
+            )
+            continue
+        safe_body = escape(" ".join(body.split()))
+        sections.append(
+            f'<span class="kpi-card__tooltip-heading">{safe_heading}</span>'
+            f'<span class="kpi-card__tooltip-body">{safe_body}</span>'
+        )
+    return "".join(sections)
+
+
+def _kpi_tooltip_aria_label(tooltip: object) -> str:
+    """Return single-line escaped tooltip text safe for an HTML attribute."""
+    return escape(" ".join(str(tooltip).split()), quote=True)
+
+
 def _prior_period_help_html() -> str:
     """Render the help tooltip displayed beside the prior-period value."""
     tooltip = escape(_PRIOR_PERIOD_TOOLTIP, quote=True)
@@ -154,13 +180,7 @@ def _peak_label(metrics: dict[str, object]) -> str:
     return f"Lastspitze (kW) — {metrics.get('peak_date')}"
 
 
-_INVOICING_WARNING = (
-    "Die dargestellten Preise und Daten basieren auf einer Prognose eigener "
-    "gemessener Werte und entsprechen nicht den offiziellen Daten des "
-    "Verteilernetzbetreibers. Für Abrechnungen sind ausschließlich die "
-    "Netzbetreiber-Daten maßgeblich, daher sind Abweichungen zu Rechnungswerten "
-    "möglich."
-)
+_INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
 
 _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_import_cost_sum",
@@ -365,6 +385,7 @@ def render_box_grid(
     row_gap: int = 12,
     accent: str = "#3b82f6",
     delta_comparisons: dict[str, str] | None = None,
+    value_colors: Mapping[str, str] | None = None,
 ) -> None:
     """Render KPI boxes in a card grid.
 
@@ -375,6 +396,7 @@ def render_box_grid(
         accent: Left-border accent colour for the cards.
         delta_comparisons: Mapping of metric labels to comparison semantics. Values
             are ``"more_is_good"``, ``"less_is_good"``, or ``"neutral"``.
+        value_colors: Optional mapping of metric labels to KPI value text colours.
 
     Returns:
         Streamlit markup is written directly to the page.
@@ -425,16 +447,18 @@ def render_box_grid(
                 )
                 tooltip_html = (
                     '<span class="kpi-card__tooltip" role="button" tabindex="0" '
-                    f'aria-label="{escape(str(tooltip))}">'
+                    f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
                     '<span class="kpi-card__tooltip-icon">i</span>'
                     '<span class="kpi-card__tooltip-text">'
-                    f"{escape(str(tooltip))}</span>"
+                    f"{_kpi_tooltip_content_html(tooltip)}</span>"
                     "</span>"
                     if tooltip
                     else ""
                 )
+                value_color = (value_colors or {}).get(label, "#1a2740")
                 card_html = (
-                    f'<div class="kpi-card" style="--kpi-accent:{accent};">'
+                    f'<div class="kpi-card" style="--kpi-accent:{accent};'
+                    f'--kpi-value-color:{escape(value_color, quote=True)};">'
                     '<div class="kpi-card__label-row">'
                     f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
                     f"{tooltip_html}</div>"

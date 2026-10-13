@@ -128,6 +128,7 @@ namespaces = true
     "assets/*.json",
     "styles/*.css",
     "templates/*.html",
+    "content/*.toml",
     ".streamlit/config.toml",
     "py.typed",
 ]

@@ -18,6 +18,7 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
     calculate_battery_optimization_intervals,
     calculate_selection_metrics,
 )
+from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.views.metric_renderers import render_box_grid
 from frequenz.cs_reporting.views.table_renderers import render_table_section
 
@@ -64,52 +65,7 @@ _NORMALIZED_PLOT_METRICS = (
 _HIDDEN_NORMALIZED_METRICS = frozenset(
     {"value_per_mwh_throughput", "value_per_mwh_discharged"}
 )
-_KPI_TOOLTIPS = {
-    "total_savings": (
-        "Entladewert minus Ladekosten. "
-        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis) - "
-        "Summe(geladene kWh * Day-Ahead-Preis)."
-    ),
-    "discharging_value_eur": (
-        "Gesamtwert der aus der Batterie entladenen Energie. "
-        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis)."
-    ),
-    "charging_cost_eur": (
-        "Gesamtwert der in die Batterie geladenen Energie. "
-        "Berechnung: Summe(geladene kWh * Day-Ahead-Preis)."
-    ),
-    "battery_efficiency_pct": (
-        "Verhältnis von entladener zu geladener Energie im ausgewählten Zeitraum. "
-        "Berechnung: entladene Energie / geladene Energie * 100."
-    ),
-    "battery_discharging_kwh": (
-        "Gesamte aus der Batterie entladene Energiemenge im ausgewählten Zeitraum."
-    ),
-    "battery_charging_kwh": (
-        "Gesamte in die Batterie geladene Energiemenge im ausgewählten Zeitraum."
-    ),
-    "value_per_mwh_throughput": (
-        "Kostenwirkung je bewegter Batterieenergie. "
-        "Berechnung: Kostenwirkung / ((geladene kWh + entladene kWh))."
-    ),
-    "battery_price_spread_eur_per_mwh": (
-        "Durchschnittlicher Entladepreis minus durchschnittlicher Ladepreis. "
-        "Berechnung: Entladewert / entladene MWh - Ladekosten / geladene MWh."
-    ),
-    "value_per_mwh_discharged": (
-        "Kostenwirkung je abgegebener Batterieenergie. "
-        "Berechnung: Kostenwirkung / (entladene kWh)."
-    ),
-    "value_per_kwh_capacity": (
-        "Kostenwirkung relativ zur installierten Batteriekapazität. "
-        "Berechnung: Kostenwirkung / Batteriekapazität (kWh)."
-    ),
-    "battery_cycles": (
-        "Äquivalente Vollzyklen der Batterie. "
-        "Berechnung: (geladene Energie + entladene Energie) (kWh) / "
-        "(2 * Batteriekapazität (kWh))."
-    ),
-}
+_KPI_TOOLTIPS = load_tooltips("battery_optimization")
 _RESULTS_TABLE_SOURCE_COLUMNS = (
     "timestamp",
     "grid_consumption",
@@ -505,6 +461,8 @@ def build_daily_battery_optimization_figure(
                 },
                 text=values.map(_format_full_eur),
                 textposition="outside",
+                textangle=270,
+                cliponaxis=False,
                 hovertemplate=(f"<b>%{{x}}</b><br>{name}: €%{{y:,.2f}}<extra></extra>"),
                 name=name,
             )
@@ -560,7 +518,7 @@ def build_daily_battery_optimization_figure(
             "bordercolor": "#334155",
         },
         separators=",.",
-        uniformtext={"mode": "hide", "minsize": 10},
+        uniformtext={"mode": "show", "minsize": 10},
     )
     fig.update_xaxes(
         gridcolor="#edf2f7",
@@ -725,6 +683,7 @@ def render_battery_optimization(
         kpi_boxes[:_KPI_CARDS_PER_ROW],
         per_row=_KPI_CARDS_PER_ROW,
         accent="#14b8a6",
+        value_colors={"Netto-Einsparung (€)": "#16a34a"},
     )
     st.divider()
     _render_battery_optimization_plot_tabs(
@@ -793,7 +752,7 @@ def _render_battery_optimization_plot_tabs(
         )
         for metric_key in metric_keys
     )
-    labels = (["Kostenwirkung"] if include_optimization else []) + [
+    labels = (["Netto-Einsparung"] if include_optimization else []) + [
         tab_labels[metric_key] for metric_key in metric_keys
     ]
     plot_tabs = st.tabs(labels)

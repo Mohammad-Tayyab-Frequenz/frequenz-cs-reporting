@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from functools import lru_cache
 from importlib import resources
 
@@ -30,6 +31,24 @@ def load_style(style_name: str) -> str:
     """Load a CSS stylesheet from the package styles folder."""
     style_path = resources.files(_BASE_PACKAGE).joinpath("styles", style_name)
     return style_path.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=None)
+def load_tooltips(group: str) -> dict[str, str]:
+    """Load one tooltip group from the packaged copy catalogue."""
+    tooltip_path = resources.files(_BASE_PACKAGE).joinpath(
+        "content", "tooltips.toml"
+    )
+    catalogue = tomllib.loads(tooltip_path.read_text(encoding="utf-8"))
+    tooltip_group = catalogue.get(group)
+    if not isinstance(tooltip_group, dict):
+        raise KeyError(f"Unknown tooltip group: {group}")
+    if not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in tooltip_group.items()
+    ):
+        raise TypeError(f"Tooltip group {group!r} must contain only strings")
+    return dict(tooltip_group)
 
 
 def inject_style(style_name: str, **tokens: str) -> None:

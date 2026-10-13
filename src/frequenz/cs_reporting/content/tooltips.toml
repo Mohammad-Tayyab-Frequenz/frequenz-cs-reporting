@@ -1,0 +1,87 @@
+# User-facing text shown in info and warning tooltips.
+#
+# Editing rules:
+# - Wrap ordinary text across lines as needed; it is displayed as one paragraph.
+# - Use a blank line to separate titled sections, such as "Berechnung" and
+#   "Bedeutung".
+
+[common]
+prior_period = """
+Vorperiode ist immer derselbe Zeitraum davor.
+Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen.
+"""
+
+[reporting]
+invoicing_warning = """
+Die dargestellten Preise und Daten basieren auf einer Prognose eigener
+gemessener Werte und entsprechen nicht den offiziellen Daten des
+Verteilernetzbetreibers. Für Abrechnungen sind ausschließlich die
+Netzbetreiber-Daten maßgeblich, daher sind Abweichungen zu Rechnungswerten
+möglich.
+"""
+
+[battery_optimization]
+total_savings = """
+Entladewert minus Ladekosten.
+Berechnung: Summe(entladene kWh * Day-Ahead-Preis) -
+Summe(geladene kWh * Day-Ahead-Preis).
+"""
+
+discharging_value_eur = """
+Berechnung
+Je Viertelstunde: entladene Menge * Day-Ahead-Preis dieser Viertelstunde,
+über den Zeitraum summiert.
+
+Bedeutung
+Marktwert der entladenen Energie zum Zeitpunkt der Entladung. Da nicht
+eingespeist wird, deckt sie Eigenverbrauch und ersetzt Netzbezug.
+"""
+
+charging_cost_eur = """
+Berechnung
+Je Viertelstunde: geladene Menge * Day-Ahead-Preis dieser Viertelstunde,
+über den Zeitraum summiert.
+
+Bedeutung
+Marktwert der geladenen Energie zum Zeitpunkt der Beladung, unabhängig
+davon, ob sie aus dem Netz oder aus Eigenerzeugung stammt.
+"""
+
+battery_efficiency_pct = """
+Verhältnis von entladener zu geladener Energie im ausgewählten Zeitraum.
+Berechnung: entladene Energie / geladene Energie * 100.
+"""
+
+battery_discharging_kwh = """
+Gesamte aus der Batterie entladene Energiemenge im ausgewählten Zeitraum.
+"""
+
+battery_charging_kwh = """
+Gesamte in die Batterie geladene Energiemenge im ausgewählten Zeitraum.
+"""
+
+value_per_mwh_throughput = """
+Kostenwirkung je bewegter Batterieenergie.
+Berechnung: Kostenwirkung / ((geladene kWh + entladene kWh)).
+"""
+
+battery_price_spread_eur_per_mwh = """
+Durchschnittlicher Entladepreis minus durchschnittlicher Ladepreis.
+Berechnung: Entladewert / entladene MWh - Ladekosten / geladene MWh.
+"""
+
+value_per_mwh_discharged = """
+Kostenwirkung je abgegebener Batterieenergie.
+Berechnung: Kostenwirkung / (entladene kWh).
+"""
+
+value_per_kwh_capacity = """
+Kostenwirkung relativ zur installierten Batteriekapazität.
+Berechnung: Kostenwirkung / Batteriekapazität (kWh).
+"""
+
+battery_cycles = """
+Äquivalente Vollzyklen der Batterie.
+Berechnung: (geladene Energie + entladene Energie) (kWh) /
+(2 * Batteriekapazität (kWh)).
+"""
