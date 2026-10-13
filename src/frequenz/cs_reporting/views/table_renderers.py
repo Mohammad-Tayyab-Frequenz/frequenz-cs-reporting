@@ -26,6 +26,7 @@ _MASTER_DF_DISPLAY_RENAMES = {
     "production_self_usage": "Eigenverbrauch Share",
 }
 
+
 def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `df` with number columns rounded to three decimals."""
     rounded_df = df.copy()

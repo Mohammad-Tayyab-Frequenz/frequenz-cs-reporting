@@ -1,3 +1,5 @@
+# pylint: disable=too-many-lines
+
 # License: MIT
 # Copyright © 2026 Frequenz Energy-as-a-Service GmbH
 
@@ -15,6 +17,7 @@ from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages.battery_optimization import (
     _SIDEBAR_KEY_PREFIX,
+    _mid_caption,
     _previous_month_date,
 )
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
@@ -29,15 +32,22 @@ from frequenz.cs_reporting.components.ui import (
     _plotly_component_height,
 )
 from frequenz.cs_reporting.services import client_factory
-from frequenz.cs_reporting.services.data_service import (
-    _battery_capacity_kwh_from_metric_data,
-)
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     calculate_battery_optimization_intervals,
+    calculate_selection_metrics,
+)
+from frequenz.cs_reporting.services.data_service import (
+    _battery_capacity_kwh_from_metric_data,
 )
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard
 from frequenz.cs_reporting.views.battery_optimization import (
+    _HIDDEN_NORMALIZED_METRICS,
+    _KPI_CARDS_PER_ROW,
+    _OPERATING_KPI_CARDS_PER_ROW,
+    _PRIMARY_PLOT_METRICS,
+    _SECONDARY_PLOT_METRICS,
+    _build_battery_optimization_kpi_boxes,
     aggregate_battery_optimization_summary,
     build_battery_optimization_results_table,
     build_daily_battery_optimization_figure,
@@ -57,10 +67,10 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _build_consumption_breakdown,
     _delta_html,
     _filter_section_box_specs,
-    _kpi_label_html,
-    _prior_period_help_html,
     _fmt_metric_value,
+    _kpi_label_html,
     _materialize_boxes,
+    _prior_period_help_html,
     _skip_missing_day_ahead_price_specs,
 )
 from frequenz.cs_reporting.views.plot_renderers import (
@@ -245,6 +255,14 @@ def test_battery_optimization_default_start_uses_previous_month() -> None:
 def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
     """Battery optimization sidebar state is isolated from reporting filters."""
     assert _SIDEBAR_KEY_PREFIX == "battery_optimization_"
+
+
+def test_battery_optimization_mid_caption_includes_name_and_number() -> None:
+    """The page subtitle identifies the selected MID by name and number."""
+    assert _mid_caption(243, "Solarlandbau Priegendorf") == (
+        "MID243 - Solarlandbau Priegendorf"
+    )
+    assert _mid_caption(244, None) == ("MID244 - Nicht verfügbar")
 
 
 def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
@@ -525,7 +543,7 @@ def test_prior_period_explanation_is_rendered_as_a_separate_tooltip() -> None:
 
     assert 'class="kpi-card__help"' not in label_html
     assert 'class="kpi-card__help"' in tooltip_html
-    assert ">?<span" in tooltip_html
+    assert ">i<span" in tooltip_html
     assert "Vorperiode ist immer derselbe Zeitraum davor" in tooltip_html
     assert "4 ausgewählten Tagen" in tooltip_html
 
@@ -566,7 +584,9 @@ def test_overview_plot_renders_without_day_ahead_price(
         rendered_titles.append(title)
         assert isinstance(fig, go.Figure)
         rendered_figures.append(fig)
-        rendered_configs.append(kwargs.get("plotly_config"))
+        plotly_config = kwargs.get("plotly_config")
+        assert plotly_config is None or isinstance(plotly_config, dict)
+        rendered_configs.append(plotly_config)
 
     monkeypatch.setattr(
         "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
@@ -725,6 +745,69 @@ def test_battery_optimization_summary_uses_charge_and_discharge_prices() -> None
     )
 
 
+def test_battery_optimization_selection_metrics_include_charge_and_discharge_value() -> (
+    None
+):
+    """Selection KPIs expose the charging cost and discharging value totals."""
+    intervals = calculate_battery_optimization_intervals(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    ["2026-01-01T00:00:00Z", "2026-01-01T00:15:00Z"]
+                ),
+                "battery_power_flow": [4.0, -8.0],
+                "day_ahead_price": [50.0, 100.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    metrics = calculate_selection_metrics(intervals)
+
+    assert metrics["charging_cost_eur"] == pytest.approx(0.05)
+    assert metrics["discharging_value_eur"] == pytest.approx(0.2)
+    assert metrics["battery_charging_kwh"] == pytest.approx(1.0)
+    assert metrics["battery_discharging_kwh"] == pytest.approx(2.0)
+    assert metrics["battery_efficiency_pct"] == pytest.approx(200.0)
+
+
+def test_battery_optimization_hides_throughput_card_and_plot() -> None:
+    """The battery throughput value is absent from both KPI and plot output."""
+    metrics: dict[str, float | None] = {
+        "total_savings": 10.0,
+        "charging_cost_eur": 20.0,
+        "discharging_value_eur": 30.0,
+        "battery_charging_kwh": 70.0,
+        "battery_discharging_kwh": 80.0,
+        "battery_efficiency_pct": 90.0,
+        "battery_price_spread_eur_per_mwh": 40.0,
+        "value_per_kwh_capacity": 50.0,
+        "battery_cycles": 60.0,
+    }
+
+    labels = [box[0] for box in _build_battery_optimization_kpi_boxes(metrics)]
+
+    assert "Wert Entladung (€)" in labels
+    assert "Wert Beladung (€)" in labels
+    assert not any("Batteriedurchsatz" in label for label in labels)
+    assert "value_per_mwh_throughput" in _HIDDEN_NORMALIZED_METRICS
+    assert _KPI_CARDS_PER_ROW == 4
+    assert labels[:_KPI_CARDS_PER_ROW][-1] == "Preis-Spread Batterie (€/MWh)"
+    assert labels[_KPI_CARDS_PER_ROW:] == [
+        "Batteriezyklen (Vollzyklen)",
+        "Wirkungsgrad (%)",
+        "Entladene Menge (kWh)",
+        "Geladene Menge (kWh)",
+        "Wert pro kWh Batteriekapazität (€/kWh)",
+    ]
+    assert _OPERATING_KPI_CARDS_PER_ROW == 4
+    assert _PRIMARY_PLOT_METRICS == ("battery_price_spread_eur_per_mwh",)
+    assert _SECONDARY_PLOT_METRICS == (
+        "value_per_kwh_capacity",
+        "battery_cycles",
+    )
+
+
 def test_normalized_battery_optimization_metrics_use_throughput_and_spread() -> None:
     """Battery optimization normalization reports throughput value and price spread."""
     metrics = calculate_normalized_battery_optimization_metrics(
@@ -805,7 +888,7 @@ def test_battery_optimization_results_table_includes_interval_inputs_and_calcula
         "Day-Ahead-Preis verfügbar",
         "Ladekosten (€)",
         "Entladewert (€)",
-        "Kostenwirkung der Batterieoptimierung (€)",
+        "Netto-Einsparung (€)",
         "Batteriekapazität (kWh)",
         "Batteriezyklen (Vollzyklen)",
     ]
@@ -905,25 +988,40 @@ def test_battery_optimization_summary_requires_battery_and_price_columns() -> No
         )
 
 
-def test_daily_battery_optimization_figure_has_legends_and_euro_labels() -> None:
-    """Daily optimization chart renders legend traces and euro value labels."""
+def test_daily_battery_optimization_figure_combines_value_bars_and_result_line() -> (
+    None
+):
+    """Charging/discharging values are grouped bars and savings is a point line."""
     fig = build_daily_battery_optimization_figure(
         pd.DataFrame(
             {
                 "date": [date(2026, 1, 1), date(2026, 1, 2)],
+                "charging_cost_eur": [1000.0, 2000.0],
+                "discharging_value_eur": [2234.34, -3678.67],
                 "optimization_savings_eur": [1234.34, -5678.67],
             }
         )
     )
 
     assert fig.layout.showlegend is True
-    assert [trace.name for trace in fig.data] == ["Einsparung", "Kosten"]
+    assert [trace.name for trace in fig.data] == [
+        "Wert Entladung",
+        "Wert Beladung",
+        "Netto-Einsparung",
+    ]
+    assert [trace.type for trace in fig.data] == ["bar", "bar", "scatter"]
+    assert fig.layout.barmode == "group"
     assert "€" in fig.layout.yaxis.title.text
     assert fig.layout.yaxis.tickprefix == "€"
-    assert fig.data[0].y[0] == pytest.approx(1234.34)
-    assert fig.data[1].y[1] == pytest.approx(-5678.67)
-    assert fig.data[0].text[0] == "€1.234"
-    assert fig.data[1].text[1] == "-€5.679"
+    assert fig.data[0].y[0] == pytest.approx(2234.34)
+    assert fig.data[1].y[0] == pytest.approx(1000.0)
+    assert fig.data[2].y[1] == pytest.approx(-5678.67)
+    assert fig.data[2].mode == "lines+markers"
+    assert fig.data[0].text[0] == "€2.234"
+    assert fig.data[1].text[1] == "€2.000"
+    assert fig.data[0].marker.color == "rgba(146,219,68,1)"
+    assert fig.data[1].marker.color == "rgba(236,0,140,1)"
+    assert fig.data[2].line.color == "rgba(100,116,139,1)"
 
 
 def test_battery_optimization_summary_can_be_aggregated_weekly_and_monthly() -> None:
@@ -973,7 +1071,9 @@ def test_battery_optimization_figure_uses_selected_aggregation() -> None:
 
     assert fig.layout.xaxis.title.text == "Monatlich"
     assert fig.data[0].x[0] == "Jan 2026"
-    assert fig.data[0].y[0] == pytest.approx(6.67)
+    assert fig.data[0].y[0] == pytest.approx(9.0)
+    assert fig.data[1].y[0] == pytest.approx(3.0)
+    assert fig.data[2].y[0] == pytest.approx(6.67)
 
 
 def test_normalized_battery_optimization_figure_aggregates_metric_totals() -> None:
@@ -1028,5 +1128,5 @@ def test_battery_cycles_figure_uses_period_discharge_and_capacity() -> None:
 
     assert fig.layout.yaxis.title.text == "Batteriezyklen (Vollzyklen)"
     assert fig.layout.yaxis.tickprefix == ""
-    assert fig.data[0].y[0] == pytest.approx(1.0)
-    assert fig.data[0].text[0] == "1,00"
+    assert fig.data[0].y[0] == pytest.approx(0.5)
+    assert fig.data[0].text[0] == "0,50"

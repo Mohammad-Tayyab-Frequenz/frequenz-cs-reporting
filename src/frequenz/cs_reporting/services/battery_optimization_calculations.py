@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from math import isfinite
+from numbers import Real
 
 import pandas as pd
 
@@ -75,8 +77,8 @@ def calculate_battery_optimization_intervals(
     result["battery_capacity_kwh"] = _capacity_for_intervals(
         result[["timestamp"]], battery_capacity_data
     )
-    result["battery_cycles"] = (
-        result["battery_throughput_kwh"] / (2 * result["battery_capacity_kwh"])
+    result["battery_cycles"] = result["battery_throughput_kwh"] / (
+        2 * result["battery_capacity_kwh"]
     )
     result["value_per_kwh_capacity_interval"] = (
         result["optimization_savings_eur"] / result["battery_capacity_kwh"]
@@ -129,7 +131,8 @@ def aggregate_battery_optimization_intervals(
         return pd.DataFrame()
 
     summary = intervals.copy()
-    timestamps = pd.to_datetime(summary["timestamp"], utc=True)
+    summary["timestamp"] = pd.to_datetime(summary["timestamp"], utc=True)
+    timestamps = summary["timestamp"]
     if aggregation == "daily":
         summary["period"] = timestamps.dt.date
         summary["period_label"] = timestamps.dt.strftime("%d.%m.%Y")
@@ -192,6 +195,11 @@ def calculate_selection_metrics(intervals: pd.DataFrame) -> dict[str, float | No
             key: None
             for key in (
                 "total_savings",
+                "charging_cost_eur",
+                "discharging_value_eur",
+                "battery_charging_kwh",
+                "battery_discharging_kwh",
+                "battery_efficiency_pct",
                 "value_per_mwh_throughput",
                 "value_per_mwh_discharged",
                 "battery_price_spread_eur_per_mwh",
@@ -202,8 +210,20 @@ def calculate_selection_metrics(intervals: pd.DataFrame) -> dict[str, float | No
         }
     totals = intervals[list(CALCULATION_COLUMNS)].sum(min_count=1).to_frame().T
     metrics = _add_normalized_metrics(totals).iloc[0]
+    charging_kwh = _finite(metrics["battery_charging_kwh"])
+    discharging_kwh = _finite(metrics["battery_discharging_kwh"])
+    efficiency_pct = (
+        discharging_kwh / charging_kwh * 100
+        if charging_kwh is not None and charging_kwh > 0 and discharging_kwh is not None
+        else None
+    )
     return {
         "total_savings": _finite(metrics["optimization_savings_eur"]),
+        "charging_cost_eur": _finite(metrics["charging_cost_eur"]),
+        "discharging_value_eur": _finite(metrics["discharging_value_eur"]),
+        "battery_charging_kwh": charging_kwh,
+        "battery_discharging_kwh": discharging_kwh,
+        "battery_efficiency_pct": efficiency_pct,
         "value_per_mwh_throughput": _finite(metrics["value_per_mwh_throughput"]),
         "value_per_mwh_discharged": _finite(metrics["value_per_mwh_discharged"]),
         "battery_price_spread_eur_per_mwh": _finite(
@@ -217,9 +237,7 @@ def calculate_selection_metrics(intervals: pd.DataFrame) -> dict[str, float | No
 
 def _finite(value: object) -> float | None:
     """Convert finite numeric values to floats."""
-    value = pd.to_numeric(value, errors="coerce")
-    return (
-        float(value)
-        if pd.notna(value) and float(value) not in (float("inf"), float("-inf"))
-        else None
-    )
+    if not isinstance(value, Real):
+        return None
+    numeric_value = float(value)
+    return numeric_value if isfinite(numeric_value) else None
