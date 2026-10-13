@@ -319,6 +319,7 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.ui_resources import render_page
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------
@@ -498,7 +499,7 @@ def main() -> None:
     selected = sidebar(pages)
 
     # Render selected page
-    selected.render()
+    render_page(selected.render)
 
 
 if __name__ == "__main__":
