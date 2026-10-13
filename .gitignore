@@ -148,3 +148,7 @@ cython_debug/
 # Automatically generated documentation
 docs/reference/
 site/
+
+# Runtime reporting-data cache
+data/parquet/
+data/metadata/

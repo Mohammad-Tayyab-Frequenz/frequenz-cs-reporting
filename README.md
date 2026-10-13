@@ -46,6 +46,14 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
   to authenticate and sign Reporting and Assets API requests.
 - `MICROGRID_CONFIG_DIR` *(optional)*: Directory containing TOML microgrid
   configs. Defaults to `toml_directory/`.
+- `PARQUET_STORAGE_PATH` *(optional)*: Persistent directory for reporting data.
+  Defaults to `data/parquet`.
+- `SYNC_INTERVAL_MINUTES` *(optional)*: Minimum interval between overlap
+  refreshes. Defaults to `15`.
+- `SYNC_OVERLAP_MINUTES` *(optional)*: Tail window re-fetched to pick up recent
+  corrections. Defaults to `5`.
+- `API_REQUEST_TIMEOUT_SECONDS` *(optional)*: Reporting request timeout.
+  Defaults to `300`.
 
 ### Microgrid configs
 
@@ -59,6 +67,43 @@ The app entry point is `app.py`. When you run `streamlit run app.py`, it:
   build ships `Home` and `Reporting` pages).
 - Loads microgrid configs from `MICROGRID_CONFIG_DIR` and lists available IDs.
 - Fetches data via the reporting API.
+
+### Persistent data cache
+
+Active-power, battery-SOC, and ENTSO-E day-ahead price time series are stored as
+Parquet. Microgrid measurements are separated by microgrid and resolution. The
+first request downloads the requested range;
+later requests read covered ranges locally and fetch only missing intervals.
+When a dataset is due for refresh, its trailing overlap is fetched again and
+merged by timestamp. Writes use a same-directory temporary file followed by an
+atomic replacement, while a file lock prevents duplicate writers across
+Streamlit sessions and local worker processes. Sync metadata is stored beside
+the Parquet directory in `data/metadata` by default.
+
+The reporting client used by this app exposes time-range queries, but not
+record modification timestamps, stable record IDs, change tokens, ETags, or a
+deletion feed. Consequently this is range-incremental synchronization, not a
+complete change-data-capture implementation. Corrections older than the overlap
+window require a wider explicit reconciliation request or rebuilding that
+dataset. Pagination remains owned by the upstream Frequenz clients. The cache
+retries transient connection, timeout, HTTP 429, and server errors with
+exponential backoff and honors `Retry-After` when the client exposes it.
+
+For production, run synchronization independently from Streamlit, for example
+every 15 minutes with cron or the deployment platform's scheduler:
+
+```bash
+python -m frequenz.cs_reporting.services.sync_data \
+  --microgrid-id 241 --lookback-days 30 --resolution-minutes 15
+```
+
+The page remains a safe pull-through fallback: cache hits do not call the API,
+and failed overlap refreshes continue serving the last successful file. Point
+`PARQUET_STORAGE_PATH` at persistent storage. All replicas must see the same
+filesystem with working POSIX locks; ephemeral container disks and independent
+per-replica volumes do not provide a coherent shared cache. For those
+deployments, use a shared POSIX volume or replace this backend with
+object-storage/database coordination.
 
 ### Running in Deepnote
 - Running in Deepnote is supported; required environment variables can be injected
