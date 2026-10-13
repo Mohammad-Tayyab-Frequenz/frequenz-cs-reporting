@@ -202,9 +202,11 @@ def _filter_component_types_for_master_df(
 
 def _build_feed_in_day_ahead_price_table(master_df: pd.DataFrame) -> pd.DataFrame:
     """Build the feed-in and day-ahead-price table for the data section."""
+    source_columns = list(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS)
+    display_columns = list(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.values())
     if not set(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS).issubset(master_df.columns):
-        return pd.DataFrame(columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.values())
-    return master_df.reindex(columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS).rename(
+        return pd.DataFrame(columns=display_columns)
+    return master_df.reindex(columns=source_columns).rename(
         columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS
     )
 
