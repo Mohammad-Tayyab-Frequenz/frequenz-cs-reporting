@@ -23,6 +23,55 @@ _GRID_PAGINATION_HEIGHT = 56
 _GRID_BORDER_HEIGHT = 2
 _GRID_TOOLBAR_HEIGHT = 40
 
+_CSV_FORMATS = {
+    "de": {"separator": ";", "decimal": ","},
+    "en": {"separator": ",", "decimal": "."},
+}
+
+_LOCALE_NUMBER_FORMATTER = JsCode("""
+    function(params) {
+        if (params.value === null || params.value === undefined || params.value === "") {
+            return "";
+        }
+
+        const value = Number(params.value);
+        if (!Number.isFinite(value)) {
+            return params.value;
+        }
+
+        const language = params.context && params.context.csvFormat;
+        const locale = language === "en" ? "en-US" : "de-DE";
+        return new Intl.NumberFormat(locale, {
+            maximumFractionDigits: 3,
+        }).format(value);
+    }
+""")
+
+
+def _csv_download_urls(df: pd.DataFrame) -> dict[str, str]:
+    """Return data URLs for the supported regional CSV formats.
+
+    German CSV uses a semicolon delimiter and decimal comma, while English CSV
+    uses a comma delimiter and decimal point.
+
+    Args:
+        df: Dataframe to serialize.
+
+    Returns:
+        A mapping from language code to a base64-encoded CSV data URL.
+    """
+    urls = {}
+    for language, csv_format in _CSV_FORMATS.items():
+        csv_bytes = df.to_csv(
+            index=False,
+            sep=csv_format["separator"],
+            decimal=csv_format["decimal"],
+        ).encode("utf-8")
+        urls[language] = "data:text/csv;charset=utf-8;base64," + b64encode(
+            csv_bytes
+        ).decode("ascii")
+    return urls
+
 
 # pylint: disable=too-many-arguments, too-many-locals
 def aggrid_table(
@@ -100,15 +149,19 @@ def aggrid_table(
         suppressAutoSize=True,
     )
 
+    for column_name in df.select_dtypes(include="number").columns:
+        gb.configure_column(
+            column_name,
+            valueFormatter=_LOCALE_NUMBER_FORMATTER,
+        )
+
     grid_options = gb.build()
+    grid_options["context"] = {"csvFormat": "de"}
     if component_source:
-        grid_options["context"] = {"componentSource": component_source}
-    download_url = None
+        grid_options["context"]["componentSource"] = component_source
+    download_urls = None
     if download_file_name:
-        csv_bytes = df.to_csv(index=False, sep=";", decimal=",").encode("utf-8")
-        download_url = "data:text/csv;charset=utf-8;base64," + b64encode(
-            csv_bytes
-        ).decode("ascii")
+        download_urls = _csv_download_urls(df)
     grid_options["onGridReady"] = JsCode(f"""
         function(params) {{
             const buttonId = {json.dumps(f"{key_prefix}_reset_table_filters")};
@@ -218,10 +271,36 @@ def aggrid_table(
             }});
 
             toolbar.appendChild(button);
-            const downloadUrl = {json.dumps(download_url)};
-            if (downloadUrl) {{
+            const downloadUrls = {json.dumps(download_urls)};
+            if (downloadUrls) {{
+                const formatSelector = document.createElement("select");
+                formatSelector.title = "CSV-Format auswählen";
+                formatSelector.setAttribute("aria-label", "CSV-Format auswählen");
+                const formatOptions = [
+                    ["de", "Deutsch"],
+                    ["en", "English"],
+                ];
+                for (const [value, label] of formatOptions) {{
+                    const option = document.createElement("option");
+                    option.value = value;
+                    option.textContent = label;
+                    formatSelector.appendChild(option);
+                }}
+                Object.assign(formatSelector.style, {{
+                    backgroundColor: "#f1f3f7",
+                    border: "1px solid #d9e1ec",
+                    borderRadius: "6px",
+                    color: "#343845",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    marginLeft: "8px",
+                    minHeight: "26px",
+                    padding: "4px 8px",
+                }});
+
                 const downloadButton = document.createElement("a");
-                downloadButton.href = downloadUrl;
                 downloadButton.download = {json.dumps(download_file_name)};
                 downloadButton.textContent = "CSV herunterladen";
                 downloadButton.title = "Tabelle als CSV herunterladen";
@@ -254,6 +333,14 @@ def aggrid_table(
                     downloadButton.style.backgroundColor = "#1e4f87";
                     downloadButton.style.borderColor = "#1e4f87";
                 }});
+                const updateDownloadFormat = function() {{
+                    params.context.csvFormat = formatSelector.value;
+                    downloadButton.href = downloadUrls[formatSelector.value];
+                    params.api.refreshCells({{force: true}});
+                }};
+                formatSelector.addEventListener("change", updateDownloadFormat);
+                updateDownloadFormat();
+                toolbar.appendChild(formatSelector);
                 toolbar.appendChild(downloadButton);
             }}
             gridParent.insertBefore(toolbar, gridRoot);

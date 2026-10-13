@@ -3,6 +3,7 @@
 
 """Tests for the frequenz.cs_reporting package."""
 
+from base64 import b64decode
 from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
@@ -15,6 +16,10 @@ from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.components import inputs
 from frequenz.cs_reporting.components.sidebar_inputs import _microgrid_option_label
+from frequenz.cs_reporting.components.tables import (
+    _LOCALE_NUMBER_FORMATTER,
+    _csv_download_urls,
+)
 from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
@@ -89,6 +94,31 @@ class _FakeSelectboxContainer:
         del key
         self.format_func = format_func
         return options[index]
+
+
+def _decode_csv_data_url(data_url: str) -> str:
+    """Decode a base64 CSV data URL for assertions."""
+    _, encoded_csv = data_url.split(",", maxsplit=1)
+    return b64decode(encoded_csv).decode("utf-8")
+
+
+def test_csv_download_urls_support_german_and_english_formats() -> None:
+    """CSV downloads use the delimiter and decimal mark selected by the user."""
+    dataframe = pd.DataFrame({"Leistung": [1.5], "Standort": ["Berlin"]})
+
+    urls = _csv_download_urls(dataframe)
+
+    assert set(urls) == {"de", "en"}
+    assert _decode_csv_data_url(urls["de"]) == ("Leistung;Standort\n1,5;Berlin\n")
+    assert _decode_csv_data_url(urls["en"]) == ("Leistung,Standort\n1.5,Berlin\n")
+
+
+def test_table_number_formatter_uses_selected_csv_language() -> None:
+    """The table and CSV export read their format from the same selection."""
+    formatter_code = str(_LOCALE_NUMBER_FORMATTER.js_code)
+
+    assert "params.context.csvFormat" in formatter_code
+    assert 'language === "en" ? "en-US" : "de-DE"' in formatter_code
 
 
 def test_microgrid_option_label_includes_configured_name() -> None:
