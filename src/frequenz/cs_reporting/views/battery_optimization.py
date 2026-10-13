@@ -50,6 +50,10 @@ _GERMAN_MONTH_ABBREVIATIONS = (
     "Dez",
 )
 _KWH_PER_MWH = 1000.0
+_KPI_CARDS_PER_ROW = 4
+_OPERATING_KPI_CARDS_PER_ROW = 4
+_PRIMARY_PLOT_METRICS = ("battery_price_spread_eur_per_mwh",)
+_SECONDARY_PLOT_METRICS = ("value_per_kwh_capacity", "battery_cycles")
 _NORMALIZED_PLOT_METRICS = (
     ("value_per_mwh_throughput", "Wert pro MWh Batteriedurchsatz (€/MWh)", "€"),
     ("value_per_mwh_discharged", "Wert pro MWh entladene Energie (€/MWh)", "€"),
@@ -57,12 +61,32 @@ _NORMALIZED_PLOT_METRICS = (
     ("value_per_kwh_capacity", "Wert pro kWh Batteriekapazität (€/kWh)", "€"),
     ("battery_cycles", "Batteriezyklen (Vollzyklen)", ""),
 )
-_HIDDEN_NORMALIZED_METRICS = frozenset({"value_per_mwh_discharged"})
+_HIDDEN_NORMALIZED_METRICS = frozenset(
+    {"value_per_mwh_throughput", "value_per_mwh_discharged"}
+)
 _KPI_TOOLTIPS = {
     "total_savings": (
         "Entladewert minus Ladekosten. "
         "Berechnung: Summe(entladene kWh * Day-Ahead-Preis) - "
         "Summe(geladene kWh * Day-Ahead-Preis)."
+    ),
+    "discharging_value_eur": (
+        "Gesamtwert der aus der Batterie entladenen Energie. "
+        "Berechnung: Summe(entladene kWh * Day-Ahead-Preis)."
+    ),
+    "charging_cost_eur": (
+        "Gesamtwert der in die Batterie geladenen Energie. "
+        "Berechnung: Summe(geladene kWh * Day-Ahead-Preis)."
+    ),
+    "battery_efficiency_pct": (
+        "Verhältnis von entladener zu geladener Energie im ausgewählten Zeitraum. "
+        "Berechnung: entladene Energie / geladene Energie * 100."
+    ),
+    "battery_discharging_kwh": (
+        "Gesamte aus der Batterie entladene Energiemenge im ausgewählten Zeitraum."
+    ),
+    "battery_charging_kwh": (
+        "Gesamte in die Batterie geladene Energiemenge im ausgewählten Zeitraum."
     ),
     "value_per_mwh_throughput": (
         "Kostenwirkung je bewegter Batterieenergie. "
@@ -108,7 +132,7 @@ _RESULTS_TABLE_CALCULATION_COLUMNS = {
     "day_ahead_price_available": "Day-Ahead-Preis verfügbar",
     "charging_cost_eur": "Ladekosten (€)",
     "discharging_value_eur": "Entladewert (€)",
-    "optimization_savings_eur": "Kostenwirkung der Batterieoptimierung (€)",
+    "optimization_savings_eur": "Netto-Einsparung (€)",
     "battery_capacity_kwh": "Batteriekapazität (kWh)",
     "battery_cycles": "Batteriezyklen (Vollzyklen)",
 }
@@ -238,6 +262,7 @@ def calculate_battery_optimization_summary(
     return float(df["optimization_savings_eur"].sum()), daily_summary
 
 
+# pylint: disable=too-many-locals
 def calculate_normalized_battery_optimization_metrics(
     daily_summary: pd.DataFrame,
     battery_capacity_kwh: float | None = None,
@@ -326,9 +351,12 @@ def build_battery_optimization_results_table(
         ),
         errors="coerce",
     ).fillna(0.0)
-    day_ahead_price = pd.to_numeric(
-        result.get(_DAY_AHEAD_PRICE_COLUMN, float("nan")), errors="coerce"
+    day_ahead_price_source = (
+        result[_DAY_AHEAD_PRICE_COLUMN]
+        if _DAY_AHEAD_PRICE_COLUMN in result.columns
+        else pd.Series(float("nan"), index=result.index, dtype="float64")
     )
+    day_ahead_price = pd.to_numeric(day_ahead_price_source, errors="coerce")
     result["day_ahead_price_available"] = day_ahead_price.notna()
 
     production_columns = [
@@ -433,7 +461,7 @@ def build_daily_battery_optimization_figure(
     daily_summary: pd.DataFrame,
     aggregation: str = "daily",
 ) -> go.Figure:
-    """Build a battery optimization savings bar chart."""
+    """Build the battery values and optimization result combination chart."""
     fig = go.Figure()
     period_summary = (
         aggregate_battery_optimization_intervals(daily_summary, aggregation)
@@ -460,50 +488,48 @@ def build_daily_battery_optimization_figure(
         )
         return fig
 
-    positive_values = period_summary["optimization_savings_eur"].where(
-        period_summary["optimization_savings_eur"] >= 0
+    x_values = period_summary["period_label"]
+    bar_specs = (
+        ("discharging_value_eur", "Wert Entladung", "rgba(146,219,68,1)"),
+        ("charging_cost_eur", "Wert Beladung", "rgba(236,0,140,1)"),
     )
-    negative_values = period_summary["optimization_savings_eur"].where(
-        period_summary["optimization_savings_eur"] < 0
-    )
-    positive_labels = positive_values.map(
-        lambda value: _format_full_eur(float(value)) if pd.notna(value) else ""
-    )
-    negative_labels = negative_values.map(
-        lambda value: _format_full_eur(float(value)) if pd.notna(value) else ""
-    )
-    fig.add_trace(
-        go.Bar(
-            x=period_summary["period_label"],
-            y=positive_values,
-            marker={
-                "color": "#10b981",
-                "line": {"color": "#047857", "width": 1},
-            },
-            text=positive_labels,
-            textposition="outside",
-            hovertemplate=(
-                "<b>%{x}</b><br>" "Einsparung: €%{y:,.0f}" "<extra></extra>"
-            ),
-            name="Einsparung",
+    for column, name, color in bar_specs:
+        values = period_summary[column]
+        fig.add_trace(
+            go.Bar(
+                x=x_values,
+                y=values,
+                marker={
+                    "color": color,
+                    "line": {"color": color, "width": 1},
+                },
+                text=values.map(_format_full_eur),
+                textposition="outside",
+                hovertemplate=(f"<b>%{{x}}</b><br>{name}: €%{{y:,.2f}}<extra></extra>"),
+                name=name,
+            )
         )
-    )
+
+    savings = period_summary["optimization_savings_eur"]
     fig.add_trace(
-        go.Bar(
-            x=period_summary["period_label"],
-            y=negative_values,
+        go.Scatter(
+            x=x_values,
+            y=savings,
+            mode="lines+markers",
+            line={"color": "rgba(100,116,139,1)", "width": 3},
             marker={
-                "color": "#ef4444",
-                "line": {"color": "#b91c1c", "width": 1},
+                "color": "rgba(100,116,139,1)",
+                "line": {"color": "rgba(71,85,105,1)", "width": 1},
+                "size": 9,
             },
-            text=negative_labels,
-            textposition="outside",
-            hovertemplate=("<b>%{x}</b><br>" "Kosten: €%{y:,.0f}" "<extra></extra>"),
-            name="Kosten",
+            hovertemplate=(
+                "<b>%{x}</b><br>Netto-Einsparung: " "€%{y:,.2f}<extra></extra>"
+            ),
+            name="Netto-Einsparung",
         )
     )
     fig.update_layout(
-        barmode="relative",
+        barmode="group",
         height=460,
         margin={"t": 40, "r": 36, "b": 82, "l": 72},
         paper_bgcolor="#ffffff",
@@ -526,7 +552,7 @@ def build_daily_battery_optimization_figure(
             "font": {"size": 11, "color": "#374151"},
         },
         xaxis_title=_AGGREGATION_OPTIONS[aggregation],
-        yaxis_title="Einsparung/Kosten (€)",
+        yaxis_title="Wert / Kostenwirkung (€)",
         hoverlabel={
             "bgcolor": "#1e293b",
             "font_size": 12,
@@ -693,68 +719,84 @@ def render_battery_optimization(
         st.info(str(exc))
         return
 
-    daily_summary = aggregate_battery_optimization_intervals(interval_data, "daily")
     normalized_metrics = calculate_selection_metrics(interval_data)
-    total_savings = normalized_metrics["total_savings"] or 0.0
+    kpi_boxes = _build_battery_optimization_kpi_boxes(normalized_metrics)
     render_box_grid(
-        [
-            (
-                "Kostenwirkung der Batterieoptimierung (€)",
-                round(total_savings),
-                None,
-                _KPI_TOOLTIPS["total_savings"],
-            ),
-            (
-                "Wert pro MWh Batteriedurchsatz (€/MWh)",
-                normalized_metrics["value_per_mwh_throughput"],
-                None,
-                _KPI_TOOLTIPS["value_per_mwh_throughput"],
-            ),
-            (
-                "Preis-Spread Batterie (€/MWh)",
-                normalized_metrics["battery_price_spread_eur_per_mwh"],
-                None,
-                _KPI_TOOLTIPS["battery_price_spread_eur_per_mwh"],
-            ),
-            # Temporarily hidden from the battery optimization page.
-            # (
-            #     "Wert pro MWh entladene Energie (€/MWh)",
-            #     normalized_metrics["value_per_mwh_discharged"],
-            #     None,
-            #     _KPI_TOOLTIPS["value_per_mwh_discharged"],
-            # ),
-            (
-                "Wert pro kWh Batteriekapazität (€/kWh)",
-                normalized_metrics["value_per_kwh_capacity"],
-                None,
-                _KPI_TOOLTIPS["value_per_kwh_capacity"],
-            ),
-            (
-                "Batteriezyklen (Vollzyklen)",
-                normalized_metrics["battery_cycles"],
-                None,
-                _KPI_TOOLTIPS["battery_cycles"],
-            ),
-        ],
-        per_row=3,
+        kpi_boxes[:_KPI_CARDS_PER_ROW],
+        per_row=_KPI_CARDS_PER_ROW,
         accent="#14b8a6",
     )
     st.divider()
-    visible_normalized_metrics = tuple(
-        metric
-        for metric in _NORMALIZED_PLOT_METRICS
-        if metric[0] not in _HIDDEN_NORMALIZED_METRICS
+    _render_battery_optimization_plot_tabs(
+        interval_data,
+        battery_capacity_kwh,
+        _PRIMARY_PLOT_METRICS,
+        include_optimization=True,
     )
-    plot_configs = [
-        ("battery_optimization", "Kostenwirkung der Batterieoptimierung", None),
-        *[
-            (f"battery_optimization_{metric_key}", label, metric_key)
-            for metric_key, label, _ in visible_normalized_metrics
-        ],
+
+    st.divider()
+    st.subheader("Betriebskennzahlen")
+    render_box_grid(
+        kpi_boxes[_KPI_CARDS_PER_ROW:],
+        per_row=_OPERATING_KPI_CARDS_PER_ROW,
+        accent="#14b8a6",
+    )
+    st.divider()
+    _render_battery_optimization_plot_tabs(
+        interval_data,
+        battery_capacity_kwh,
+        _SECONDARY_PLOT_METRICS,
+    )
+
+    st.divider()
+    st.subheader("Gesamt-Berechnungsdaten")
+    render_table_section(
+        build_battery_optimization_results_table(
+            interval_data,
+            resolution,
+            battery_capacity_kwh=battery_capacity_kwh,
+        ),
+        key_prefix="battery_optimization_results",
+        # caption=(
+        #     "Ausgangsdaten und Berechnungen je Messintervall; die Kennzahlen und "
+        #     "Diagramme werden daraus täglich, wöchentlich oder monatlich aggregiert."
+        # ),
+        empty_info="Keine Berechnungsdaten verfügbar.",
+    )
+
+
+# pylint: disable=too-many-locals
+def _render_battery_optimization_plot_tabs(
+    interval_data: pd.DataFrame,
+    battery_capacity_kwh: float | None,
+    metric_keys: tuple[str, ...],
+    *,
+    include_optimization: bool = False,
+) -> None:
+    """Render one ordered group of battery optimization plot tabs."""
+    metric_labels = {
+        metric_key: label for metric_key, label, _ in _NORMALIZED_PLOT_METRICS
+    }
+    tab_labels = {
+        "battery_price_spread_eur_per_mwh": "Preis-Spread",
+        "value_per_kwh_capacity": "Kapazität",
+        "battery_cycles": "Zyklen",
+    }
+    plot_configs: list[tuple[str, str, str | None]] = []
+    if include_optimization:
+        plot_configs.append(("battery_optimization", "Netto-Einsparung", None))
+    plot_configs.extend(
+        (
+            f"battery_optimization_{metric_key}",
+            metric_labels[metric_key],
+            metric_key,
+        )
+        for metric_key in metric_keys
+    )
+    labels = (["Kostenwirkung"] if include_optimization else []) + [
+        tab_labels[metric_key] for metric_key in metric_keys
     ]
-    plot_tabs = st.tabs(
-        ["Kostenwirkung", "Durchsatz", "Preis-Spread", "Kapazität", "Zyklen"]
-    )
+    plot_tabs = st.tabs(labels)
     for tab, (plot_key, title, metric_key) in zip(plot_tabs, plot_configs):
         with tab:
             aggregation_key = f"{plot_key}_aggregation"
@@ -788,18 +830,64 @@ def render_battery_optimization(
                 key=plot_key,
             )
 
-    st.divider()
-    st.subheader("Intervall-Berechnungsdaten")
-    render_table_section(
-        build_battery_optimization_results_table(
-            interval_data,
-            resolution,
-            battery_capacity_kwh=battery_capacity_kwh,
+
+def _build_battery_optimization_kpi_boxes(
+    metrics: dict[str, float | None],
+) -> list[tuple[str, object, object, str | None]]:
+    """Build the visible KPI cards for the selected reporting period."""
+    return [
+        (
+            "Netto-Einsparung (€)",
+            round(metrics["total_savings"] or 0.0),
+            None,
+            _KPI_TOOLTIPS["total_savings"],
         ),
-        key_prefix="battery_optimization_results",
-        # caption=(
-        #     "Ausgangsdaten und Berechnungen je Messintervall; die Kennzahlen und "
-        #     "Diagramme werden daraus täglich, wöchentlich oder monatlich aggregiert."
-        # ),
-        empty_info="Keine Berechnungsdaten verfügbar.",
-    )
+        (
+            "Wert Entladung (€)",
+            metrics["discharging_value_eur"],
+            None,
+            _KPI_TOOLTIPS["discharging_value_eur"],
+        ),
+        (
+            "Wert Beladung (€)",
+            metrics["charging_cost_eur"],
+            None,
+            _KPI_TOOLTIPS["charging_cost_eur"],
+        ),
+        (
+            "Preis-Spread Batterie (€/MWh)",
+            metrics["battery_price_spread_eur_per_mwh"],
+            None,
+            _KPI_TOOLTIPS["battery_price_spread_eur_per_mwh"],
+        ),
+        (
+            "Batteriezyklen (Vollzyklen)",
+            metrics["battery_cycles"],
+            None,
+            _KPI_TOOLTIPS["battery_cycles"],
+        ),
+        (
+            "Wirkungsgrad (%)",
+            metrics["battery_efficiency_pct"],
+            None,
+            _KPI_TOOLTIPS["battery_efficiency_pct"],
+        ),
+        (
+            "Entladene Menge (kWh)",
+            metrics["battery_discharging_kwh"],
+            None,
+            _KPI_TOOLTIPS["battery_discharging_kwh"],
+        ),
+        (
+            "Geladene Menge (kWh)",
+            metrics["battery_charging_kwh"],
+            None,
+            _KPI_TOOLTIPS["battery_charging_kwh"],
+        ),
+        (
+            "Wert pro kWh Batteriekapazität (€/kWh)",
+            metrics["value_per_kwh_capacity"],
+            None,
+            _KPI_TOOLTIPS["value_per_kwh_capacity"],
+        ),
+    ]

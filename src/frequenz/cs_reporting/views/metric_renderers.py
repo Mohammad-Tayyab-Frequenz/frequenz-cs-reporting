@@ -90,7 +90,11 @@ def _delta_html(
         return ""
     current_value = float(current)
     previous_value = float(previous)
-    if not isfinite(current_value) or not isfinite(previous_value) or previous_value == 0:
+    if (
+        not isfinite(current_value)
+        or not isfinite(previous_value)
+        or previous_value == 0
+    ):
         return ""
 
     delta = ((current_value - previous_value) / abs(previous_value)) * 100
@@ -118,7 +122,7 @@ def _prior_period_help_html() -> str:
     tooltip = escape(_PRIOR_PERIOD_TOOLTIP, quote=True)
     return (
         f'<span class="kpi-card__help" role="img" tabindex="0" '
-        f'aria-label="{tooltip}">?'
+        f'aria-label="{tooltip}">i'
         f'<span class="kpi-card__help-tooltip">{tooltip}</span></span>'
     )
 
@@ -414,7 +418,7 @@ def render_box_grid(
 
                 previous_html = (
                     f'<div class="kpi-card__previous">'
-                    f'<span>{_format_previous_value(label, previous_val)}</span>'
+                    f"<span>{_format_previous_value(label, previous_val)}</span>"
                     f"{_prior_period_help_html()}</div>"
                     if previous_val is not None
                     else ""
@@ -422,7 +426,7 @@ def render_box_grid(
                 tooltip_html = (
                     '<span class="kpi-card__tooltip" role="button" tabindex="0" '
                     f'aria-label="{escape(str(tooltip))}">'
-                    '<span class="kpi-card__tooltip-icon">?</span>'
+                    '<span class="kpi-card__tooltip-icon">i</span>'
                     '<span class="kpi-card__tooltip-text">'
                     f"{escape(str(tooltip))}</span>"
                     "</span>"

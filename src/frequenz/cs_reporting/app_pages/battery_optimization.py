@@ -25,18 +25,23 @@ from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
     get_microgrid_config,
+    get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
     get_battery_capacity_data_kwh,
     get_microgrid_data,
     get_microgrid_soc_data,
 )
-from frequenz.cs_reporting.views.battery_optimization import (
-    render_battery_optimization,
-)
+from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
 from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
 
 _SIDEBAR_KEY_PREFIX = "battery_optimization_"
+
+
+def _mid_caption(microgrid_id: int, microgrid_name: str | None) -> str:
+    """Return the MID identification displayed below the page title."""
+    name = microgrid_name or "Nicht verfügbar"
+    return f"MID{microgrid_id} - {name}"
 
 
 def _previous_month_date(value: date) -> date:
@@ -51,7 +56,7 @@ def _previous_month_date(value: date) -> date:
     return date(year, previous_month, min(value.day, previous_month_days))
 
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals,too-many-statements
 def render() -> None:
     """Render the battery optimization savings page."""
     st.title("Batterie Reporting")
@@ -67,6 +72,7 @@ def render() -> None:
 
     timezone = selections["timezone"]
     microgrid_id = selections["microgrid_id"]
+    st.caption(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
     start_time = set_date_to_midnight(selections["start_date"], timezone)
     end_time = normalize_date_for_reporting(selections["end_date"], timezone)
     end_time = end_time.replace(microsecond=0)

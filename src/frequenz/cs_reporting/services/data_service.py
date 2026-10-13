@@ -17,11 +17,11 @@ from time import monotonic
 from typing import Any
 
 import pandas as pd
+from frequenz.client.common.metrics import Metric
 from frequenz.lib.notebooks.reporting.asset_optimization import (
     data as asset_optimization_data,
 )
 from pandas.errors import PerformanceWarning
-from frequenz.client.common.metrics import Metric
 
 from frequenz.cs_reporting.services.cache_config import CacheConfig, get_cache_config
 from frequenz.cs_reporting.services.client_factory import (
@@ -209,13 +209,17 @@ def _battery_capacity_kwh_time_series_from_metric_data(
     df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Convert Reporting API component capacity samples from Wh to kWh."""
-    numeric_data = df.apply(lambda column: pd.to_numeric(column, errors="coerce"))
-    capacity_kwh = numeric_data.ffill().sum(axis=1, min_count=1) / 1000.0
-    return (
+    numeric_data = pd.DataFrame(
+        {column: pd.to_numeric(df[column], errors="coerce") for column in df.columns},
+        index=df.index,
+    )
+    capacity_kwh = numeric_data.ffill().sum(axis="columns", min_count=1) / 1000.0
+    result = (
         capacity_kwh.rename("battery_capacity_kwh")
         .reset_index()
         .rename(columns={"index": "timestamp"})
     )
+    return result
 
 
 async def fetch_microgrid_battery_capacity_kwh(
@@ -266,6 +270,7 @@ async def fetch_microgrid_battery_capacity_kwh(
     return _battery_capacity_kwh_from_metric_data(capacity_data)
 
 
+# pylint: disable=too-many-locals
 async def fetch_microgrid_battery_capacity_data_kwh(
     microgrid_id: int,
     start_date: datetime,
