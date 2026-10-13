@@ -191,7 +191,6 @@ def render() -> None:
     Returns:
         Streamlit components are rendered directly.
     """
-    # Collect user inputs from sidebar
     today = datetime.now(tz=UTC).date()
     with log_duration("reporting.sidebar_inputs"):
         selections = collect_sidebar_inputs(
@@ -203,7 +202,6 @@ def render() -> None:
         )
 
     timezone = selections["timezone"]
-    # Extract and convert inputs
     microgrid_id = selections["microgrid_id"]
 
     # set_date_to_midnight returns TZ-aware datetimes aligned with the user's timezone
@@ -213,7 +211,6 @@ def render() -> None:
     if end_time.date() != datetime.now(tz=UTC).date():
         end_time += timedelta(days=1)
 
-    # Validate date range
     if start_time > end_time:
         st.warning(
             "Das Enddatum muss am oder nach dem Startdatum liegen. "
@@ -241,7 +238,6 @@ def render() -> None:
     # We extend the fetch end date by 1 day to ensure the API returns data
     # for the full duration of the selected end_time.
 
-    # Fetch data with error handling
     active_power_sync: Future[pd.DataFrame] | None = None
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
@@ -340,16 +336,13 @@ def render() -> None:
         st.error(_format_data_loading_error(exc, microgrid_id))
         st.stop()
 
-    # Check for empty results
     if df.empty:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    # Normalize the dataframe (Handle Index)
     with log_duration("reporting.prepare_dataframe"):
         df_prepared = _prepare_dataframe(df)
 
-    # Build and render dashboard
     with log_duration("reporting.create_column_mapper"):
         mapper = ColumnMapper.from_default()
     with log_duration("reporting.build_master_dataframe"):

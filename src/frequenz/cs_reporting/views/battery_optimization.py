@@ -716,10 +716,6 @@ def render_battery_optimization(
             battery_capacity_kwh=battery_capacity_kwh,
         ),
         key_prefix="battery_optimization_results",
-        # caption=(
-        #     "Ausgangsdaten und Berechnungen je Messintervall; die Kennzahlen und "
-        #     "Diagramme werden daraus täglich, wöchentlich oder monatlich aggregiert."
-        # ),
         empty_info="Keine Berechnungsdaten verfügbar.",
     )
 
