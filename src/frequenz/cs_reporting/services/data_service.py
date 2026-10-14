@@ -37,6 +37,15 @@ from frequenz.cs_reporting.utils.timing import log_duration
 _COMPONENT_DATA_LOGGER = "frequenz.data.microgrid.component_data"
 _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
+_ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
+_ACTIVE_POWER_SYNC_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="active-power-sync",
+)
+_ACTIVE_POWER_SYNC_LOCK = Lock()
+_ACTIVE_POWER_SYNC_JOBS: dict[
+    tuple[int, datetime, datetime, int], tuple[Future[pd.DataFrame], float]
+] = {}
 _DAY_AHEAD_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="day-ahead-price-sync",
@@ -217,6 +226,70 @@ def get_microgrid_data(
     )
 
 
+def get_cached_microgrid_data(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> tuple[pd.DataFrame, SyncMetadata]:
+    """Read active-power data and metadata without external requests.
+
+    Args:
+        microgrid_id: Identifier for the target microgrid.
+        start_date: Inclusive start of the requested range.
+        end_date: Exclusive end of the requested range.
+        resolution: Resolution of the cached dataset.
+
+    Returns:
+        Cached active-power data and the metadata read with it.
+    """
+    config = get_cache_config()
+    cache = ParquetRangeCache(
+        config.storage_path,
+        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+        overlap=timedelta(minutes=config.sync_overlap_minutes),
+    )
+    with log_duration("data.active_power.cache_read"):
+        return cache.read_with_metadata(
+            _dataset_key("active_power", microgrid_id, resolution),
+            start_date,
+            end_date,
+        )
+
+
+def start_background_microgrid_data_sync(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> Future[pd.DataFrame]:
+    """Start one shared, non-blocking active-power cache synchronization."""
+    sync_start, sync_end = _active_power_sync_range(start_date, end_date, resolution)
+    key = (
+        microgrid_id,
+        sync_start,
+        sync_end,
+        int(resolution.total_seconds()),
+    )
+    now = monotonic()
+    with _ACTIVE_POWER_SYNC_LOCK:
+        existing = _ACTIVE_POWER_SYNC_JOBS.get(key)
+        if existing is not None:
+            future, started = existing
+            if not future.done() or now - started < _ACTIVE_POWER_SYNC_RETRY_INTERVAL:
+                return future
+
+        future = _ACTIVE_POWER_SYNC_EXECUTOR.submit(
+            get_microgrid_data,
+            microgrid_id,
+            sync_start,
+            sync_end,
+            resolution,
+        )
+        _ACTIVE_POWER_SYNC_JOBS[key] = (future, now)
+        return future
+
+
 def get_microgrid_soc_data(
     microgrid_id: int,
     start_date: datetime,
@@ -279,6 +352,29 @@ def _dataset_key(name: str, microgrid_id: int, resolution: timedelta) -> Dataset
     return DatasetKey(name, microgrid_id, seconds)
 
 
+def _active_power_sync_range(
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> tuple[datetime, datetime]:
+    """Normalize an active-power job range to stable resolution boundaries."""
+    resolution_seconds = int(resolution.total_seconds())
+    if resolution_seconds <= 0:
+        raise ValueError("resolution must be greater than zero")
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    if start.tzinfo is None:
+        start = start.tz_localize("UTC")
+    else:
+        start = start.tz_convert("UTC")
+    if end.tzinfo is None:
+        end = end.tz_localize("UTC")
+    else:
+        end = end.tz_convert("UTC")
+    frequency = f"{resolution_seconds}s"
+    return start.floor(frequency).to_pydatetime(), end.ceil(frequency).to_pydatetime()
+
+
 def get_dataset_sync_metadata(
     name: str, microgrid_id: int, resolution: timedelta
 ) -> SyncMetadata:
@@ -311,12 +407,13 @@ def get_day_ahead_prices(
     cache = _day_ahead_price_cache(config)
 
     def fetch(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
-        prices = asset_optimization_data.fetch_day_ahead_prices(  # type: ignore[attr-defined]
-            entsoe_key=None,
-            start=fetch_start,
-            end=fetch_end,
-            country_code=country_code,
-        )
+        with log_duration("data.day_ahead_prices.api_request"):
+            prices = asset_optimization_data.fetch_day_ahead_prices(  # type: ignore[attr-defined]
+                entsoe_key=None,
+                start=fetch_start,
+                end=fetch_end,
+                country_code=country_code,
+            )
         return prices.rename("day_ahead_price").to_frame()
 
     with log_duration("data.day_ahead_prices.cache_get"):

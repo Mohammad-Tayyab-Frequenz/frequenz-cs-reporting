@@ -320,7 +320,14 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.services.deepnote_cache import (
+    deepnote_hybrid_cache_enabled,
+    prepare_deepnote_hybrid_cache,
+)
 from frequenz.cs_reporting.utils.timing import log_duration
+
+if IN_DEEPNOTE and deepnote_hybrid_cache_enabled():
+    prepare_deepnote_hybrid_cache()
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------

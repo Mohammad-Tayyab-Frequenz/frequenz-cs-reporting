@@ -10,7 +10,11 @@ import pandas as pd
 import pytest
 
 from frequenz.cs_reporting.services import data_service
-from frequenz.cs_reporting.services.parquet_cache import DatasetKey, ParquetRangeCache
+from frequenz.cs_reporting.services.parquet_cache import (
+    DatasetKey,
+    ParquetRangeCache,
+    SyncMetadata,
+)
 
 
 def _frame(start: datetime, end: datetime, value: float = 1.0) -> pd.DataFrame:
@@ -44,6 +48,65 @@ def test_initial_sync_and_restart_use_existing_parquet(tmp_path: Path) -> None:
     assert len(first) == 4
     pd.testing.assert_frame_equal(restarted, first, check_freq=False)
     assert calls == [(start, end)]
+
+
+def test_read_with_metadata_uses_one_metadata_snapshot(tmp_path: Path) -> None:
+    """A cache-only read returns its dataframe and matching metadata together."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("active_power", 42, 900)
+    cache = _cache(tmp_path)
+    expected = cache.get(key, start, end, _frame)
+
+    actual, metadata = cache.read_with_metadata(key, start, end)
+
+    pd.testing.assert_frame_equal(actual, expected, check_freq=False)
+    assert metadata.status == "ok"
+    assert metadata.dataset == key.slug
+
+
+def test_sync_writes_metadata_only_once_on_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Synchronization does not persist an intermediate syncing state."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("active_power", 42, 900)
+    cache = _cache(tmp_path)
+    writes = 0
+    original_write = cache._write_metadata  # pylint: disable=protected-access
+
+    def count_write(dataset_key: DatasetKey, metadata: SyncMetadata) -> None:
+        nonlocal writes
+        writes += 1
+        original_write(dataset_key, metadata)
+
+    monkeypatch.setattr(cache, "_write_metadata", count_write)
+
+    cache.get(key, start, end, _frame)
+
+    assert writes == 1
+
+
+def test_temporary_cache_does_not_fsync_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ephemeral cache metadata avoids unnecessary durability synchronization."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+
+    def unexpected_fsync(_descriptor: int) -> None:
+        pytest.fail("fsync should not be used for an ephemeral cache")
+
+    monkeypatch.setattr(
+        "frequenz.cs_reporting.services.parquet_cache.os.fsync", unexpected_fsync
+    )
+
+    result = _cache(tmp_path).get(
+        DatasetKey("active_power", 42, 900), start, end, _frame
+    )
+
+    assert not result.empty
 
 
 def test_extension_fetches_only_missing_range(tmp_path: Path) -> None:
@@ -362,3 +425,35 @@ def test_background_day_ahead_sync_is_shared_between_callers(
     assert first is second
     assert not first.result(timeout=1).empty
     assert calls == [("DE_LU", start, end + timedelta(days=1))]
+
+
+def test_background_active_power_sync_is_shared_between_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent sessions reuse one in-process active-power synchronization."""
+    start = datetime(2040, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    resolution = timedelta(minutes=15)
+    calls: list[tuple[int, datetime, datetime, timedelta]] = []
+
+    def sync_active_power(
+        microgrid_id: int,
+        sync_start: datetime,
+        sync_end: datetime,
+        sync_resolution: timedelta,
+    ) -> pd.DataFrame:
+        calls.append((microgrid_id, sync_start, sync_end, sync_resolution))
+        return _frame(sync_start, sync_end)
+
+    monkeypatch.setattr(data_service, "get_microgrid_data", sync_active_power)
+
+    first = data_service.start_background_microgrid_data_sync(
+        42, start, end, resolution
+    )
+    second = data_service.start_background_microgrid_data_sync(
+        42, start, end, resolution
+    )
+
+    assert first is second
+    assert not first.result(timeout=1).empty
+    assert calls == [(42, start, end, resolution)]

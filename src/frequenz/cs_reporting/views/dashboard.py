@@ -25,6 +25,9 @@ from frequenz.cs_reporting.services.data_service import (
     get_cached_day_ahead_prices,
     start_background_day_ahead_price_sync,
 )
+from frequenz.cs_reporting.services.reporting_session import (
+    request_reporting_data_reuse,
+)
 from frequenz.cs_reporting.ui_resources import inject_style, render_template
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
@@ -382,6 +385,7 @@ def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     """Poll background price synchronization and rerun the app when it finishes."""
     future = start_background_day_ahead_price_sync("DE_LU", start, end)
     if future.done():
+        request_reporting_data_reuse()
         st.rerun()
     st.info("Day-ahead prices are loading in the background …")
 
@@ -406,6 +410,7 @@ def _render_day_ahead_price_sync_status(
         st.warning(_DAY_AHEAD_PRICE_WARNING)
         return
 
+    request_reporting_data_reuse()
     st.rerun()
 
 

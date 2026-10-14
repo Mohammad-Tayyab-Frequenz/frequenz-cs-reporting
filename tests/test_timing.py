@@ -23,6 +23,7 @@ def test_log_duration_appends_start_and_end_entries(
 
     with timing.log_duration("reporting.test_step"):
         pass
+    timing.flush_timing_log()
 
     lines = (
         (tmp_path / "metadata" / "duration_log.txt")
@@ -47,6 +48,7 @@ def test_log_duration_records_end_when_operation_fails(
     with pytest.raises(RuntimeError, match="failure"):
         with timing.log_duration("reporting.failing_step"):
             raise RuntimeError("failure")
+    timing.flush_timing_log()
 
     contents = (tmp_path / "metadata" / "duration_log.txt").read_text(encoding="utf-8")
     assert "[timing] START reporting.failing_step" in contents
