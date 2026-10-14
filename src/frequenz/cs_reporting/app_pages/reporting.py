@@ -167,13 +167,36 @@ def _poll_active_power_sync(
     end_time: datetime,
     resolution: timedelta,
 ) -> None:
-    """Poll an empty-cache synchronization and rerun when data is available."""
+    """Poll an empty-cache synchronization and rerun when data is available.
+
+    The cache is checked independently of the local future because Deepnote can
+    serve Streamlit sessions from more than one process.  In that case another
+    process may finish writing the shared cache while this process is still
+    waiting for its own synchronization job.
+    """
     future = start_background_microgrid_data_sync(
         microgrid_id,
         start_time,
         end_time,
         resolution,
     )
+
+    try:
+        cached_frame, _ = get_cached_microgrid_data(
+            microgrid_id,
+            start_time,
+            end_time,
+            resolution,
+        )
+    except (OSError, ValueError):
+        # The writer uses atomic replacement, but a remote/persistent mount can
+        # still be temporarily unavailable.  Let the active job determine the
+        # final user-facing state below.
+        cached_frame = pd.DataFrame()
+
+    if not cached_frame.empty:
+        st.rerun()
+
     if not future.done():
         st.info("Microgrid-Daten werden im Hintergrund geladen …")
         return
@@ -335,7 +358,11 @@ def render() -> None:
             end_time,
             resolution,
         )
-        st.stop()
+        # Do not call st.stop() here.  In particular on Deepnote, stopping the
+        # parent page fragment can prevent the polling fragment's run_every
+        # schedule from being registered, leaving the loading message in place
+        # indefinitely.
+        return
 
     # Normalize the dataframe (Handle Index)
     with log_duration("reporting.prepare_dataframe"):
