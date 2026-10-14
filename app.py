@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import importlib
-import sys
-from pathlib import Path
 import importlib.resources as resources
 import importlib.util
-import streamlit as st
-import pkgutil
 import os
+import pkgutil
+import sys
+from pathlib import Path
+
+import streamlit as st
 
 
 # --- Check if running in deepnote to pick up environment variables ---
@@ -319,7 +320,6 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.ui_resources import render_page
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------
@@ -479,6 +479,16 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     return next(p for p in pages if p.key == selected_key)
 
 
+@st.fragment
+def render_selected_page(page: PageSpec) -> None:
+    """Render the selected page inside an independently managed fragment.
+
+    Args:
+        page: Page selected by the sidebar navigation.
+    """
+    page.render()
+
+
 # --- Main entrypoint --------------------------------------------------------
 def main() -> None:
     st.set_page_config(
@@ -499,7 +509,7 @@ def main() -> None:
     selected = sidebar(pages)
 
     # Render selected page
-    render_page(selected.render)
+    render_selected_page(selected)
 
 
 if __name__ == "__main__":
