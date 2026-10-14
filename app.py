@@ -494,9 +494,13 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     return next(p for p in pages if p.key == selected_key)
 
 
-@st.fragment
 def render_selected_page(page: PageSpec) -> None:
-    """Render the selected page inside an independently managed fragment.
+    """Render the selected page in the full Streamlit app run.
+
+    Reporting and solar pages place interactive widgets in ``st.sidebar``.
+    Keeping those widgets inside a page fragment prevents their form submits
+    from reliably rerunning the whole app, especially through Deepnote's
+    embedded proxy.
 
     Args:
         page: Page selected by the sidebar navigation.

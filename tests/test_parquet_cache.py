@@ -457,3 +457,21 @@ def test_background_active_power_sync_is_shared_between_callers(
     assert first is second
     assert not first.result(timeout=1).empty
     assert calls == [(42, start, end, resolution)]
+
+
+def test_active_power_sync_does_not_round_end_into_future() -> None:
+    """The normalized API range never extends past the requested end."""
+    start = datetime(2040, 1, 1, 10, 2, tzinfo=UTC)
+    end = datetime(2040, 1, 1, 11, 8, tzinfo=UTC)
+
+    sync_start, sync_end = (
+        data_service._active_power_sync_range(  # pylint: disable=protected-access
+            start,
+            end,
+            timedelta(minutes=15),
+        )
+    )
+
+    assert sync_start == datetime(2040, 1, 1, 10, 0, tzinfo=UTC)
+    assert sync_end == datetime(2040, 1, 1, 11, 0, tzinfo=UTC)
+    assert sync_end <= end

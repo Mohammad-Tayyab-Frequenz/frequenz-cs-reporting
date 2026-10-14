@@ -372,7 +372,11 @@ def _active_power_sync_range(
     else:
         end = end.tz_convert("UTC")
     frequency = f"{resolution_seconds}s"
-    return start.floor(frequency).to_pydatetime(), end.ceil(frequency).to_pydatetime()
+    normalized_start = start.floor(frequency)
+    normalized_end = end.floor(frequency)
+    if normalized_end <= normalized_start:
+        normalized_end = end
+    return normalized_start.to_pydatetime(), normalized_end.to_pydatetime()
 
 
 def get_dataset_sync_metadata(

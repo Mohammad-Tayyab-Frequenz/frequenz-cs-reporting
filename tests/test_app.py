@@ -17,7 +17,7 @@ class _AppModule(Protocol):
     """Typed interface to the dynamically loaded Streamlit app."""
 
     def render_selected_page(self, page: PageSpec) -> None:
-        """Render the selected page fragment."""
+        """Render the selected page."""
 
     def discover_library_pages(self) -> list[PageSpec]:
         """Discover lightweight navigation page specifications."""
@@ -35,18 +35,9 @@ def _load_app() -> _AppModule:
     return cast(_AppModule, module)
 
 
-def test_render_selected_page_invokes_page_renderer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The selected page is rendered through the fragment entry point."""
+def test_render_selected_page_invokes_page_renderer() -> None:
+    """The selected page renderer is invoked directly."""
     rendered: list[str] = []
-    fragment_functions: list[str] = []
-
-    def fake_fragment(function: object) -> object:
-        fragment_functions.append(getattr(function, "__name__", ""))
-        return function
-
-    monkeypatch.setattr(st, "fragment", fake_fragment)
     page = PageSpec(
         key="test",
         title="Test",
@@ -57,7 +48,6 @@ def test_render_selected_page_invokes_page_renderer(
 
     _load_app().render_selected_page(page)
 
-    assert "render_selected_page" in fragment_functions
     assert rendered == ["rendered"]
 
 
