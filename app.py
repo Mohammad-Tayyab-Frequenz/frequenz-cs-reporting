@@ -320,7 +320,14 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.services.deepnote_cache import (
+    deepnote_hybrid_cache_enabled,
+    prepare_deepnote_hybrid_cache,
+)
 from frequenz.cs_reporting.utils.timing import log_duration
+
+if IN_DEEPNOTE and deepnote_hybrid_cache_enabled():
+    prepare_deepnote_hybrid_cache()
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------
@@ -487,9 +494,13 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     return next(p for p in pages if p.key == selected_key)
 
 
-@st.fragment
 def render_selected_page(page: PageSpec) -> None:
-    """Render the selected page inside an independently managed fragment.
+    """Render the selected page in the full Streamlit app run.
+
+    Reporting and solar pages place interactive widgets in ``st.sidebar``.
+    Keeping those widgets inside a page fragment prevents their form submits
+    from reliably rerunning the whole app, especially through Deepnote's
+    embedded proxy.
 
     Args:
         page: Page selected by the sidebar navigation.

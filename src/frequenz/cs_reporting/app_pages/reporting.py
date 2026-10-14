@@ -24,9 +24,17 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
+    get_cached_microgrid_data,
     get_dataset_sync_metadata,
     get_microgrid_data,
     get_microgrid_soc_data,
+    start_background_microgrid_data_sync,
+)
+from frequenz.cs_reporting.services.reporting_session import (
+    ReportingDataKey,
+    ReportingDataSnapshot,
+    store_reporting_data_snapshot,
+    take_reporting_data_snapshot,
 )
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
@@ -203,6 +211,14 @@ def render() -> None:
         st.error(str(exc))
         st.stop()
 
+    data_key = ReportingDataKey(
+        microgrid_id=microgrid_id,
+        start_iso=selections["start_date"].isoformat(),
+        end_iso=selections["end_date"].isoformat(),
+        timezone=timezone,
+        resolution_seconds=int(resolution.total_seconds()),
+    )
+
     # We extend the fetch end date by 1 day to ensure the API returns data
     # for the full duration of the selected end_time.
 
@@ -219,32 +235,60 @@ def render() -> None:
             if microgrid_name:
                 heading = f"{heading} - {microgrid_name}"
             st.title(heading)
-            with log_duration("reporting.load_active_power"):
-                df = get_microgrid_data(
-                    microgrid_id=microgrid_id,
-                    start_date=previous_start_time,
-                    # Use the extended date here to ensure we get the full last day
-                    end_date=end_time,
-                    resolution=resolution,
+            snapshot = take_reporting_data_snapshot(data_key)
+            if snapshot is not None:
+                df = snapshot.active_power.copy()
+                sync_metadata = snapshot.sync_metadata
+                battery_soc_df = (
+                    None
+                    if snapshot.battery_soc is None
+                    else snapshot.battery_soc.copy()
                 )
-            with log_duration("reporting.load_sync_metadata"):
-                sync_metadata = get_dataset_sync_metadata(
-                    "active_power", microgrid_id, resolution
-                )
+            else:
+                with log_duration("reporting.load_active_power"):
+                    df, sync_metadata = get_cached_microgrid_data(
+                        microgrid_id=microgrid_id,
+                        start_date=previous_start_time,
+                        end_date=end_time,
+                        resolution=resolution,
+                    )
+                    if df.empty:
+                        # A cold start must not depend on a browser-driven
+                        # fragment timer. Deepnote's embedded Streamlit proxy
+                        # can suspend that timer, leaving the page waiting
+                        # indefinitely. This first fetch writes to the fast
+                        # local cache; later refreshes remain non-blocking.
+                        with log_duration("reporting.initial_active_power_sync"):
+                            df = get_microgrid_data(
+                                microgrid_id=microgrid_id,
+                                start_date=previous_start_time,
+                                end_date=end_time,
+                                resolution=resolution,
+                            )
+                        sync_metadata = get_dataset_sync_metadata(
+                            "active_power", microgrid_id, resolution
+                        )
+                    else:
+                        start_background_microgrid_data_sync(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
+                battery_soc_df = None
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
                 st.warning(
                     "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
                     f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
                 )
-            battery_soc_df = None
             battery_formula = (
                 mcfg.ctype["battery"].formula if "battery" in component_types else None
             )
             has_battery_soc_formula = (
                 battery_formula is not None and "BATTERY_SOC_PCT" in battery_formula
             )
-            if has_battery_soc_formula:
+            if snapshot is None and has_battery_soc_formula:
                 try:
                     with log_duration("reporting.load_battery_soc"):
                         fetched_soc_df = get_microgrid_soc_data(
@@ -259,6 +303,17 @@ def render() -> None:
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
+            if snapshot is None:
+                store_reporting_data_snapshot(
+                    ReportingDataSnapshot(
+                        key=data_key,
+                        active_power=df.copy(),
+                        battery_soc=(
+                            None if battery_soc_df is None else battery_soc_df.copy()
+                        ),
+                        sync_metadata=sync_metadata,
+                    )
+                )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(_format_data_loading_error(exc, microgrid_id))
         st.stop()

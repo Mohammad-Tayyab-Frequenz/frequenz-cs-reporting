@@ -6,12 +6,18 @@
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import UTC, datetime, timedelta
 
 from frequenz.cs_reporting.services.data_service import (
     get_day_ahead_prices,
     get_microgrid_data,
     get_microgrid_soc_data,
+)
+from frequenz.cs_reporting.services.deepnote_cache import (
+    deepnote_hybrid_cache_enabled,
+    persist_deepnote_hybrid_cache,
+    prepare_deepnote_hybrid_cache,
 )
 
 
@@ -47,6 +53,13 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Synchronize configured datasets for use by cron or a platform scheduler."""
+    use_hybrid_cache = deepnote_hybrid_cache_enabled() and any(
+        key in os.environ
+        for key in ("DEEPNOTE_PROJECT_ID", "DEEPNOTE_WORKSPACE_ID", "DEEPNOTE")
+    )
+    if use_hybrid_cache:
+        prepare_deepnote_hybrid_cache()
+
     parser = _parser()
     args = parser.parse_args()
     end = args.end or datetime.now(tz=UTC)
@@ -69,6 +82,8 @@ def main() -> None:
         # values so the dashboard remains covered until the next daily run.
         price_end = args.end or end + timedelta(days=1)
         get_day_ahead_prices(args.country_code, start, price_end)
+    if use_hybrid_cache:
+        persist_deepnote_hybrid_cache()
 
 
 if __name__ == "__main__":
