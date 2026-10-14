@@ -21,6 +21,7 @@ from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sideba
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import get_microgrid_config
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.solar_results import render_workflow_results
 
 DEFAULT_START_DATE = datetime.date(
@@ -70,17 +71,18 @@ def render() -> None:
     st.title("Solar-Wartung & Monitoring")
     st.divider()
 
-    inputs_data, submit_button = collect_solar_sidebar_inputs(
-        default_start_date=DEFAULT_START_DATE,
-        default_resample_period=DEFAULT_RESAMPLE_PERIOD,
-        baseline_model_options=[
-            "7-day MA",
-            "7-day sampled MA",
-            "weather-based-forecast",
-        ],
-        default_baseline_models=DEFAULT_BASELINE_MODELS,
-        key_prefix="solar_",
-    )
+    with log_duration("solar.sidebar_inputs"):
+        inputs_data, submit_button = collect_solar_sidebar_inputs(
+            default_start_date=DEFAULT_START_DATE,
+            default_resample_period=DEFAULT_RESAMPLE_PERIOD,
+            baseline_model_options=[
+                "7-day MA",
+                "7-day sampled MA",
+                "weather-based-forecast",
+            ],
+            default_baseline_models=DEFAULT_BASELINE_MODELS,
+            key_prefix="solar_",
+        )
 
     if inputs_data is None:
         return
@@ -93,7 +95,8 @@ def render() -> None:
         return
 
     try:
-        microgrid_config = get_microgrid_config(inputs_data.microgrid_id)
+        with log_duration("solar.load_microgrid_config"):
+            microgrid_config = get_microgrid_config(inputs_data.microgrid_id)
     except (KeyError, RuntimeError) as exc:
         st.error(
             f"Konfiguration für Microgrid {inputs_data.microgrid_id} nicht gefunden: {exc}"
@@ -101,17 +104,18 @@ def render() -> None:
         return
 
     try:
-        user_request = build_workflow_request(
-            microgrid_id=inputs_data.microgrid_id,
-            config=microgrid_config,
-            start_date=inputs_data.start_date,
-            time_zone=inputs_data.time_zone,
-            component_category=inputs_data.component_category,
-            language=inputs_data.language,
-            resample_period=inputs_data.resample_period,
-            rolling_view_duration=inputs_data.rolling_view_duration,
-            baseline_models=inputs_data.baseline_models,
-        )
+        with log_duration("solar.build_workflow_request"):
+            user_request = build_workflow_request(
+                microgrid_id=inputs_data.microgrid_id,
+                config=microgrid_config,
+                start_date=inputs_data.start_date,
+                time_zone=inputs_data.time_zone,
+                component_category=inputs_data.component_category,
+                language=inputs_data.language,
+                resample_period=inputs_data.resample_period,
+                rolling_view_duration=inputs_data.rolling_view_duration,
+                baseline_models=inputs_data.baseline_models,
+            )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(f"Anfrage konnte nicht vorbereitet werden: {exc}")
         # Improve logging (could use proper logger, simplistic print for now as in original)
@@ -119,10 +123,12 @@ def render() -> None:
         return
 
     with st.spinner("Workflow wird ausgeführt..."):
-        with capture_workflow_figures() as figures:
-            plot_data = asyncio.run(run_workflow(user_config_changes=user_request))
+        with log_duration("solar.run_workflow"):
+            with capture_workflow_figures() as figures:
+                plot_data = asyncio.run(run_workflow(user_config_changes=user_request))
 
-    render_workflow_results(plot_data, figures)
+    with log_duration("solar.render_results"):
+        render_workflow_results(plot_data, figures)
 
 
 PAGE = PageSpec(

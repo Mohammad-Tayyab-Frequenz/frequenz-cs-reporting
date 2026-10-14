@@ -9,13 +9,15 @@ import importlib
 from collections.abc import Callable
 
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.utils.timing import log_duration
 
 
 def _lazy_render(module_name: str, expected_key: str) -> Callable[[], None]:
     """Create a renderer that imports its page module only when selected."""
 
     def render() -> None:
-        module = importlib.import_module(f"{__name__}.{module_name}")
+        with log_duration(f"page.{expected_key}.import_module"):
+            module = importlib.import_module(f"{__name__}.{module_name}")
         page = getattr(module, "PAGE", None)
         if not isinstance(page, PageSpec) or page.key != expected_key:
             raise RuntimeError(

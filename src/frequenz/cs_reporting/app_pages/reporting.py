@@ -28,6 +28,7 @@ from frequenz.cs_reporting.services.data_service import (
     get_microgrid_data,
     get_microgrid_soc_data,
 )
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
     build_master_df,
     render_dashboard,
@@ -165,13 +166,14 @@ def render() -> None:
     """
     # Collect user inputs from sidebar
     today = datetime.now(tz=UTC).date()
-    selections = collect_sidebar_inputs(
-        default_start=today,
-        default_end=today,
-        resolution_options=("15min", "30min", "1hour"),
-        default_resolution="15min",
-        key_prefix="reporting_",
-    )
+    with log_duration("reporting.sidebar_inputs"):
+        selections = collect_sidebar_inputs(
+            default_start=today,
+            default_end=today,
+            resolution_options=("15min", "30min", "1hour"),
+            default_resolution="15min",
+            key_prefix="reporting_",
+        )
 
     timezone = selections["timezone"]
     # Extract and convert inputs
@@ -207,23 +209,28 @@ def render() -> None:
     # Fetch data with error handling
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
-            component_types = list(get_component_types(microgrid_id))
-            mcfg = get_microgrid_config(microgrid_id)
-            microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
+            with log_duration("reporting.load_component_types"):
+                component_types = list(get_component_types(microgrid_id))
+            with log_duration("reporting.load_microgrid_config"):
+                mcfg = get_microgrid_config(microgrid_id)
+            with log_duration("reporting.load_microgrid_names"):
+                microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
             heading = f"MID{microgrid_id}"
             if microgrid_name:
                 heading = f"{heading} - {microgrid_name}"
             st.title(heading)
-            df = get_microgrid_data(
-                microgrid_id=microgrid_id,
-                start_date=previous_start_time,
-                # Use the extended date here to ensure we get the full last day
-                end_date=end_time,
-                resolution=resolution,
-            )
-            sync_metadata = get_dataset_sync_metadata(
-                "active_power", microgrid_id, resolution
-            )
+            with log_duration("reporting.load_active_power"):
+                df = get_microgrid_data(
+                    microgrid_id=microgrid_id,
+                    start_date=previous_start_time,
+                    # Use the extended date here to ensure we get the full last day
+                    end_date=end_time,
+                    resolution=resolution,
+                )
+            with log_duration("reporting.load_sync_metadata"):
+                sync_metadata = get_dataset_sync_metadata(
+                    "active_power", microgrid_id, resolution
+                )
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
                 st.warning(
@@ -239,12 +246,13 @@ def render() -> None:
             )
             if has_battery_soc_formula:
                 try:
-                    fetched_soc_df = get_microgrid_soc_data(
-                        microgrid_id=microgrid_id,
-                        start_date=previous_start_time,
-                        end_date=end_time,
-                        resolution=resolution,
-                    )
+                    with log_duration("reporting.load_battery_soc"):
+                        fetched_soc_df = get_microgrid_soc_data(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
@@ -261,37 +269,42 @@ def render() -> None:
         st.stop()
 
     # Normalize the dataframe (Handle Index)
-    df_prepared = _prepare_dataframe(df)
+    with log_duration("reporting.prepare_dataframe"):
+        df_prepared = _prepare_dataframe(df)
 
     # Build and render dashboard
-    mapper = ColumnMapper.from_default()
-    master_df = build_master_df(
-        df_prepared,
-        component_types,
-        mcfg,
-        mapper,
-        timezone=timezone,
-        battery_soc_df=battery_soc_df,
-    )
-    current_master_df, previous_master_df = split_periods(
-        master_df,
-        start_time,
-        end_time,
-        resolution,
-    )
+    with log_duration("reporting.create_column_mapper"):
+        mapper = ColumnMapper.from_default()
+    with log_duration("reporting.build_master_dataframe"):
+        master_df = build_master_df(
+            df_prepared,
+            component_types,
+            mcfg,
+            mapper,
+            timezone=timezone,
+            battery_soc_df=battery_soc_df,
+        )
+    with log_duration("reporting.split_periods"):
+        current_master_df, previous_master_df = split_periods(
+            master_df,
+            start_time,
+            end_time,
+            resolution,
+        )
     if current_master_df.empty:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    render_dashboard(
-        current_master_df,
-        resolution=resolution,
-        component_types=component_types,
-        mapper=mapper,
-        microgrid_id=microgrid_id,
-        mcfg=mcfg,
-        previous_master_df=previous_master_df,
-    )
+    with log_duration("reporting.render_dashboard"):
+        render_dashboard(
+            current_master_df,
+            resolution=resolution,
+            component_types=component_types,
+            mapper=mapper,
+            microgrid_id=microgrid_id,
+            mcfg=mcfg,
+            previous_master_df=previous_master_df,
+        )
     _scroll_to_section_if_requested()
 
 
