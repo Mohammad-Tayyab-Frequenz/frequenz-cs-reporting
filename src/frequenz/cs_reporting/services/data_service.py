@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from threading import Lock
 from time import monotonic
+from typing import Any
 
 import pandas as pd
 from frequenz.lib.notebooks.reporting.asset_optimization import (
@@ -25,6 +26,9 @@ from frequenz.cs_reporting.services.cache_config import CacheConfig, get_cache_c
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
     get_microgrid_client,
+)
+from frequenz.cs_reporting.services.deepnote_cache import (
+    start_background_deepnote_cache_persist,
 )
 from frequenz.cs_reporting.services.parquet_cache import (
     DatasetKey,
@@ -286,6 +290,7 @@ def start_background_microgrid_data_sync(
             sync_end,
             resolution,
         )
+        future.add_done_callback(_persist_cache_after_successful_sync)
         _ACTIVE_POWER_SYNC_JOBS[key] = (future, now)
         return future
 
@@ -496,8 +501,16 @@ def start_background_day_ahead_price_sync(
             sync_start,
             sync_end,
         )
+        future.add_done_callback(_persist_cache_after_successful_sync)
         _DAY_AHEAD_SYNC_JOBS[key] = (future, now)
         return future
+
+
+def _persist_cache_after_successful_sync(future: Future[Any]) -> None:
+    """Queue Deepnote persistence after a successful background sync."""
+    if future.cancelled() or future.exception() is not None:
+        return
+    start_background_deepnote_cache_persist()
 
 
 def _day_ahead_sync_range(

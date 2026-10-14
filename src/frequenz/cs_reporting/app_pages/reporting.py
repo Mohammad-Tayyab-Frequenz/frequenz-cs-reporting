@@ -162,7 +162,7 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
     )
 
 
-# pylint: disable=too-many-locals, too-many-statements
+# pylint: disable=too-many-branches, too-many-locals, too-many-statements
 def render() -> None:
     """Render the Frequenz Reporting Dashboard page.
 
