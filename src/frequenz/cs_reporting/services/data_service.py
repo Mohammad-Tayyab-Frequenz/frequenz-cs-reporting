@@ -32,6 +32,7 @@ from frequenz.cs_reporting.services.parquet_cache import (
     SyncMetadata,
 )
 from frequenz.cs_reporting.utils.time import validate_range
+from frequenz.cs_reporting.utils.timing import log_duration
 
 _COMPONENT_DATA_LOGGER = "frequenz.data.microgrid.component_data"
 _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
@@ -113,7 +114,8 @@ async def fetch_microgrid_data(
         splits=True,
     )
     with _quiet_expected_component_data_warnings():
-        df = await asyncio.wait_for(coro, timeout)
+        with log_duration("data.active_power.api_request"):
+            df = await asyncio.wait_for(coro, timeout)
 
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame()
@@ -150,7 +152,8 @@ async def fetch_microgrid_soc_data(
         keep_components=False,
     )
     with _quiet_expected_component_data_warnings():
-        df = await asyncio.wait_for(coro, timeout)
+        with log_duration("data.battery_soc.api_request"):
+            df = await asyncio.wait_for(coro, timeout)
 
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame()
@@ -192,20 +195,21 @@ def get_microgrid_data(
             sync_interval=timedelta(minutes=config.sync_interval_minutes),
             overlap=timedelta(minutes=config.sync_overlap_minutes),
         )
-        return cache.get(
-            _dataset_key("active_power", microgrid_id, resolution),
-            start_date,
-            end_date,
-            lambda fetch_start, fetch_end: asyncio.run(
-                fetch_microgrid_data(
-                    microgrid_id,
-                    fetch_start,
-                    fetch_end,
-                    resolution,
-                    timeout=effective_timeout,
-                )
-            ),
-        )
+        with log_duration("data.active_power.cache_get"):
+            return cache.get(
+                _dataset_key("active_power", microgrid_id, resolution),
+                start_date,
+                end_date,
+                lambda fetch_start, fetch_end: asyncio.run(
+                    fetch_microgrid_data(
+                        microgrid_id,
+                        fetch_start,
+                        fetch_end,
+                        resolution,
+                        timeout=effective_timeout,
+                    )
+                ),
+            )
     # Active loop: force caller to use the async API
     raise RuntimeError(
         "get_microgrid_data() called from within an active event loop. "
@@ -246,20 +250,21 @@ def get_microgrid_soc_data(
             sync_interval=timedelta(minutes=config.sync_interval_minutes),
             overlap=timedelta(minutes=config.sync_overlap_minutes),
         )
-        return cache.get(
-            _dataset_key("battery_soc", microgrid_id, resolution),
-            start_date,
-            end_date,
-            lambda fetch_start, fetch_end: asyncio.run(
-                fetch_microgrid_soc_data(
-                    microgrid_id,
-                    fetch_start,
-                    fetch_end,
-                    resolution,
-                    timeout=effective_timeout,
-                )
-            ),
-        )
+        with log_duration("data.battery_soc.cache_get"):
+            return cache.get(
+                _dataset_key("battery_soc", microgrid_id, resolution),
+                start_date,
+                end_date,
+                lambda fetch_start, fetch_end: asyncio.run(
+                    fetch_microgrid_soc_data(
+                        microgrid_id,
+                        fetch_start,
+                        fetch_end,
+                        resolution,
+                        timeout=effective_timeout,
+                    )
+                ),
+            )
     raise RuntimeError(
         "get_microgrid_soc_data() called from within an active event loop. "
         "Use `await fetch_microgrid_soc_data(...)` in async contexts."
@@ -314,12 +319,13 @@ def get_day_ahead_prices(
         )
         return prices.rename("day_ahead_price").to_frame()
 
-    frame = cache.get(
-        _day_ahead_price_key(country_code),
-        start_date,
-        end_date,
-        fetch,
-    )
+    with log_duration("data.day_ahead_prices.cache_get"):
+        frame = cache.get(
+            _day_ahead_price_key(country_code),
+            start_date,
+            end_date,
+            fetch,
+        )
     if "day_ahead_price" not in frame.columns:
         return pd.Series(dtype="float64", name="day_ahead_price")
     return frame["day_ahead_price"].rename("day_ahead_price")
@@ -343,11 +349,12 @@ def get_cached_day_ahead_prices(
     """
     config = get_cache_config()
     cache = _day_ahead_price_cache(config)
-    frame = cache.read(
-        _day_ahead_price_key(country_code),
-        start_date,
-        end_date,
-    )
+    with log_duration("data.day_ahead_prices.cache_read"):
+        frame = cache.read(
+            _day_ahead_price_key(country_code),
+            start_date,
+            end_date,
+        )
     if "day_ahead_price" not in frame.columns:
         return pd.Series(dtype="float64", name="day_ahead_price")
     return frame["day_ahead_price"].rename("day_ahead_price")

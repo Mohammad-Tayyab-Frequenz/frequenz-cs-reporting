@@ -320,6 +320,7 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.utils.timing import log_duration
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------
@@ -493,7 +494,8 @@ def render_selected_page(page: PageSpec) -> None:
     Args:
         page: Page selected by the sidebar navigation.
     """
-    page.render()
+    with log_duration(f"page.{page.key}.total"):
+        page.render()
 
 
 # --- Main entrypoint --------------------------------------------------------
@@ -505,7 +507,8 @@ def main() -> None:
     )
     _inject_global_theme()
 
-    pages = discover_library_pages()
+    with log_duration("app.discover_pages"):
+        pages = discover_library_pages()
     if not pages:
         st.info(
             f"Keine Seiten unter `{LIB_PAGES_ROOT}` gefunden "
@@ -513,7 +516,8 @@ def main() -> None:
         )
         return
 
-    selected = sidebar(pages)
+    with log_duration("app.sidebar"):
+        selected = sidebar(pages)
 
     # Render selected page
     render_selected_page(selected)

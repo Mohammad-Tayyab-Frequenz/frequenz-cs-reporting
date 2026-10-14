@@ -26,6 +26,7 @@ from frequenz.cs_reporting.services.data_service import (
     start_background_day_ahead_price_sync,
 )
 from frequenz.cs_reporting.ui_resources import inject_style, render_template
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
@@ -450,27 +451,32 @@ def render_dashboard(
             previous_master_df,
             resolution,
         )
-    tables = _build_tables(master_df, resolution, component_types)
-    previous_metrics = (
-        _aggregate_metrics(previous_master_df, resolution)
-        if previous_master_df is not None and not previous_master_df.empty
-        else None
-    )
+    with log_duration("dashboard.build_tables"):
+        tables = _build_tables(master_df, resolution, component_types)
+    with log_duration("dashboard.previous_period_metrics"):
+        previous_metrics = (
+            _aggregate_metrics(previous_master_df, resolution)
+            if previous_master_df is not None and not previous_master_df.empty
+            else None
+        )
 
     # --- Overview section---
-    _section_divider("Übersicht", "KPIs")
-    sections.render_summary_boxes(
-        tables["metrics"],
-        component_types,
-        microgrid_id,
-        previous_metrics=previous_metrics,
-    )
+    with log_duration("dashboard.render_kpis"):
+        _section_divider("Übersicht", "KPIs")
+        sections.render_summary_boxes(
+            tables["metrics"],
+            component_types,
+            microgrid_id,
+            previous_metrics=previous_metrics,
+        )
 
     # --- Plots section---
-    _section_divider("Diagramme & Zeitreihen")
-    sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
+    with log_duration("dashboard.render_plots"):
+        _section_divider("Diagramme & Zeitreihen")
+        sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
 
     # --- Tables section---
-    st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
-    _section_divider("Datentabellen")
-    sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
+    with log_duration("dashboard.render_tables"):
+        st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
+        _section_divider("Datentabellen")
+        sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
