@@ -36,3 +36,16 @@ def test_prepare_and_persist_hybrid_cache(
     persist_deepnote_hybrid_cache(persistent, local)
 
     assert (persistent / "parquet" / "prices.parquet").read_bytes() == b"new"
+
+
+def test_prepare_creates_empty_persistent_cache_layout(tmp_path: Path) -> None:
+    """Preparing an empty cache creates both durable cache directories."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+
+    prepare_deepnote_hybrid_cache(persistent, local)
+
+    assert (persistent / "parquet").is_dir()
+    assert (persistent / "metadata").is_dir()
+    assert (local / "parquet").is_dir()
+    assert (local / "metadata").is_dir()

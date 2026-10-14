@@ -25,6 +25,8 @@ from frequenz.cs_reporting.services.client_factory import (
 )
 from frequenz.cs_reporting.services.data_service import (
     get_cached_microgrid_data,
+    get_dataset_sync_metadata,
+    get_microgrid_data,
     get_microgrid_soc_data,
     start_background_microgrid_data_sync,
 )
@@ -160,57 +162,6 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
     )
 
 
-@st.fragment(run_every=2.0)
-def _poll_active_power_sync(
-    microgrid_id: int,
-    start_time: datetime,
-    end_time: datetime,
-    resolution: timedelta,
-) -> None:
-    """Poll an empty-cache synchronization and rerun when data is available.
-
-    The cache is checked independently of the local future because Deepnote can
-    serve Streamlit sessions from more than one process.  In that case another
-    process may finish writing the shared cache while this process is still
-    waiting for its own synchronization job.
-    """
-    future = start_background_microgrid_data_sync(
-        microgrid_id,
-        start_time,
-        end_time,
-        resolution,
-    )
-
-    try:
-        cached_frame, _ = get_cached_microgrid_data(
-            microgrid_id,
-            start_time,
-            end_time,
-            resolution,
-        )
-    except (OSError, ValueError):
-        # The writer uses atomic replacement, but a remote/persistent mount can
-        # still be temporarily unavailable.  Let the active job determine the
-        # final user-facing state below.
-        cached_frame = pd.DataFrame()
-
-    if not cached_frame.empty:
-        st.rerun()
-
-    if not future.done():
-        st.info("Microgrid-Daten werden im Hintergrund geladen …")
-        return
-    try:
-        frame = future.result()
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        st.error(_format_data_loading_error(exc, microgrid_id))
-        return
-    if frame.empty:
-        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
-        return
-    st.rerun()
-
-
 # pylint: disable=too-many-locals, too-many-statements
 def render() -> None:
     """Render the Frequenz Reporting Dashboard page.
@@ -301,12 +252,29 @@ def render() -> None:
                         end_date=end_time,
                         resolution=resolution,
                     )
-                    start_background_microgrid_data_sync(
-                        microgrid_id=microgrid_id,
-                        start_date=previous_start_time,
-                        end_date=end_time,
-                        resolution=resolution,
-                    )
+                    if df.empty:
+                        # A cold start must not depend on a browser-driven
+                        # fragment timer. Deepnote's embedded Streamlit proxy
+                        # can suspend that timer, leaving the page waiting
+                        # indefinitely. This first fetch writes to the fast
+                        # local cache; later refreshes remain non-blocking.
+                        with log_duration("reporting.initial_active_power_sync"):
+                            df = get_microgrid_data(
+                                microgrid_id=microgrid_id,
+                                start_date=previous_start_time,
+                                end_date=end_time,
+                                resolution=resolution,
+                            )
+                        sync_metadata = get_dataset_sync_metadata(
+                            "active_power", microgrid_id, resolution
+                        )
+                    else:
+                        start_background_microgrid_data_sync(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
                 battery_soc_df = None
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
@@ -352,17 +320,8 @@ def render() -> None:
 
     # Check for empty results
     if df.empty:
-        _poll_active_power_sync(
-            microgrid_id,
-            previous_start_time,
-            end_time,
-            resolution,
-        )
-        # Do not call st.stop() here.  In particular on Deepnote, stopping the
-        # parent page fragment can prevent the polling fragment's run_every
-        # schedule from being registered, leaving the loading message in place
-        # indefinitely.
-        return
+        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.stop()
 
     # Normalize the dataframe (Handle Index)
     with log_duration("reporting.prepare_dataframe"):

@@ -44,6 +44,11 @@ def prepare_deepnote_hybrid_cache(
     local = local_root or Path(
         os.getenv("DEEPNOTE_LOCAL_CACHE_ROOT", str(_DEFAULT_LOCAL_ROOT))
     )
+    # Create the durable layout up front.  Besides making the configured
+    # storage visible immediately in Deepnote, this validates that the project
+    # mount is writable before a scheduled synchronization needs it.
+    for directory in _CACHE_DIRECTORIES:
+        (persistent / directory).mkdir(parents=True, exist_ok=True)
     local.mkdir(parents=True, exist_ok=True)
     marker = local / _INITIALIZED_MARKER
     if not marker.exists():
