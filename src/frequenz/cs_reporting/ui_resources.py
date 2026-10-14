@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import lru_cache
 from importlib import resources
 
@@ -43,20 +42,3 @@ def inject_style(style_name: str, **tokens: str) -> None:
         style_text = style_text.replace(f"__{key.upper()}__", value)
 
     st.markdown(f"<style>\n{style_text}\n</style>", unsafe_allow_html=True)
-
-
-def render_page(render: Callable[[], None]) -> None:
-    """Render a page in a slot that immediately replaces the previous page.
-
-    Streamlit keeps elements from the previous run visible until matching
-    deltas from the new run arrive.  Emitting an empty placeholder before the
-    selected page starts rendering clears the complete previous page at once,
-    which is especially important when the next page blocks while loading
-    data.
-
-    Args:
-        render: Selected page's render callback.
-    """
-    page_slot = st.empty()
-    with page_slot.container():
-        render()

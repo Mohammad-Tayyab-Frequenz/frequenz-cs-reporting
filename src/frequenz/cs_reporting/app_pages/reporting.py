@@ -24,10 +24,19 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
+    get_cached_microgrid_data,
     get_dataset_sync_metadata,
     get_microgrid_data,
     get_microgrid_soc_data,
+    start_background_microgrid_data_sync,
 )
+from frequenz.cs_reporting.services.reporting_session import (
+    ReportingDataKey,
+    ReportingDataSnapshot,
+    store_reporting_data_snapshot,
+    take_reporting_data_snapshot,
+)
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
     build_master_df,
     render_dashboard,
@@ -153,7 +162,7 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
     )
 
 
-# pylint: disable=too-many-locals, too-many-statements
+# pylint: disable=too-many-branches, too-many-locals, too-many-statements
 def render() -> None:
     """Render the Frequenz Reporting Dashboard page.
 
@@ -165,13 +174,14 @@ def render() -> None:
     """
     # Collect user inputs from sidebar
     today = datetime.now(tz=UTC).date()
-    selections = collect_sidebar_inputs(
-        default_start=today,
-        default_end=today,
-        resolution_options=("15min", "30min", "1hour"),
-        default_resolution="15min",
-        key_prefix="reporting_",
-    )
+    with log_duration("reporting.sidebar_inputs"):
+        selections = collect_sidebar_inputs(
+            default_start=today,
+            default_end=today,
+            resolution_options=("15min", "30min", "1hour"),
+            default_resolution="15min",
+            key_prefix="reporting_",
+        )
 
     timezone = selections["timezone"]
     # Extract and convert inputs
@@ -201,56 +211,109 @@ def render() -> None:
         st.error(str(exc))
         st.stop()
 
+    data_key = ReportingDataKey(
+        microgrid_id=microgrid_id,
+        start_iso=selections["start_date"].isoformat(),
+        end_iso=selections["end_date"].isoformat(),
+        timezone=timezone,
+        resolution_seconds=int(resolution.total_seconds()),
+    )
+
     # We extend the fetch end date by 1 day to ensure the API returns data
     # for the full duration of the selected end_time.
 
     # Fetch data with error handling
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
-            component_types = list(get_component_types(microgrid_id))
-            mcfg = get_microgrid_config(microgrid_id)
-            microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
+            with log_duration("reporting.load_component_types"):
+                component_types = list(get_component_types(microgrid_id))
+            with log_duration("reporting.load_microgrid_config"):
+                mcfg = get_microgrid_config(microgrid_id)
+            with log_duration("reporting.load_microgrid_names"):
+                microgrid_name = get_microgrid_names().get(microgrid_id) or mcfg.name
             heading = f"MID{microgrid_id}"
             if microgrid_name:
                 heading = f"{heading} - {microgrid_name}"
             st.title(heading)
-            df = get_microgrid_data(
-                microgrid_id=microgrid_id,
-                start_date=previous_start_time,
-                # Use the extended date here to ensure we get the full last day
-                end_date=end_time,
-                resolution=resolution,
-            )
-            sync_metadata = get_dataset_sync_metadata(
-                "active_power", microgrid_id, resolution
-            )
+            snapshot = take_reporting_data_snapshot(data_key)
+            if snapshot is not None:
+                df = snapshot.active_power.copy()
+                sync_metadata = snapshot.sync_metadata
+                battery_soc_df = (
+                    None
+                    if snapshot.battery_soc is None
+                    else snapshot.battery_soc.copy()
+                )
+            else:
+                with log_duration("reporting.load_active_power"):
+                    df, sync_metadata = get_cached_microgrid_data(
+                        microgrid_id=microgrid_id,
+                        start_date=previous_start_time,
+                        end_date=end_time,
+                        resolution=resolution,
+                    )
+                    if df.empty:
+                        # A cold start must not depend on a browser-driven
+                        # fragment timer. Deepnote's embedded Streamlit proxy
+                        # can suspend that timer, leaving the page waiting
+                        # indefinitely. This first fetch writes to the fast
+                        # local cache; later refreshes remain non-blocking.
+                        with log_duration("reporting.initial_active_power_sync"):
+                            df = get_microgrid_data(
+                                microgrid_id=microgrid_id,
+                                start_date=previous_start_time,
+                                end_date=end_time,
+                                resolution=resolution,
+                            )
+                        sync_metadata = get_dataset_sync_metadata(
+                            "active_power", microgrid_id, resolution
+                        )
+                    else:
+                        start_background_microgrid_data_sync(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
+                battery_soc_df = None
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
                 st.warning(
                     "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
                     f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
                 )
-            battery_soc_df = None
             battery_formula = (
                 mcfg.ctype["battery"].formula if "battery" in component_types else None
             )
             has_battery_soc_formula = (
                 battery_formula is not None and "BATTERY_SOC_PCT" in battery_formula
             )
-            if has_battery_soc_formula:
+            if snapshot is None and has_battery_soc_formula:
                 try:
-                    fetched_soc_df = get_microgrid_soc_data(
-                        microgrid_id=microgrid_id,
-                        start_date=previous_start_time,
-                        end_date=end_time,
-                        resolution=resolution,
-                    )
+                    with log_duration("reporting.load_battery_soc"):
+                        fetched_soc_df = get_microgrid_soc_data(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
+            if snapshot is None:
+                store_reporting_data_snapshot(
+                    ReportingDataSnapshot(
+                        key=data_key,
+                        active_power=df.copy(),
+                        battery_soc=(
+                            None if battery_soc_df is None else battery_soc_df.copy()
+                        ),
+                        sync_metadata=sync_metadata,
+                    )
+                )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(_format_data_loading_error(exc, microgrid_id))
         st.stop()
@@ -261,37 +324,42 @@ def render() -> None:
         st.stop()
 
     # Normalize the dataframe (Handle Index)
-    df_prepared = _prepare_dataframe(df)
+    with log_duration("reporting.prepare_dataframe"):
+        df_prepared = _prepare_dataframe(df)
 
     # Build and render dashboard
-    mapper = ColumnMapper.from_default()
-    master_df = build_master_df(
-        df_prepared,
-        component_types,
-        mcfg,
-        mapper,
-        timezone=timezone,
-        battery_soc_df=battery_soc_df,
-    )
-    current_master_df, previous_master_df = split_periods(
-        master_df,
-        start_time,
-        end_time,
-        resolution,
-    )
+    with log_duration("reporting.create_column_mapper"):
+        mapper = ColumnMapper.from_default()
+    with log_duration("reporting.build_master_dataframe"):
+        master_df = build_master_df(
+            df_prepared,
+            component_types,
+            mcfg,
+            mapper,
+            timezone=timezone,
+            battery_soc_df=battery_soc_df,
+        )
+    with log_duration("reporting.split_periods"):
+        current_master_df, previous_master_df = split_periods(
+            master_df,
+            start_time,
+            end_time,
+            resolution,
+        )
     if current_master_df.empty:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    render_dashboard(
-        current_master_df,
-        resolution=resolution,
-        component_types=component_types,
-        mapper=mapper,
-        microgrid_id=microgrid_id,
-        mcfg=mcfg,
-        previous_master_df=previous_master_df,
-    )
+    with log_duration("reporting.render_dashboard"):
+        render_dashboard(
+            current_master_df,
+            resolution=resolution,
+            component_types=component_types,
+            mapper=mapper,
+            microgrid_id=microgrid_id,
+            mcfg=mcfg,
+            previous_master_df=previous_master_df,
+        )
     _scroll_to_section_if_requested()
 
 

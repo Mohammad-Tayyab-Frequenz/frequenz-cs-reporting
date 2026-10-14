@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import importlib
-import sys
-from pathlib import Path
 import importlib.resources as resources
 import importlib.util
-import streamlit as st
-import pkgutil
 import os
+import pkgutil
+import sys
+from pathlib import Path
+
+import streamlit as st
 
 
 # --- Check if running in deepnote to pick up environment variables ---
@@ -319,7 +320,15 @@ if package_parent not in sys.path:
 
 # Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.ui_resources import render_page
+from frequenz.cs_reporting.services.deepnote_cache import (
+    deepnote_hybrid_cache_enabled,
+    prepare_deepnote_hybrid_cache,
+    start_background_deepnote_cache_persist,
+)
+from frequenz.cs_reporting.utils.timing import log_duration
+
+if IN_DEEPNOTE and deepnote_hybrid_cache_enabled():
+    prepare_deepnote_hybrid_cache()
 
 
 # --- Local page loader (from ./app_pages) -----------------------------------
@@ -362,10 +371,17 @@ def discover_library_pages(pkg_root: str = LIB_PAGES_ROOT) -> list[PageSpec]:
         return _load_local_pages()
 
     pages: list[PageSpec] = []
+    manifest_modules: set[str] = set()
+    manifest = getattr(pkg, "PAGE_MANIFEST", None)
+    if isinstance(manifest, dict):
+        for module_name, page in manifest.items():
+            if isinstance(module_name, str) and isinstance(page, PageSpec):
+                manifest_modules.add(module_name)
+                pages.append(page)
 
     for _, modname, _ in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
         short = modname.rsplit(".", 1)[-1]
-        if short.startswith("_"):
+        if short.startswith("_") or short in manifest_modules:
             continue
 
         module = importlib.import_module(modname)
@@ -479,6 +495,26 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     return next(p for p in pages if p.key == selected_key)
 
 
+def render_selected_page(page: PageSpec) -> None:
+    """Render the selected page in the full Streamlit app run.
+
+    Reporting and solar pages place interactive widgets in ``st.sidebar``.
+    Keeping those widgets inside a page fragment prevents their form submits
+    from reliably rerunning the whole app, especially through Deepnote's
+    embedded proxy.
+
+    Args:
+        page: Page selected by the sidebar navigation.
+    """
+    try:
+        with log_duration(f"page.{page.key}.total"):
+            page.render()
+    finally:
+        # Copy the fast local cache, metadata, and duration log to /work after
+        # rendering without adding persistent-disk latency to the page load.
+        start_background_deepnote_cache_persist()
+
+
 # --- Main entrypoint --------------------------------------------------------
 def main() -> None:
     st.set_page_config(
@@ -488,7 +524,8 @@ def main() -> None:
     )
     _inject_global_theme()
 
-    pages = discover_library_pages()
+    with log_duration("app.discover_pages"):
+        pages = discover_library_pages()
     if not pages:
         st.info(
             f"Keine Seiten unter `{LIB_PAGES_ROOT}` gefunden "
@@ -496,10 +533,11 @@ def main() -> None:
         )
         return
 
-    selected = sidebar(pages)
+    with log_duration("app.sidebar"):
+        selected = sidebar(pages)
 
     # Render selected page
-    render_page(selected.render)
+    render_selected_page(selected)
 
 
 if __name__ == "__main__":

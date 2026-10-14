@@ -10,7 +10,11 @@ import pandas as pd
 import pytest
 
 from frequenz.cs_reporting.services import data_service
-from frequenz.cs_reporting.services.parquet_cache import DatasetKey, ParquetRangeCache
+from frequenz.cs_reporting.services.parquet_cache import (
+    DatasetKey,
+    ParquetRangeCache,
+    SyncMetadata,
+)
 
 
 def _frame(start: datetime, end: datetime, value: float = 1.0) -> pd.DataFrame:
@@ -44,6 +48,65 @@ def test_initial_sync_and_restart_use_existing_parquet(tmp_path: Path) -> None:
     assert len(first) == 4
     pd.testing.assert_frame_equal(restarted, first, check_freq=False)
     assert calls == [(start, end)]
+
+
+def test_read_with_metadata_uses_one_metadata_snapshot(tmp_path: Path) -> None:
+    """A cache-only read returns its dataframe and matching metadata together."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("active_power", 42, 900)
+    cache = _cache(tmp_path)
+    expected = cache.get(key, start, end, _frame)
+
+    actual, metadata = cache.read_with_metadata(key, start, end)
+
+    pd.testing.assert_frame_equal(actual, expected, check_freq=False)
+    assert metadata.status == "ok"
+    assert metadata.dataset == key.slug
+
+
+def test_sync_writes_metadata_only_once_on_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Synchronization does not persist an intermediate syncing state."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("active_power", 42, 900)
+    cache = _cache(tmp_path)
+    writes = 0
+    original_write = cache._write_metadata  # pylint: disable=protected-access
+
+    def count_write(dataset_key: DatasetKey, metadata: SyncMetadata) -> None:
+        nonlocal writes
+        writes += 1
+        original_write(dataset_key, metadata)
+
+    monkeypatch.setattr(cache, "_write_metadata", count_write)
+
+    cache.get(key, start, end, _frame)
+
+    assert writes == 1
+
+
+def test_temporary_cache_does_not_fsync_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ephemeral cache metadata avoids unnecessary durability synchronization."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+
+    def unexpected_fsync(_descriptor: int) -> None:
+        pytest.fail("fsync should not be used for an ephemeral cache")
+
+    monkeypatch.setattr(
+        "frequenz.cs_reporting.services.parquet_cache.os.fsync", unexpected_fsync
+    )
+
+    result = _cache(tmp_path).get(
+        DatasetKey("active_power", 42, 900), start, end, _frame
+    )
+
+    assert not result.empty
 
 
 def test_extension_fetches_only_missing_range(tmp_path: Path) -> None:
@@ -282,7 +345,7 @@ def test_day_ahead_subset_reuses_persistent_price_cache(
         del entsoe_key
         assert country_code == "DE_LU"
         calls.append((start, end))
-        index = pd.date_range(start, end, freq="h", inclusive="left")
+        index = pd.date_range(start, end, freq="15min", inclusive="left")
         return pd.Series(50.0, index=index, name="price")
 
     monkeypatch.setattr(
@@ -294,6 +357,121 @@ def test_day_ahead_subset_reuses_persistent_price_cache(
     week = data_service.get_day_ahead_prices("DE_LU", start, end)
     two_days = data_service.get_day_ahead_prices("DE_LU", end - timedelta(days=2), end)
 
-    assert len(week) == 7 * 24
-    assert len(two_days) == 2 * 24
+    assert len(week) == 7 * 24 * 4
+    assert len(two_days) == 2 * 24 * 4
     assert calls == [(start, end)]
+
+
+def test_cached_day_ahead_prices_never_call_external_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Interactive cache reads return immediately without an ENTSO-E request."""
+    monkeypatch.setenv("PARQUET_STORAGE_PATH", str(tmp_path / "parquet"))
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    calls = 0
+
+    def fetch_prices(
+        entsoe_key: str | None,
+        start: datetime,
+        end: datetime,
+        country_code: str,
+    ) -> pd.Series:
+        del entsoe_key, country_code
+        nonlocal calls
+        calls += 1
+        index = pd.date_range(start, end, freq="15min", inclusive="left")
+        return pd.Series(50.0, index=index, name="price")
+
+    monkeypatch.setattr(
+        "frequenz.lib.notebooks.reporting.asset_optimization.data."
+        "fetch_day_ahead_prices",
+        fetch_prices,
+    )
+
+    assert data_service.get_cached_day_ahead_prices("DE_LU", start, end).empty
+    assert calls == 0
+
+    data_service.get_day_ahead_prices("DE_LU", start, end)
+    cached = data_service.get_cached_day_ahead_prices("DE_LU", start, end)
+
+    assert len(cached) == 24 * 4
+    assert calls == 1
+
+
+def test_background_day_ahead_sync_is_shared_between_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent sessions reuse one in-process price synchronization job."""
+    start = datetime(2035, 1, 1, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    calls: list[tuple[str, datetime, datetime]] = []
+
+    def sync_prices(
+        country_code: str, sync_start: datetime, sync_end: datetime
+    ) -> pd.Series:
+        calls.append((country_code, sync_start, sync_end))
+        return pd.Series(
+            [50.0],
+            index=pd.DatetimeIndex([sync_start]),
+            name="day_ahead_price",
+        )
+
+    monkeypatch.setattr(data_service, "get_day_ahead_prices", sync_prices)
+
+    first = data_service.start_background_day_ahead_price_sync("DE_LU", start, end)
+    second = data_service.start_background_day_ahead_price_sync("DE_LU", start, end)
+
+    assert first is second
+    assert not first.result(timeout=1).empty
+    assert calls == [("DE_LU", start, end + timedelta(days=1))]
+
+
+def test_background_active_power_sync_is_shared_between_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent sessions reuse one in-process active-power synchronization."""
+    start = datetime(2040, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    resolution = timedelta(minutes=15)
+    calls: list[tuple[int, datetime, datetime, timedelta]] = []
+
+    def sync_active_power(
+        microgrid_id: int,
+        sync_start: datetime,
+        sync_end: datetime,
+        sync_resolution: timedelta,
+    ) -> pd.DataFrame:
+        calls.append((microgrid_id, sync_start, sync_end, sync_resolution))
+        return _frame(sync_start, sync_end)
+
+    monkeypatch.setattr(data_service, "get_microgrid_data", sync_active_power)
+
+    first = data_service.start_background_microgrid_data_sync(
+        42, start, end, resolution
+    )
+    second = data_service.start_background_microgrid_data_sync(
+        42, start, end, resolution
+    )
+
+    assert first is second
+    assert not first.result(timeout=1).empty
+    assert calls == [(42, start, end, resolution)]
+
+
+def test_active_power_sync_does_not_round_end_into_future() -> None:
+    """The normalized API range never extends past the requested end."""
+    start = datetime(2040, 1, 1, 10, 2, tzinfo=UTC)
+    end = datetime(2040, 1, 1, 11, 8, tzinfo=UTC)
+
+    sync_start, sync_end = (
+        data_service._active_power_sync_range(  # pylint: disable=protected-access
+            start,
+            end,
+            timedelta(minutes=15),
+        )
+    )
+
+    assert sync_start == datetime(2040, 1, 1, 10, 0, tzinfo=UTC)
+    assert sync_end == datetime(2040, 1, 1, 11, 0, tzinfo=UTC)
+    assert sync_end <= end

@@ -21,8 +21,15 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
 from frequenz.cs_reporting.services.client_factory import get_meter_display_names
-from frequenz.cs_reporting.services.data_service import get_day_ahead_prices
+from frequenz.cs_reporting.services.data_service import (
+    get_cached_day_ahead_prices,
+    start_background_day_ahead_price_sync,
+)
+from frequenz.cs_reporting.services.reporting_session import (
+    request_reporting_data_reuse,
+)
 from frequenz.cs_reporting.ui_resources import inject_style, render_template
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
@@ -32,8 +39,9 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "average_da_price_grid_import",
     "average_da_price_grid_feed_in",
 }
-_ENTSOE_FETCH_WARNING = (
-    "We were not able to fetch the data from ENTSOE, please try again later."
+_DAY_AHEAD_PRICE_WARNING = (
+    "Day-ahead prices are not available in the local cache. "
+    "Please check the scheduled data synchronization."
 )
 
 
@@ -277,7 +285,7 @@ def build_master_df(
         analysis and visualization. Includes derived metrics and standardized
         column names.
     """
-    return _build_master_df_cached(
+    master_df = _build_master_df_cached(
         raw_df,
         tuple(component_types),
         int(mcfg.microgrid_id),
@@ -286,6 +294,10 @@ def build_master_df(
         _mcfg=mcfg,
         _mapper=mapper,
     )
+    try:
+        return _merge_cached_day_ahead_prices(master_df, "DE_LU")
+    except Exception:  # pylint: disable=broad-exception-caught
+        return master_df
 
 
 @st.cache_data(ttl=300, show_spinner="Preparing report data…")
@@ -319,13 +331,6 @@ def _build_master_df_cached(
         component_display_names=component_display_names,
         battery_soc_df=battery_soc_df,
     )
-    try:
-        master_df = _merge_cached_day_ahead_prices(master_df, "DE_LU")
-    except Exception:  # pylint: disable=broad-exception-caught
-        st.warning(_ENTSOE_FETCH_WARNING)
-    else:
-        if not _has_day_ahead_prices(master_df):
-            st.warning(_ENTSOE_FETCH_WARNING)
     return master_df
 
 
@@ -343,7 +348,9 @@ def _merge_cached_day_ahead_prices(
         resolution = pd.Timedelta(hours=1)
     start = pd.Timestamp(target_index.min()).to_pydatetime()
     end = (pd.Timestamp(target_index.max()) + resolution).to_pydatetime()
-    prices = get_day_ahead_prices(country_code, start, end)
+    prices = get_cached_day_ahead_prices(country_code, start, end)
+    if prices.empty:
+        return master_df.copy()
     price_index = pd.DatetimeIndex(prices.index)
     if target_index.tz is not None and price_index.tz is None:
         prices.index = price_index.tz_localize(target_index.tz)
@@ -351,10 +358,60 @@ def _merge_cached_day_ahead_prices(
         prices.index = price_index.tz_convert("UTC").tz_localize(None)
     elif target_index.tz is not None and price_index.tz is not None:
         prices.index = price_index.tz_convert(target_index.tz)
-    indexed["day_ahead_price"] = prices.sort_index().reindex(
-        target_index, method="ffill"
-    )
+    aligned_prices = prices.sort_index().reindex(target_index, method="ffill")
+    if aligned_prices.isna().all():
+        return master_df.copy()
+    indexed["day_ahead_price"] = aligned_prices
     return indexed.reset_index()
+
+
+def _price_sync_range(
+    master_df: pd.DataFrame,
+    previous_master_df: pd.DataFrame | None,
+    resolution: timedelta,
+) -> tuple[datetime, datetime]:
+    """Return the complete dashboard time range needed for price synchronization."""
+    timestamp_frames = [master_df["timestamp"]]
+    if previous_master_df is not None and not previous_master_df.empty:
+        timestamp_frames.append(previous_master_df["timestamp"])
+    timestamps = pd.to_datetime(pd.concat(timestamp_frames), errors="coerce").dropna()
+    start = pd.Timestamp(timestamps.min()).to_pydatetime()
+    end = (pd.Timestamp(timestamps.max()) + resolution).to_pydatetime()
+    return start, end
+
+
+@st.fragment(run_every=2.0)
+def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
+    """Poll background price synchronization and rerun the app when it finishes."""
+    future = start_background_day_ahead_price_sync("DE_LU", start, end)
+    if future.done():
+        request_reporting_data_reuse()
+        st.rerun()
+    st.info("Day-ahead prices are loading in the background …")
+
+
+def _render_day_ahead_price_sync_status(
+    master_df: pd.DataFrame,
+    previous_master_df: pd.DataFrame | None,
+    resolution: timedelta,
+) -> None:
+    """Start or report the non-blocking synchronization for missing prices."""
+    start, end = _price_sync_range(master_df, previous_master_df, resolution)
+    future = start_background_day_ahead_price_sync("DE_LU", start, end)
+    if not future.done():
+        _poll_day_ahead_price_sync(start, end)
+        return
+    try:
+        prices = future.result()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} Details: {exc}")
+        return
+    if prices.empty:
+        st.warning(_DAY_AHEAD_PRICE_WARNING)
+        return
+
+    request_reporting_data_reuse()
+    st.rerun()
 
 
 def render_dashboard(
@@ -393,27 +450,38 @@ def render_dashboard(
         to specialized section modules (summary_boxes, plots_tabs, data_tabs).
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
-    tables = _build_tables(master_df, resolution, component_types)
-    previous_metrics = (
-        _aggregate_metrics(previous_master_df, resolution)
-        if previous_master_df is not None and not previous_master_df.empty
-        else None
-    )
+    if not _has_day_ahead_prices(master_df):
+        _render_day_ahead_price_sync_status(
+            master_df,
+            previous_master_df,
+            resolution,
+        )
+    with log_duration("dashboard.build_tables"):
+        tables = _build_tables(master_df, resolution, component_types)
+    with log_duration("dashboard.previous_period_metrics"):
+        previous_metrics = (
+            _aggregate_metrics(previous_master_df, resolution)
+            if previous_master_df is not None and not previous_master_df.empty
+            else None
+        )
 
     # --- Overview section---
-    _section_divider("Übersicht", "KPIs")
-    sections.render_summary_boxes(
-        tables["metrics"],
-        component_types,
-        microgrid_id,
-        previous_metrics=previous_metrics,
-    )
+    with log_duration("dashboard.render_kpis"):
+        _section_divider("Übersicht", "KPIs")
+        sections.render_summary_boxes(
+            tables["metrics"],
+            component_types,
+            microgrid_id,
+            previous_metrics=previous_metrics,
+        )
 
     # --- Plots section---
-    _section_divider("Diagramme & Zeitreihen")
-    sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
+    with log_duration("dashboard.render_plots"):
+        _section_divider("Diagramme & Zeitreihen")
+        sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
 
     # --- Tables section---
-    st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
-    _section_divider("Datentabellen")
-    sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
+    with log_duration("dashboard.render_tables"):
+        st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
+        _section_divider("Datentabellen")
+        sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)

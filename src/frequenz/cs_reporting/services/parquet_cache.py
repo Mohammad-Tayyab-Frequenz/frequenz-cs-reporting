@@ -22,6 +22,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from frequenz.cs_reporting.utils.timing import log_duration
+
 _LOGGER = logging.getLogger(__name__)
 _Range = tuple[datetime, datetime]
 _COLUMN_PREFIX = "__frequenz_column_v1__"
@@ -158,6 +160,45 @@ class ParquetRangeCache:
 
             return _slice_frame(stored, requested, metadata)
 
+    def read(
+        self,
+        key: DatasetKey,
+        start: datetime,
+        end: datetime,
+    ) -> pd.DataFrame:
+        """Return cached data without synchronizing missing or stale ranges.
+
+        Args:
+            key: Dataset identifier.
+            start: Inclusive start of the requested range.
+            end: Exclusive end of the requested range.
+
+        Returns:
+            The locally cached slice, or an empty dataframe when no valid cache
+            exists.  This method never calls an external data source.
+        """
+        frame, _ = self.read_with_metadata(key, start, end)
+        return frame
+
+    def read_with_metadata(
+        self,
+        key: DatasetKey,
+        start: datetime,
+        end: datetime,
+    ) -> tuple[pd.DataFrame, SyncMetadata]:
+        """Return a cached range and the metadata read for that same operation."""
+        requested = (_utc(start), _utc(end))
+        if requested[0] >= requested[1]:
+            raise ValueError("The cache range end must be after its start")
+
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._metadata_root.mkdir(parents=True, exist_ok=True)
+        metadata = self._read_metadata(key)
+        stored, storage_valid = self._read_frame(key)
+        if not storage_valid:
+            return pd.DataFrame(), metadata
+        return _slice_frame(stored, requested, metadata), metadata
+
     def metadata(self, key: DatasetKey) -> SyncMetadata:
         """Read synchronization metadata for status display or monitoring."""
         return self._read_metadata(key)
@@ -177,31 +218,36 @@ class ParquetRangeCache:
         metadata.last_attempted_sync = _iso(attempted_at)
         metadata.status = "syncing"
         metadata.last_error = None
-        self._write_metadata(key, metadata)
 
         try:
-            incoming_parts: list[pd.DataFrame] = []
+            raw_parts: list[tuple[pd.DataFrame, datetime, datetime]] = []
             incoming_axis: tuple[str, str | None] | None = None
             for range_start, range_end in ranges:
                 raw_frame = self._fetch_with_retry(fetch, range_start, range_end)
                 if not raw_frame.empty and incoming_axis is None:
                     incoming_axis = _raw_frame_axis(raw_frame)
-                incoming_parts.append(
+                raw_parts.append((raw_frame, range_start, range_end))
+
+            with log_duration(_cache_timing_operation(key, "normalize")):
+                incoming_parts = [
                     _normalize_frame(
                         raw_frame,
                         range_start,
                         range_end,
                         tolerance=timedelta(seconds=key.resolution_seconds),
                     )
+                    for raw_frame, range_start, range_end in raw_parts
+                ]
+                incoming = _concat_frames(incoming_parts)
+                normalized_stored = _normalize_stored(stored)
+
+            with log_duration(_cache_timing_operation(key, "merge")):
+                merged = _merge_frames(normalized_stored, incoming)
+                axis, index_name = incoming_axis or (
+                    metadata.timestamp_axis,
+                    metadata.index_name,
                 )
-            incoming = _concat_frames(incoming_parts)
-            normalized_stored = _normalize_stored(stored)
-            merged = _merge_frames(normalized_stored, incoming)
-            axis, index_name = incoming_axis or (
-                metadata.timestamp_axis,
-                metadata.index_name,
-            )
-            new_covered = _merge_ranges([*covered, *ranges])
+                new_covered = _merge_ranges([*covered, *ranges])
 
             self._write_frame(key, merged)
             metadata.covered_ranges = [
@@ -252,64 +298,70 @@ class ParquetRangeCache:
         raise AssertionError("retry loop exited unexpectedly")
 
     def _read_frame(self, key: DatasetKey) -> tuple[pd.DataFrame, bool]:
-        path = self._data_path(key)
-        if not path.exists():
-            return pd.DataFrame(), False
-        version = (path.stat().st_mtime_ns, path.stat().st_size)
-        try:
-            return _read_parquet_versioned(str(path), version), True
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Ignoring unreadable Parquet cache %s", path)
-            return pd.DataFrame(), False
+        with log_duration(_cache_timing_operation(key, "read_parquet")):
+            path = self._data_path(key)
+            if not path.exists():
+                return pd.DataFrame(), False
+            version = (path.stat().st_mtime_ns, path.stat().st_size)
+            try:
+                return _read_parquet_versioned(str(path), version), True
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Ignoring unreadable Parquet cache %s", path)
+                return pd.DataFrame(), False
 
     def _write_frame(self, key: DatasetKey, frame: pd.DataFrame) -> None:
-        path = self._data_path(key)
-        temporary = _temporary_path(path, ".parquet.tmp")
-        try:
-            encoded = frame.copy()
-            encoded.columns = [_encode_column(column) for column in frame.columns]
-            encoded.to_parquet(temporary, engine="pyarrow", index=True)
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        with log_duration(_cache_timing_operation(key, "write_parquet")):
+            path = self._data_path(key)
+            temporary = _temporary_path(path, ".parquet.tmp")
+            try:
+                encoded = frame.copy()
+                encoded.columns = [_encode_column(column) for column in frame.columns]
+                encoded.to_parquet(temporary, engine="pyarrow", index=True)
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def _read_metadata(self, key: DatasetKey) -> SyncMetadata:
-        path = self._metadata_path(key)
-        if not path.exists():
-            return SyncMetadata(dataset=key.slug)
-        try:
-            values = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(values, dict):
-                raise ValueError("metadata root must be an object")
-            metadata = SyncMetadata.from_dict(values)
-            # Versions before the boundary-filtering fix recorded valid API
-            # responses as failures. Do not keep presenting that obsolete
-            # false-positive after an application restart.
-            if metadata.last_error == _LEGACY_BOUNDARY_ERROR:
-                metadata.status = "ok"
-                metadata.last_error = None
-            return metadata
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            _LOGGER.exception("Ignoring invalid cache metadata %s", path)
-            return SyncMetadata(dataset=key.slug)
+        with log_duration(_cache_timing_operation(key, "read_metadata")):
+            path = self._metadata_path(key)
+            if not path.exists():
+                return SyncMetadata(dataset=key.slug)
+            try:
+                values = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(values, dict):
+                    raise ValueError("metadata root must be an object")
+                metadata = SyncMetadata.from_dict(values)
+                # Versions before the boundary-filtering fix recorded valid API
+                # responses as failures. Do not keep presenting that obsolete
+                # false-positive after an application restart.
+                if metadata.last_error == _LEGACY_BOUNDARY_ERROR:
+                    metadata.status = "ok"
+                    metadata.last_error = None
+                return metadata
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                _LOGGER.exception("Ignoring invalid cache metadata %s", path)
+                return SyncMetadata(dataset=key.slug)
 
     def _write_metadata(self, key: DatasetKey, metadata: SyncMetadata) -> None:
-        path = self._metadata_path(key)
-        temporary = _temporary_path(path, ".json.tmp")
-        try:
-            with temporary.open("w", encoding="utf-8") as output:
-                json.dump(asdict(metadata), output, indent=2, sort_keys=True)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        with log_duration(_cache_timing_operation(key, "write_metadata")):
+            path = self._metadata_path(key)
+            temporary = _temporary_path(path, ".json.tmp")
+            try:
+                with temporary.open("w", encoding="utf-8") as output:
+                    json.dump(asdict(metadata), output, indent=2, sort_keys=True)
+                    output.flush()
+                    if not _is_ephemeral_path(path):
+                        os.fsync(output.fileno())
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     @contextmanager
     def _lock(self, key: DatasetKey) -> Iterator[None]:
         lock_path = self._metadata_root / f"{key.slug}.lock"
         with lock_path.open("a", encoding="utf-8") as lock_file:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            with log_duration(_cache_timing_operation(key, "lock_wait")):
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
                 yield
             finally:
@@ -389,6 +441,18 @@ def _temporary_path(destination: Path, suffix: str) -> Path:
     )
     os.close(descriptor)
     return Path(raw_path)
+
+
+def _cache_timing_operation(key: DatasetKey, stage: str) -> str:
+    """Return a dataset-specific name for a cache timing stage."""
+    return f"cache.{key.slug}.{stage}"
+
+
+def _is_ephemeral_path(path: Path) -> bool:
+    """Return whether a cache path is located in the system temporary tree."""
+    resolved = path.resolve()
+    temporary_roots = {Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve()}
+    return any(resolved.is_relative_to(root) for root in temporary_roots)
 
 
 def _sync_due(last_success: str | None, now: datetime, interval: timedelta) -> bool:
