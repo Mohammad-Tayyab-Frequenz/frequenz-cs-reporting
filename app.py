@@ -323,6 +323,7 @@ from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.deepnote_cache import (
     deepnote_hybrid_cache_enabled,
     prepare_deepnote_hybrid_cache,
+    start_background_deepnote_cache_persist,
 )
 from frequenz.cs_reporting.utils.timing import log_duration
 
@@ -505,8 +506,13 @@ def render_selected_page(page: PageSpec) -> None:
     Args:
         page: Page selected by the sidebar navigation.
     """
-    with log_duration(f"page.{page.key}.total"):
-        page.render()
+    try:
+        with log_duration(f"page.{page.key}.total"):
+            page.render()
+    finally:
+        # Copy the fast local cache, metadata, and duration log to /work after
+        # rendering without adding persistent-disk latency to the page load.
+        start_background_deepnote_cache_persist()
 
 
 # --- Main entrypoint --------------------------------------------------------

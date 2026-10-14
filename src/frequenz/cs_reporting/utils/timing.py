@@ -88,7 +88,7 @@ def _write_timing_line(message: str) -> None:
         _TIMING_QUEUE.put((path, f"{timestamp} [timing] {message} {context}\n"))
     except RuntimeError:
         # Performance diagnostics must never prevent a page from rendering.
-        return
+        pass
 
 
 def flush_timing_log() -> None:
