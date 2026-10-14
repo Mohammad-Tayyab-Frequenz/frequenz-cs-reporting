@@ -78,7 +78,28 @@ When a dataset is due for refresh, its trailing overlap is fetched again and
 merged by timestamp. Writes use a same-directory temporary file followed by an
 atomic replacement, while a file lock prevents duplicate writers across
 Streamlit sessions and local worker processes. Sync metadata is stored beside
-the Parquet directory in `data/metadata` by default.
+the Parquet directory in `data/metadata` by default. Runtime duration entries
+are appended to `data/metadata/duration_log.txt`; when
+`PARQUET_STORAGE_PATH` is customized, the log uses the sibling `metadata`
+directory of that configured path.
+
+In Deepnote, the app automatically restores `parquet` and `metadata` from the
+persistent `/work/data` directory into the faster
+`/tmp/frequenz-cs-reporting` directory once per machine lifetime. Scheduled
+synchronization copies the updated local snapshot back to `/work/data` after a
+successful run. The Streamlit app also queues this copy in a background worker
+after rendering and after background dataset synchronization, so Parquet data,
+sync metadata, and duration logs survive machine restarts without delaying the
+page. Set `DEEPNOTE_HYBRID_CACHE_ENABLED=false` to disable this, or customize
+the roots with `DEEPNOTE_PERSISTENT_CACHE_ROOT` and
+`DEEPNOTE_LOCAL_CACHE_ROOT`.
+
+Interactive reporting reads active-power data from the local cache and starts
+one shared background refresh when cached data is available. An empty cache is
+populated synchronously once so the initial load does not depend on browser
+timers in Deepnote; cached dashboards remain usable during later refreshes.
+Duration records are queued and written in batches by a background writer so
+diagnostic file I/O does not block Streamlit.
 
 The reporting client used by this app exposes time-range queries, but not
 record modification timestamps, stable record IDs, change tokens, ETags, or a
@@ -97,12 +118,30 @@ python -m frequenz.cs_reporting.services.sync_data \
   --microgrid-id 241 --lookback-days 30 --resolution-minutes 15
 ```
 
-The page remains a safe pull-through fallback: cache hits do not call the API,
-and failed overlap refreshes continue serving the last successful file. Point
-`PARQUET_STORAGE_PATH` at persistent storage. All replicas must see the same
-filesystem with working POSIX locks; ephemeral container disks and independent
-per-replica volumes do not provide a coherent shared cache. For those
-deployments, use a shared POSIX volume or replace this backend with
+Synchronize the 15-minute day-ahead price dataset once per day after the new
+prices have been published (for example, after 14:00 local time):
+
+```bash
+python -m frequenz.cs_reporting.services.sync_data \
+  --dataset day-ahead-prices --country-code DE_LU --lookback-days 30
+```
+
+When `--end` is omitted, the price job requests through the following day so
+the newly published prices remain available until the next scheduled run.
+
+Streamlit reads day-ahead prices from this local cache without blocking the
+dashboard. If the requested range is missing, one shared in-process background
+job populates it while a small polling fragment waits. The dashboard initially
+renders without price-dependent content and reruns once when prices arrive.
+The daily scheduled job remains recommended so users normally receive an
+immediate cache hit.
+
+Microgrid measurements remain a safe pull-through fallback: cache hits do not
+call the API, and failed overlap refreshes continue serving the last successful
+file. Point `PARQUET_STORAGE_PATH` at persistent storage. All replicas must see
+the same filesystem with working POSIX locks; ephemeral container disks and
+independent per-replica volumes do not provide a coherent shared cache. For
+those deployments, use a shared POSIX volume or replace this backend with
 object-storage/database coordination.
 
 ### Running in Deepnote
