@@ -282,7 +282,7 @@ def test_day_ahead_subset_reuses_persistent_price_cache(
         del entsoe_key
         assert country_code == "DE_LU"
         calls.append((start, end))
-        index = pd.date_range(start, end, freq="h", inclusive="left")
+        index = pd.date_range(start, end, freq="15min", inclusive="left")
         return pd.Series(50.0, index=index, name="price")
 
     monkeypatch.setattr(
@@ -294,6 +294,71 @@ def test_day_ahead_subset_reuses_persistent_price_cache(
     week = data_service.get_day_ahead_prices("DE_LU", start, end)
     two_days = data_service.get_day_ahead_prices("DE_LU", end - timedelta(days=2), end)
 
-    assert len(week) == 7 * 24
-    assert len(two_days) == 2 * 24
+    assert len(week) == 7 * 24 * 4
+    assert len(two_days) == 2 * 24 * 4
     assert calls == [(start, end)]
+
+
+def test_cached_day_ahead_prices_never_call_external_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Interactive cache reads return immediately without an ENTSO-E request."""
+    monkeypatch.setenv("PARQUET_STORAGE_PATH", str(tmp_path / "parquet"))
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    calls = 0
+
+    def fetch_prices(
+        entsoe_key: str | None,
+        start: datetime,
+        end: datetime,
+        country_code: str,
+    ) -> pd.Series:
+        del entsoe_key, country_code
+        nonlocal calls
+        calls += 1
+        index = pd.date_range(start, end, freq="15min", inclusive="left")
+        return pd.Series(50.0, index=index, name="price")
+
+    monkeypatch.setattr(
+        "frequenz.lib.notebooks.reporting.asset_optimization.data."
+        "fetch_day_ahead_prices",
+        fetch_prices,
+    )
+
+    assert data_service.get_cached_day_ahead_prices("DE_LU", start, end).empty
+    assert calls == 0
+
+    data_service.get_day_ahead_prices("DE_LU", start, end)
+    cached = data_service.get_cached_day_ahead_prices("DE_LU", start, end)
+
+    assert len(cached) == 24 * 4
+    assert calls == 1
+
+
+def test_background_day_ahead_sync_is_shared_between_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent sessions reuse one in-process price synchronization job."""
+    start = datetime(2035, 1, 1, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    calls: list[tuple[str, datetime, datetime]] = []
+
+    def sync_prices(
+        country_code: str, sync_start: datetime, sync_end: datetime
+    ) -> pd.Series:
+        calls.append((country_code, sync_start, sync_end))
+        return pd.Series(
+            [50.0],
+            index=pd.DatetimeIndex([sync_start]),
+            name="day_ahead_price",
+        )
+
+    monkeypatch.setattr(data_service, "get_day_ahead_prices", sync_prices)
+
+    first = data_service.start_background_day_ahead_price_sync("DE_LU", start, end)
+    second = data_service.start_background_day_ahead_price_sync("DE_LU", start, end)
+
+    assert first is second
+    assert not first.result(timeout=1).empty
+    assert calls == [("DE_LU", start, end + timedelta(days=1))]

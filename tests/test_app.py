@@ -19,6 +19,9 @@ class _AppModule(Protocol):
     def render_selected_page(self, page: PageSpec) -> None:
         """Render the selected page fragment."""
 
+    def discover_library_pages(self) -> list[PageSpec]:
+        """Discover lightweight navigation page specifications."""
+
 
 def _load_app() -> _AppModule:
     """Load the root-level Streamlit app regardless of pytest's import mode."""
@@ -56,3 +59,18 @@ def test_render_selected_page_invokes_page_renderer(
 
     assert "render_selected_page" in fragment_functions
     assert rendered == ["rendered"]
+
+
+def test_page_discovery_uses_lightweight_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Navigation metadata is available without importing each page module."""
+    monkeypatch.setattr(st, "fragment", lambda function: function)
+
+    pages = _load_app().discover_library_pages()
+
+    assert [page.key for page in pages] == [
+        "home",
+        "reporting_dashboard",
+        "solar",
+    ]

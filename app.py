@@ -362,10 +362,17 @@ def discover_library_pages(pkg_root: str = LIB_PAGES_ROOT) -> list[PageSpec]:
         return _load_local_pages()
 
     pages: list[PageSpec] = []
+    manifest_modules: set[str] = set()
+    manifest = getattr(pkg, "PAGE_MANIFEST", None)
+    if isinstance(manifest, dict):
+        for module_name, page in manifest.items():
+            if isinstance(module_name, str) and isinstance(page, PageSpec):
+                manifest_modules.add(module_name)
+                pages.append(page)
 
     for _, modname, _ in pkgutil.iter_modules(pkg.__path__, pkg.__name__ + "."):
         short = modname.rsplit(".", 1)[-1]
-        if short.startswith("_"):
+        if short.startswith("_") or short in manifest_modules:
             continue
 
         module = importlib.import_module(modname)

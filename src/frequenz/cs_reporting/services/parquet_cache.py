@@ -158,6 +158,35 @@ class ParquetRangeCache:
 
             return _slice_frame(stored, requested, metadata)
 
+    def read(
+        self,
+        key: DatasetKey,
+        start: datetime,
+        end: datetime,
+    ) -> pd.DataFrame:
+        """Return cached data without synchronizing missing or stale ranges.
+
+        Args:
+            key: Dataset identifier.
+            start: Inclusive start of the requested range.
+            end: Exclusive end of the requested range.
+
+        Returns:
+            The locally cached slice, or an empty dataframe when no valid cache
+            exists.  This method never calls an external data source.
+        """
+        requested = (_utc(start), _utc(end))
+        if requested[0] >= requested[1]:
+            raise ValueError("The cache range end must be after its start")
+
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._metadata_root.mkdir(parents=True, exist_ok=True)
+        metadata = self._read_metadata(key)
+        stored, storage_valid = self._read_frame(key)
+        if not storage_valid:
+            return pd.DataFrame()
+        return _slice_frame(stored, requested, metadata)
+
     def metadata(self, key: DatasetKey) -> SyncMetadata:
         """Read synchronization metadata for status display or monitoring."""
         return self._read_metadata(key)
