@@ -67,6 +67,8 @@ platform scheduler.
 
 ## Bug Fixes
 
+- Battery-SOC data is now read from the local cache immediately and refreshed by one shared background job, so a slow or unavailable Reporting API no longer blocks the dashboard from rendering cached data.
+- When the current reporting period is not cached yet, the dashboard now waits for the active-power background refresh and reruns automatically instead of showing an empty-data warning that required manually reapplying the filters.
 - Selected pages use full Streamlit reruns so forms rendered in the sidebar
   reliably apply date, microgrid, timezone, and resolution changes in Deepnote.
 - Active-power background requests no longer round their end timestamp into
