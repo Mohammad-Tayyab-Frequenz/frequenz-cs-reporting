@@ -386,9 +386,7 @@ def start_background_microgrid_soc_data_sync(
     resolution: timedelta,
 ) -> Future[pd.DataFrame]:
     """Start one shared, non-blocking battery-SOC cache synchronization."""
-    sync_start, sync_end = _active_power_sync_range(
-        start_date, end_date, resolution
-    )
+    sync_start, sync_end = _active_power_sync_range(start_date, end_date, resolution)
     key = (
         microgrid_id,
         sync_start,

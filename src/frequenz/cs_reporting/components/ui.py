@@ -48,7 +48,7 @@ def render_plot_card(
     header_control: Callable[[], None] | None = None,
     key: str | None = None,
 ) -> None:
-    """Render a plot inside a professional styled card.
+    """Render a plot inside a styled card.
 
     Args:
         title: Title displayed in the card header.

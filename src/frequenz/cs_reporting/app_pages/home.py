@@ -27,8 +27,6 @@ IN_DEEPNOTE = any(
     for key in ("DEEPNOTE_PROJECT_ID", "DEEPNOTE_WORKSPACE_ID", "DEEPNOTE")
 )
 
-# ── Static content data ───────────────────────────────────────────────────────
-
 
 @dataclass(frozen=True)
 class _Stat:
@@ -100,8 +98,6 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
     ),
 )
 
-# ── Navigation ────────────────────────────────────────────────────────────────
-
 
 def _navigate_to(page_key: str, section: str | None = None) -> None:
     """Navigate to a target page using the app's query-param routing."""
@@ -116,20 +112,11 @@ def _navigate_to(page_key: str, section: str | None = None) -> None:
     st.rerun()
 
 
-# ── Asset helpers ─────────────────────────────────────────────────────────────
-
-
 def _b64_image(image_path: Path) -> str | None:
     """Return base64-encoded image string, or None if the file is missing."""
     if not image_path.exists():
         return None
     return base64.b64encode(image_path.read_bytes()).decode("utf-8")
-
-
-# ── HTML builders ─────────────────────────────────────────────────────────────
-# Each function returns a self-contained HTML string for one page section.
-# Keeping markup out of render() makes each piece independently readable
-# and easy to update without touching unrelated sections.
 
 
 def _logo_html(logo_b64: str) -> str:
@@ -169,9 +156,6 @@ def _footer_html() -> str:
     return load_template("home_footer.html")
 
 
-# ── Style injection ───────────────────────────────────────────────────────────
-
-
 def _inject_styles(bg_b64: str | None) -> None:
     """Inject page CSS, substituting the background image when available."""
     if bg_b64:
@@ -188,9 +172,6 @@ def _inject_styles(bg_b64: str | None) -> None:
         bg_css = "background-color: #f3f6fb;"
 
     inject_style("home.css", bg_css=bg_css)
-
-
-# ── Page entry point ──────────────────────────────────────────────────────────
 
 
 def render() -> None:

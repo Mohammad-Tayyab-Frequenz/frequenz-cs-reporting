@@ -39,11 +39,10 @@ def collect_sidebar_inputs(
     default_timezone: str = "Europe/Berlin",
     key_prefix: str = "",
 ) -> dict[str, Any]:
-    """Render structured sidebar filters with clear visual hierarchy.
+    """Render the sidebar filters.
 
     Creates an organized sidebar with sections for microgrid selection, date
-    range, and resolution. Uses icons, dividers, and proper grouping for
-    professional appearance and better UX.
+    range, and resolution.
 
     Args:
         default_start: Default start date for the date picker.
@@ -58,7 +57,6 @@ def collect_sidebar_inputs(
         Dictionary containing ``microgrid_id``, ``start_date``,
             ``end_date``, ``timezone``, and ``resolution`` selected by the user.
     """
-    # Header with icon and caption
     st.sidebar.header("Filter Einstellungen")
     st.sidebar.caption("Wählen Sie die Parameter für die Analyse.")
 
@@ -66,7 +64,6 @@ def collect_sidebar_inputs(
     state_key = f"{key_prefix}applied_filters" if key_prefix else "applied_filters"
 
     with st.sidebar.form(form_key):
-        # Microgrid Section
         st.subheader("Microgrid")
         microgrid_names = get_microgrid_names()
         microgrid_id = inputs.microgrid_selector(
@@ -81,7 +78,6 @@ def collect_sidebar_inputs(
 
         st.divider()
 
-        # Date & Time Section
         st.subheader("Zeitraum")
 
         today = datetime.now(tz=UTC).date()
@@ -135,7 +131,6 @@ def collect_sidebar_inputs(
 
         st.divider()
 
-        # Resolution selector (full width)
         resolution = st.selectbox(
             "Auflösung",
             options=list(resolution_options),
@@ -153,7 +148,6 @@ def collect_sidebar_inputs(
 
         st.divider()
 
-        # Prominent submit button
         submitted = st.form_submit_button(
             "Filter anwenden", use_container_width=True, type="primary"
         )

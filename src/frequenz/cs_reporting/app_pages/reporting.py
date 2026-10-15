@@ -25,8 +25,8 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
-    get_cached_microgrid_soc_data,
     get_cached_microgrid_data,
+    get_cached_microgrid_soc_data,
     get_dataset_sync_metadata,
     get_microgrid_data,
     start_background_microgrid_data_sync,

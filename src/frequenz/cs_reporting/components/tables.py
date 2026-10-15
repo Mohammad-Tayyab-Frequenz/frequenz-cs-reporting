@@ -111,7 +111,6 @@ def aggrid_table(
     if df is None or not isinstance(df, pd.DataFrame):
         df = pd.DataFrame()
 
-    # Initialize session state for page size if it doesn't exist
     if f"{key_prefix}_page_size" not in st.session_state:
         st.session_state[f"{key_prefix}_page_size"] = page_size
     page_size = int(st.session_state[f"{key_prefix}_page_size"])
@@ -124,7 +123,6 @@ def aggrid_table(
             + _GRID_BORDER_HEIGHT
         )
 
-    # --- Build grid options from dataframe ---
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_pagination(
         enabled=True,
@@ -358,7 +356,6 @@ def aggrid_table(
         }}
     """)
 
-    # --- Scoped CSS: restrained header + clean grid lines ---
     container_id = f"agc_{key_prefix}"
     st.markdown(
         f"""
@@ -386,7 +383,6 @@ def aggrid_table(
         unsafe_allow_html=True,
     )
 
-    # --- Render grid ---
     with st.container():
         st.markdown(f'<div id="{container_id}">', unsafe_allow_html=True)
         grid_response = AgGrid(

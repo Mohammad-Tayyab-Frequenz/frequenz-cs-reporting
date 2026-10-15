@@ -30,7 +30,6 @@ class AppConfig:
     paths: Paths
 
 
-# Allow overriding via env or Streamlit secrets later if you like
 _default_microgrids = (
     os.getenv("MICROGRID_TOML_ROOT")
     or "configs/microgrids"  # e.g. /path/to/configs/microgrids
