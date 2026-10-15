@@ -117,7 +117,8 @@ def test_table_number_formatter_uses_selected_csv_language() -> None:
     """The table and CSV export read their format from the same selection."""
     formatter_code = str(_LOCALE_NUMBER_FORMATTER.js_code)
 
-    assert "params.context.csvFormat" in formatter_code
+    assert 'params.api.getGridOption("context")' in formatter_code
+    assert "gridContext.csvFormat" in formatter_code
     assert 'language === "en" ? "en-US" : "de-DE"' in formatter_code
 
 

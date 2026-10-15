@@ -42,12 +42,21 @@ _COMPONENT_DATA_LOGGER = "frequenz.data.microgrid.component_data"
 _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
+_BATTERY_SOC_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="active-power-sync",
 )
 _ACTIVE_POWER_SYNC_LOCK = Lock()
 _ACTIVE_POWER_SYNC_JOBS: dict[
+    tuple[int, datetime, datetime, int], tuple[Future[pd.DataFrame], float]
+] = {}
+_BATTERY_SOC_SYNC_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="battery-soc-sync",
+)
+_BATTERY_SOC_SYNC_LOCK = Lock()
+_BATTERY_SOC_SYNC_JOBS: dict[
     tuple[int, datetime, datetime, int], tuple[Future[pd.DataFrame], float]
 ] = {}
 _DAY_AHEAD_SYNC_EXECUTOR = ThreadPoolExecutor(
@@ -347,6 +356,63 @@ def get_microgrid_soc_data(
         "get_microgrid_soc_data() called from within an active event loop. "
         "Use `await fetch_microgrid_soc_data(...)` in async contexts."
     )
+
+
+def get_cached_microgrid_soc_data(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> pd.DataFrame:
+    """Read battery SOC data from the cache without an external request."""
+    config = get_cache_config()
+    cache = ParquetRangeCache(
+        config.storage_path,
+        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+        overlap=timedelta(minutes=config.sync_overlap_minutes),
+    )
+    with log_duration("data.battery_soc.cache_read"):
+        return cache.read(
+            _dataset_key("battery_soc", microgrid_id, resolution),
+            start_date,
+            end_date,
+        )
+
+
+def start_background_microgrid_soc_data_sync(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> Future[pd.DataFrame]:
+    """Start one shared, non-blocking battery-SOC cache synchronization."""
+    sync_start, sync_end = _active_power_sync_range(
+        start_date, end_date, resolution
+    )
+    key = (
+        microgrid_id,
+        sync_start,
+        sync_end,
+        int(resolution.total_seconds()),
+    )
+    now = monotonic()
+    with _BATTERY_SOC_SYNC_LOCK:
+        existing = _BATTERY_SOC_SYNC_JOBS.get(key)
+        if existing is not None:
+            future, started = existing
+            if not future.done() or now - started < _BATTERY_SOC_SYNC_RETRY_INTERVAL:
+                return future
+
+        future = _BATTERY_SOC_SYNC_EXECUTOR.submit(
+            get_microgrid_soc_data,
+            microgrid_id,
+            sync_start,
+            sync_end,
+            resolution,
+        )
+        future.add_done_callback(_persist_cache_after_successful_sync)
+        _BATTERY_SOC_SYNC_JOBS[key] = (future, now)
+        return future
 
 
 def _dataset_key(name: str, microgrid_id: int, resolution: timedelta) -> DatasetKey:

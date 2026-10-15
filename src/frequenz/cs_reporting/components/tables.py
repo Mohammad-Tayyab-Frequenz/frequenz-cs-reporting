@@ -39,7 +39,8 @@ _LOCALE_NUMBER_FORMATTER = JsCode("""
             return params.value;
         }
 
-        const language = params.context && params.context.csvFormat;
+        const gridContext = params.api.getGridOption("context") || params.context || {};
+        const language = gridContext.csvFormat;
         const locale = language === "en" ? "en-US" : "de-DE";
         return new Intl.NumberFormat(locale, {
             maximumFractionDigits: 3,
@@ -165,17 +166,26 @@ def aggrid_table(
     grid_options["onGridReady"] = JsCode(f"""
         function(params) {{
             const buttonId = {json.dumps(f"{key_prefix}_reset_table_filters")};
+            const toolbarId = {json.dumps(f"{key_prefix}_table_toolbar")};
             const toolbarHeight = {_GRID_TOOLBAR_HEIGHT};
-            const existingButton = document.getElementById(buttonId);
-            if (existingButton) {{
-                return;
-            }}
-
             const gridRoot = document.querySelector(".ag-root-wrapper");
             const gridParent = gridRoot ? gridRoot.parentElement : null;
             if (!gridRoot || !gridParent) {{
                 return;
             }}
+
+            // Streamlit can reuse the component iframe while AgGrid is rebuilt.
+            // Discard the toolbar bound to the old grid API before wiring a new one.
+            const existingToolbar = document.getElementById(toolbarId);
+            if (existingToolbar) {{
+                existingToolbar.remove();
+            }}
+
+            let gridContext = params.api.getGridOption("context") || params.context || {{}};
+            const updateGridContext = function(values) {{
+                gridContext = Object.assign({{}}, gridContext, values);
+                params.api.setGridOption("context", gridContext);
+            }};
 
             const currentGridHeight = gridRoot.getBoundingClientRect().height;
             if (currentGridHeight > toolbarHeight) {{
@@ -183,6 +193,7 @@ def aggrid_table(
             }}
 
             const toolbar = document.createElement("div");
+            toolbar.id = toolbarId;
             Object.assign(toolbar.style, {{
                 alignItems: "center",
                 backgroundColor: "transparent",
@@ -193,7 +204,7 @@ def aggrid_table(
                 padding: "4px 0 6px 0",
             }});
 
-            const componentSource = params.context && params.context.componentSource;
+            const componentSource = gridContext.componentSource;
             if (componentSource) {{
                 const sourceSelector = document.createElement("select");
                 sourceSelector.title = "Komponentenquelle auswählen";
@@ -222,7 +233,7 @@ def aggrid_table(
                     padding: "4px 8px",
                 }});
                 sourceSelector.addEventListener("change", function() {{
-                    params.context.componentSource = sourceSelector.value;
+                    updateGridContext({{componentSource: sourceSelector.value}});
                     params.api.dispatchEvent({{type: "componentSourceChanged"}});
                 }});
                 toolbar.appendChild(sourceSelector);
@@ -334,7 +345,7 @@ def aggrid_table(
                     downloadButton.style.borderColor = "#1e4f87";
                 }});
                 const updateDownloadFormat = function() {{
-                    params.context.csvFormat = formatSelector.value;
+                    updateGridContext({{csvFormat: formatSelector.value}});
                     downloadButton.href = downloadUrls[formatSelector.value];
                     params.api.refreshCells({{force: true}});
                 }};

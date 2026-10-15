@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -24,11 +25,12 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
+    get_cached_microgrid_soc_data,
     get_cached_microgrid_data,
     get_dataset_sync_metadata,
     get_microgrid_data,
-    get_microgrid_soc_data,
     start_background_microgrid_data_sync,
+    start_background_microgrid_soc_data_sync,
 )
 from frequenz.cs_reporting.services.reporting_session import (
     ReportingDataKey,
@@ -60,6 +62,23 @@ def _scroll_to_section_if_requested() -> None:
         """,
         unsafe_allow_javascript=True,
     )
+
+
+@st.fragment(run_every=2.0)
+def _poll_active_power_sync(
+    future: Future[pd.DataFrame],
+) -> None:
+    """Rerun the page when its already-started active-power refresh finishes."""
+    if not future.done():
+        st.info("Microgrid-Daten werden aktualisiert …")
+        return
+
+    try:
+        future.result()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        st.warning(f"Microgrid-Daten konnten nicht aktualisiert werden: {exc}")
+        return
+    st.rerun()
 
 
 def _parse_resolution(resolution_str: str) -> timedelta:
@@ -223,6 +242,7 @@ def render() -> None:
     # for the full duration of the selected end_time.
 
     # Fetch data with error handling
+    active_power_sync: Future[pd.DataFrame] | None = None
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
             with log_duration("reporting.load_component_types"):
@@ -253,11 +273,6 @@ def render() -> None:
                         resolution=resolution,
                     )
                     if df.empty:
-                        # A cold start must not depend on a browser-driven
-                        # fragment timer. Deepnote's embedded Streamlit proxy
-                        # can suspend that timer, leaving the page waiting
-                        # indefinitely. This first fetch writes to the fast
-                        # local cache; later refreshes remain non-blocking.
                         with log_duration("reporting.initial_active_power_sync"):
                             df = get_microgrid_data(
                                 microgrid_id=microgrid_id,
@@ -269,7 +284,7 @@ def render() -> None:
                             "active_power", microgrid_id, resolution
                         )
                     else:
-                        start_background_microgrid_data_sync(
+                        active_power_sync = start_background_microgrid_data_sync(
                             microgrid_id=microgrid_id,
                             start_date=previous_start_time,
                             end_date=end_time,
@@ -291,7 +306,13 @@ def render() -> None:
             if snapshot is None and has_battery_soc_formula:
                 try:
                     with log_duration("reporting.load_battery_soc"):
-                        fetched_soc_df = get_microgrid_soc_data(
+                        fetched_soc_df = get_cached_microgrid_soc_data(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
+                        start_background_microgrid_soc_data_sync(
                             microgrid_id=microgrid_id,
                             start_date=previous_start_time,
                             end_date=end_time,
@@ -299,7 +320,8 @@ def render() -> None:
                         )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
-                        f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
+                        f"Zwischengespeicherte Batterie-SOC-Daten konnten nicht "
+                        f"geladen werden: {exc}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
@@ -347,6 +369,9 @@ def render() -> None:
             resolution,
         )
     if current_master_df.empty:
+        if active_power_sync is not None and not active_power_sync.done():
+            _poll_active_power_sync(active_power_sync)
+            st.stop()
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
