@@ -105,9 +105,6 @@ def _kpi_label_html(label: str) -> str:
     )
 
 
-# ── Section accent colours ─────────────────────────────────────────────────────
-# Each reporting section gets a distinct left-border colour so the dashboard
-# reads as a structured, visually hierarchical document.
 _SECTION_ACCENTS: dict[str, str] = {
     "Netzkennzahlen": "#3b82f6",  # blue  – grid
     "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
@@ -343,7 +340,7 @@ def render_box_grid(
     accent: str = "#3b82f6",
     delta_comparisons: dict[str, str] | None = None,
 ) -> None:
-    """Render KPI boxes in a professional card grid.
+    """Render KPI boxes in a card grid.
 
     Args:
         boxes: Prepared list of label/value tuples.
@@ -457,7 +454,6 @@ def render_summary_boxes(
     component_types_provided = component_types is not None
     component_type_set = set(component_types or [])
 
-    # Section heading
     st.markdown(
         """
         <div class="metrics-heading">
@@ -514,7 +510,6 @@ def render_summary_boxes(
             delta_comparisons=_DELTA_COMPARISONS,
         )
 
-    # Consumption breakdown bar
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     consumption_dict = _build_consumption_breakdown(metrics)
     consumption_bar_plot = plot_percentage_bar(

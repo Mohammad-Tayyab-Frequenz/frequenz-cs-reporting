@@ -118,7 +118,6 @@ def render() -> None:
             )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(f"Anfrage konnte nicht vorbereitet werden: {exc}")
-        # Improve logging (could use proper logger, simplistic print for now as in original)
         print(f"Error building workflow request:\n{traceback.format_exc()}")
         return
 

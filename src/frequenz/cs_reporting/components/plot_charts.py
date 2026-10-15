@@ -7,7 +7,6 @@ from math import isfinite
 
 import plotly.graph_objects as go
 
-# ── Professional colour palette ───────────────────────────────────────────────
 # Ordered so the most semantically meaningful colours come first:
 #   blue = grid / primary,  green = generation,  amber = consumption,
 #   purple = balance,  teal = export,  slate = others
@@ -26,7 +25,7 @@ _OTHERS_COLOR = "#94a3b8"  # light slate for residual segment
 
 
 def _apply_professional_layout(fig: go.Figure) -> None:
-    """Apply a clean, corporate-grade layout to any Plotly figure."""
+    """Apply the shared layout to a Plotly figure."""
     fig.update_layout(
         font={
             "family": "Inter, Segoe UI, Arial, sans-serif",

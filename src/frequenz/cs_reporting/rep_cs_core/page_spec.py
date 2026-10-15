@@ -3,7 +3,6 @@
 
 """Page specification dataclass used by Streamlit navigation."""
 
-# Immutable specification for a single navigable Streamlit page used by the app's navigation.
 from dataclasses import dataclass
 from typing import Callable
 

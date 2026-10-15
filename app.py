@@ -16,7 +16,6 @@ from pathlib import Path
 import streamlit as st
 
 
-# --- Check if running in deepnote to pick up environment variables ---
 def running_in_deepnote() -> bool:
     # Common Deepnote env vars (if one changes, the others may still work)
     return any(
@@ -36,14 +35,13 @@ if IN_DEEPNOTE:
 
     deepnote_toolkit.set_integration_env()
 
-# --- Project paths & sys.path wiring ----------------------------------------
 PACKAGE_DIR = Path(__file__).resolve().parent
 LIB_PAGES_ROOT = "frequenz.cs_reporting.app_pages"
 LOGO_NAME = "neustrom_logo.png"
 
 
 def _inject_global_theme() -> None:
-    """Inject a professional global theme for the Streamlit app."""
+    """Inject the global theme for the Streamlit app."""
     st.markdown(
         """
         <style>
@@ -318,7 +316,6 @@ package_parent = str(PACKAGE_ROOT.parent)
 if package_parent not in sys.path:
     sys.path.insert(0, package_parent)
 
-# Import PageSpec from your custom library
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.deepnote_cache import (
     deepnote_hybrid_cache_enabled,
@@ -331,7 +328,6 @@ if IN_DEEPNOTE and deepnote_hybrid_cache_enabled():
     prepare_deepnote_hybrid_cache()
 
 
-# --- Local page loader (from ./app_pages) -----------------------------------
 def _load_local_pages() -> list[PageSpec]:
     """Load PAGE specs from local app_pages/*.py files."""
     if not APP_PAGES_DIR.exists():
@@ -358,7 +354,6 @@ def _load_local_pages() -> list[PageSpec]:
     return pages
 
 
-# --- Library page discovery (from frequenz.app_pages) -----------------------
 def discover_library_pages(pkg_root: str = LIB_PAGES_ROOT) -> list[PageSpec]:
     """Discover PAGE specs from the installed frequenz app_pages package.
 
@@ -418,7 +413,6 @@ def _nav_label(page: PageSpec) -> str:
     return page.title
 
 
-# Sidebar navigation
 def sidebar(pages: list[PageSpec]) -> PageSpec:
     if logo_bytes := _load_logo_bytes():
         st.sidebar.image(logo_bytes, width=200)
@@ -436,7 +430,6 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
     if default_key not in valid_keys:
         default_key = pages[0].key
 
-    # Map display labels to internal keys
     options = {_nav_label(p): p.key for p in pages}
     display_options = list(options.keys())
     labels_by_key = {p.key: _nav_label(p) for p in pages}
@@ -470,10 +463,6 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
         st.session_state["navigation_radio"] = default_label
 
     with st.sidebar.container(key="sidebar_navigation"):
-        # st.markdown(
-        #     '<div class="sidebar-section-label">Übersicht</div>',
-        #     unsafe_allow_html=True,
-        # )
 
         selected_label = st.radio(
             "Seiten",
@@ -482,10 +471,8 @@ def sidebar(pages: list[PageSpec]) -> PageSpec:
             label_visibility="collapsed",
         )
 
-    # Add divider after navigation
     st.sidebar.divider()
 
-    # Update session state and query params from whatever the radio returned
     selected_key = options.get(selected_label, pages[0].key)
     st.session_state[state_key] = selected_key
     if use_query_params:
@@ -515,7 +502,6 @@ def render_selected_page(page: PageSpec) -> None:
         start_background_deepnote_cache_persist()
 
 
-# --- Main entrypoint --------------------------------------------------------
 def main() -> None:
     st.set_page_config(
         page_title="Reporting-Anwendung",
@@ -536,7 +522,6 @@ def main() -> None:
     with log_duration("app.sidebar"):
         selected = sidebar(pages)
 
-    # Render selected page
     render_selected_page(selected)
 
 

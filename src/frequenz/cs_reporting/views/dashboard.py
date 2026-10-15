@@ -229,7 +229,6 @@ def _build_tables(
     power_table = compute_energy_summary(master_df, resolution)
     metrics = _aggregate_metrics(master_df, resolution)
 
-    # Build component analyses using configuration
     analyses = {
         f"{key}_analysis": build_component_analysis(
             master_df,
@@ -265,8 +264,8 @@ def build_master_df(
 ) -> pd.DataFrame:
     """Transform raw microgrid data into master analysis dataframe.
 
-    Processes raw time-series data from the microgrid to create a comprehensive
-    master dataframe suitable for analysis and visualization. Applies data cleaning,
+    Processes raw time-series data from the microgrid to create a master
+    dataframe suitable for analysis and visualization. Applies data cleaning,
     component aggregation, and column mapping.
 
     Args:
@@ -425,7 +424,7 @@ def render_dashboard(
 ) -> None:
     """Render the complete microgrid reporting dashboard.
 
-    Displays a comprehensive three-section dashboard:
+    Displays a three-section dashboard:
     1. Overview section with summary metric boxes
     2. Interactive plots section with time series and pie charts
     3. Data tables section with detailed component breakdowns
@@ -465,7 +464,6 @@ def render_dashboard(
             else None
         )
 
-    # --- Overview section---
     with log_duration("dashboard.render_kpis"):
         _section_divider("Übersicht", "KPIs")
         sections.render_summary_boxes(
@@ -475,12 +473,10 @@ def render_dashboard(
             previous_metrics=previous_metrics,
         )
 
-    # --- Plots section---
     with log_duration("dashboard.render_plots"):
         _section_divider("Diagramme & Zeitreihen")
         sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
 
-    # --- Tables section---
     with log_duration("dashboard.render_tables"):
         st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
         _section_divider("Datentabellen")

@@ -459,6 +459,38 @@ def test_background_active_power_sync_is_shared_between_callers(
     assert calls == [(42, start, end, resolution)]
 
 
+def test_background_battery_soc_sync_is_shared_between_callers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent sessions reuse one in-process battery-SOC synchronization."""
+    start = datetime(2041, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    resolution = timedelta(minutes=15)
+    calls: list[tuple[int, datetime, datetime, timedelta]] = []
+
+    def sync_battery_soc(
+        microgrid_id: int,
+        sync_start: datetime,
+        sync_end: datetime,
+        sync_resolution: timedelta,
+    ) -> pd.DataFrame:
+        calls.append((microgrid_id, sync_start, sync_end, sync_resolution))
+        return _frame(sync_start, sync_end)
+
+    monkeypatch.setattr(data_service, "get_microgrid_soc_data", sync_battery_soc)
+
+    first = data_service.start_background_microgrid_soc_data_sync(
+        42, start, end, resolution
+    )
+    second = data_service.start_background_microgrid_soc_data_sync(
+        42, start, end, resolution
+    )
+
+    assert first is second
+    assert not first.result(timeout=1).empty
+    assert calls == [(42, start, end, resolution)]
+
+
 def test_active_power_sync_does_not_round_end_into_future() -> None:
     """The normalized API range never extends past the requested end."""
     start = datetime(2040, 1, 1, 10, 2, tzinfo=UTC)
