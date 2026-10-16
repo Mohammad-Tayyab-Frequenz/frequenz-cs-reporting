@@ -713,9 +713,12 @@ def _persist_cache_after_successful_sync(future: Future[Any]) -> None:
 
 
 def _day_ahead_sync_range(
-    start_date: datetime, end_date: datetime
+    start_date: datetime,
+    end_date: datetime,
+    *,
+    now: datetime | None = None,
 ) -> tuple[datetime, datetime]:
-    """Normalize a price synchronization range to stable UTC day boundaries."""
+    """Normalize a price synchronization range without requesting future data."""
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
     if start.tzinfo is None:
@@ -726,9 +729,24 @@ def _day_ahead_sync_range(
         end = end.tz_localize("UTC")
     else:
         end = end.tz_convert("UTC")
-    normalized_start = start.normalize().to_pydatetime()
-    normalized_end = (end.normalize() + timedelta(days=1)).to_pydatetime()
-    return normalized_start, normalized_end
+
+    current = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+    if current.tzinfo is None:
+        current = current.tz_localize("UTC")
+    else:
+        current = current.tz_convert("UTC")
+
+    frequency = f"{int(_DAY_AHEAD_PRICE_RESOLUTION.total_seconds())}s"
+    normalized_start = start.floor(frequency)
+    normalized_end = min(
+        end.ceil(frequency),
+        current.floor(frequency),
+    )
+    if normalized_end <= normalized_start:
+        normalized_end = min(end, current)
+    if normalized_end <= normalized_start:
+        raise ValueError("The day-ahead price range end must be after its start")
+    return normalized_start.to_pydatetime(), normalized_end.to_pydatetime()
 
 
 def _day_ahead_price_key(country_code: str) -> DatasetKey:

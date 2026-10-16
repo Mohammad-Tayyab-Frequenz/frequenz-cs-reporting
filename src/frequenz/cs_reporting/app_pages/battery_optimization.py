@@ -59,6 +59,13 @@ def _previous_month_date(value: date) -> date:
     return date(year, previous_month, min(value.day, previous_month_days))
 
 
+def _completed_price_range_end(
+    selected_end: datetime, timezone: str, today: date
+) -> datetime:
+    """Return a price-sync end that excludes the current incomplete local day."""
+    return min(selected_end, set_date_to_midnight(today, timezone))
+
+
 @st.fragment(run_every=2.0)
 def _poll_day_ahead_price_sync(future: Future[pd.Series]) -> None:
     """Rerun after the selected day-ahead price range finishes loading."""
@@ -104,20 +111,29 @@ def render() -> None:
         st.error(str(exc))
         st.stop()
 
-    price_sync = start_background_day_ahead_price_sync(
-        "DE_LU", start_time, end_time
-    )
-    if not price_sync.done():
-        _poll_day_ahead_price_sync(price_sync)
-        st.stop()
-    try:
-        price_sync.result()
-    except Exception as exc:  # pylint: disable=broad-except
-        st.error(
-            "Day-Ahead-Preise konnten nicht geladen werden. "
-            f"Details: {type(exc).__name__}: {exc}"
+    price_sync_end = _completed_price_range_end(end_time, timezone, today)
+    if start_time < price_sync_end:
+        price_sync = start_background_day_ahead_price_sync(
+            "DE_LU", start_time, price_sync_end
         )
-        st.stop()
+        if not price_sync.done():
+            _poll_day_ahead_price_sync(price_sync)
+            st.stop()
+        try:
+            price_sync.result()
+        except Exception as exc:  # pylint: disable=broad-except
+            if type(exc).__name__ == "NoMatchingDataError":
+                st.warning(
+                    "Für einen Teil des Zeitraums sind keine neuen "
+                    "Day-Ahead-Preise verfügbar. Vorhandene Cache-Daten werden "
+                    "verwendet."
+                )
+            else:
+                st.error(
+                    "Day-Ahead-Preise konnten nicht geladen werden. "
+                    f"Details: {type(exc).__name__}: {exc}"
+                )
+                st.stop()
 
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):

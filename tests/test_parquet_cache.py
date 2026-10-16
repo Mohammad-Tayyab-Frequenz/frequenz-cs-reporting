@@ -225,6 +225,89 @@ def test_empty_response_is_recorded_as_a_successful_covered_range(
     assert cache.metadata(key).status == "ok"
 
 
+def test_day_ahead_sync_keeps_successful_ranges_when_one_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    """A missing ENTSO-E range does not discard prices fetched in the same sync."""
+
+    class NoMatchingDataError(Exception):
+        """Represent an ENTSO-E response with no published data."""
+
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    cached_start = start + timedelta(hours=1)
+    cached_end = cached_start + timedelta(hours=1)
+    end = cached_end + timedelta(hours=1)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+    cache.get(key, cached_start, cached_end, _frame)
+    calls: list[tuple[datetime, datetime]] = []
+
+    def partially_available(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        if fetch_start == cached_end:
+            raise NoMatchingDataError("not published")
+        return _frame(fetch_start, fetch_end)
+
+    partial = cache.get(key, start, end, partially_available)
+
+    assert len(partial) == 8
+    assert calls == [(start, cached_start), (cached_end, end)]
+    metadata = cache.metadata(key)
+    assert metadata.status == "partial"
+    assert "not published" in (metadata.last_error or "")
+    assert metadata.covered_ranges == [
+        [
+            start.isoformat().replace("+00:00", "Z"),
+            cached_end.isoformat().replace("+00:00", "Z"),
+        ]
+    ]
+
+    completed = cache.get(key, start, end, _frame)
+
+    assert len(completed) == 12
+    assert cache.metadata(key).status == "ok"
+
+
+def test_day_ahead_sync_repairs_false_coverage_from_sparse_cache(
+    tmp_path: Path,
+) -> None:
+    """Persisted metadata cannot hide missing price records after a restart."""
+    start = datetime(2026, 10, 16, tzinfo=UTC)
+    middle = start + timedelta(minutes=15)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+
+    cache.get(key, start, end, lambda *_args: _frame(start, middle))
+    calls: list[tuple[datetime, datetime]] = []
+
+    def fetch_missing(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        return _frame(fetch_start, fetch_end)
+
+    repaired = _cache(tmp_path).get(key, start, end, fetch_missing)
+
+    assert calls == [(middle, end)]
+    assert len(repaired) == 4
+    assert repaired.index.max() == pd.Timestamp(end - timedelta(minutes=15))
+
+
+def test_empty_day_ahead_response_does_not_mark_range_as_covered(
+    tmp_path: Path,
+) -> None:
+    """An empty ENTSO-E response remains retryable rather than becoming coverage."""
+    start = datetime(2026, 10, 16, tzinfo=UTC)
+    end = start + timedelta(minutes=15)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+
+    with pytest.raises(ValueError, match="No day-ahead prices returned"):
+        cache.get(key, start, end, lambda *_args: pd.DataFrame())
+
+    assert cache.metadata(key).covered_ranges == []
+    assert len(cache.get(key, start, end, _frame)) == 1
+
+
 def test_timestamp_column_shape_is_preserved(tmp_path: Path) -> None:
     """A source timestamp column remains a column after a cache round trip."""
     start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -403,7 +486,7 @@ def test_background_day_ahead_sync_is_shared_between_callers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Concurrent sessions reuse one in-process price synchronization job."""
-    start = datetime(2035, 1, 1, tzinfo=UTC)
+    start = datetime(2020, 1, 1, tzinfo=UTC)
     end = start + timedelta(days=1)
     calls: list[tuple[str, datetime, datetime]] = []
 
@@ -424,7 +507,7 @@ def test_background_day_ahead_sync_is_shared_between_callers(
 
     assert first is second
     assert not first.result(timeout=1).empty
-    assert calls == [("DE_LU", start, end + timedelta(days=1))]
+    assert calls == [("DE_LU", start, end)]
 
 
 def test_background_active_power_sync_is_shared_between_callers(
