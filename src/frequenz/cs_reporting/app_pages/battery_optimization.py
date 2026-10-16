@@ -29,6 +29,7 @@ from frequenz.cs_reporting.services.client_factory import (
 )
 from frequenz.cs_reporting.services.data_service import (
     get_battery_capacity_data_kwh,
+    get_day_ahead_prices,
     get_microgrid_data,
     get_microgrid_soc_data,
 )
@@ -117,6 +118,7 @@ def render() -> None:
                 end_date=end_time,
                 resolution=resolution,
             )
+            get_day_ahead_prices("DE_LU", start_time, end_time)
             battery_soc_df = None
             battery_formula = mcfg.ctype["battery"].formula
             has_battery_soc_formula = (
