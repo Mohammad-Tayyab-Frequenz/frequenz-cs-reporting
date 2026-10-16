@@ -33,6 +33,7 @@ from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+_DAY_AHEAD_PRICE_RESOLUTION = pd.Timedelta(15, unit="min")
 _FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
     "timestamp": "Zeitpunkt",
     "grid_feed_in": "Netzeinspeisung",
@@ -102,6 +103,20 @@ def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:
         _DAY_AHEAD_PRICE_COLUMN in master_df.columns
         and not master_df[_DAY_AHEAD_PRICE_COLUMN].isna().all()
     )
+
+
+def _has_current_day_ahead_prices(master_df: pd.DataFrame) -> bool:
+    """Return whether prices cover the most recent dashboard timestamp."""
+    if not _has_day_ahead_prices(master_df) or master_df.empty:
+        return False
+    latest_timestamp = pd.to_datetime(master_df["timestamp"], errors="coerce").max()
+    if pd.isna(latest_timestamp):
+        return False
+    latest_rows = master_df.loc[
+        pd.to_datetime(master_df["timestamp"], errors="coerce") == latest_timestamp,
+        _DAY_AHEAD_PRICE_COLUMN,
+    ]
+    return not latest_rows.empty and bool(latest_rows.notna().any())
 
 
 def _aggregate_metrics(
@@ -375,7 +390,14 @@ def _merge_cached_day_ahead_prices(
         prices.index = price_index.tz_convert("UTC").tz_localize(None)
     elif target_index.tz is not None and price_index.tz is not None:
         prices.index = price_index.tz_convert(target_index.tz)
-    aligned_prices = prices.sort_index().reindex(target_index, method="ffill")
+    # A price applies until the next 15-minute market interval.  Bounding the
+    # forward fill prevents the last value in a stale Deepnote snapshot from
+    # appearing as a constant live price for the rest of the selected range.
+    aligned_prices = prices.sort_index().reindex(
+        target_index,
+        method="ffill",
+        tolerance=_DAY_AHEAD_PRICE_RESOLUTION - pd.Timedelta(1, unit="ns"),
+    )
     if aligned_prices.isna().all():
         return master_df.copy()
     indexed["day_ahead_price"] = aligned_prices
@@ -467,7 +489,7 @@ def render_dashboard(
         to specialized section modules (summary_boxes, plots_tabs, data_tabs).
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
-    if not _has_day_ahead_prices(master_df):
+    if not _has_current_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(
             master_df,
             previous_master_df,

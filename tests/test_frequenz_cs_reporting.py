@@ -22,6 +22,7 @@ from frequenz.cs_reporting.app_pages import (
 )
 from frequenz.cs_reporting.app_pages.battery_optimization import (
     _SIDEBAR_KEY_PREFIX,
+    _completed_price_range_end,
     _mid_caption,
     _previous_month_date,
 )
@@ -43,6 +44,7 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
 )
 from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
+    _day_ahead_sync_range,
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
@@ -65,6 +67,8 @@ from frequenz.cs_reporting.views.component_sources import default_component_plot
 from frequenz.cs_reporting.views.dashboard import (
     _aggregate_metrics,
     _filter_component_types_for_master_df,
+    _has_current_day_ahead_prices,
+    _merge_cached_day_ahead_prices,
     split_periods,
 )
 from frequenz.cs_reporting.views.metric_renderers import (
@@ -263,6 +267,41 @@ def test_battery_optimization_default_start_uses_previous_month() -> None:
 def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
     """Battery optimization sidebar state is isolated from reporting filters."""
     assert _SIDEBAR_KEY_PREFIX == "battery_optimization_"
+
+
+def test_battery_price_sync_excludes_the_incomplete_current_day() -> None:
+    """Battery price backfill stops at today's local midnight."""
+    sync_end = _completed_price_range_end(
+        datetime(2026, 10, 16, 9, 30, tzinfo=UTC),
+        "Europe/Berlin",
+        date(2026, 10, 16),
+    )
+
+    assert sync_end.isoformat() == "2026-10-16T00:00:00+02:00"
+
+
+def test_day_ahead_sync_range_does_not_request_unpublished_future_prices() -> None:
+    """A current-day price sync stops at the latest complete interval."""
+    start, end = _day_ahead_sync_range(
+        datetime(2026, 9, 15, 22, 0, tzinfo=UTC),
+        datetime(2026, 10, 16, 9, 20, tzinfo=UTC),
+        now=datetime(2026, 10, 16, 9, 22, tzinfo=UTC),
+    )
+
+    assert start == datetime(2026, 9, 15, 22, 0, tzinfo=UTC)
+    assert end == datetime(2026, 10, 16, 9, 15, tzinfo=UTC)
+
+
+def test_day_ahead_sync_range_keeps_historical_exclusive_end() -> None:
+    """Historical price syncs do not add an unnecessary trailing day."""
+    start, end = _day_ahead_sync_range(
+        datetime(2026, 9, 15, 22, 0, tzinfo=UTC),
+        datetime(2026, 10, 15, 22, 0, tzinfo=UTC),
+        now=datetime(2026, 10, 16, 9, 22, tzinfo=UTC),
+    )
+
+    assert start == datetime(2026, 9, 15, 22, 0, tzinfo=UTC)
+    assert end == datetime(2026, 10, 15, 22, 0, tzinfo=UTC)
 
 
 def test_battery_optimization_mid_caption_includes_name_and_number() -> None:
@@ -747,6 +786,27 @@ def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
         "grid_feed_in_sum",
         "peak",
     ]
+
+
+def test_stale_day_ahead_price_is_not_filled_across_missing_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial Deepnote snapshot remains visibly incomplete and refreshable."""
+    timestamps = pd.date_range(
+        "2026-10-16 00:00", periods=4, freq="15min", tz="Europe/Berlin"
+    )
+    master_df = pd.DataFrame({"timestamp": timestamps, "grid_consumption": 1.0})
+    cached = pd.Series(
+        [191.33],
+        index=pd.DatetimeIndex([timestamps[0]]).tz_convert("UTC"),
+        name="day_ahead_price",
+    )
+    monkeypatch.setattr(dashboard, "get_cached_day_ahead_prices", lambda *_args: cached)
+
+    merged = _merge_cached_day_ahead_prices(master_df, "DE_LU")
+
+    assert merged["day_ahead_price"].notna().tolist() == [True, False, False, False]
+    assert not _has_current_day_ahead_prices(merged)
 
 
 def test_overview_plot_renders_without_day_ahead_price(
