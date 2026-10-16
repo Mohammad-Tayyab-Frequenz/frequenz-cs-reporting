@@ -7,6 +7,7 @@
 
 from base64 import b64decode
 from collections.abc import Callable, Iterable
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -15,6 +16,9 @@ import plotly.graph_objects as go
 import pytest
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
+from frequenz.cs_reporting.app_pages import (
+    battery_optimization as battery_optimization_page,
+)
 from frequenz.cs_reporting.app_pages.battery_optimization import (
     _SIDEBAR_KEY_PREFIX,
     _mid_caption,
@@ -266,6 +270,97 @@ def test_battery_optimization_mid_caption_includes_name_and_number() -> None:
         "MID243 - Solarlandbau Priegendorf"
     )
     assert _mid_caption(244, None) == ("MID244 - Nicht verfügbar")
+
+
+def test_battery_optimization_loads_prices_for_the_complete_selected_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The battery page fills prices for the same range as active-power data."""
+    selections = {
+        "start_date": date(2026, 9, 1),
+        "end_date": date(2026, 9, 5),
+        "timezone": "UTC",
+        "microgrid_id": 243,
+        "resolution": "15min",
+    }
+    power_range: list[datetime] = []
+    price_range: list[datetime] = []
+    raw_data = pd.DataFrame(
+        {"timestamp": pd.date_range("2026-09-01", periods=2, freq="15min")}
+    )
+
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "collect_sidebar_inputs",
+        lambda **_kwargs: selections,
+    )
+    monkeypatch.setattr(
+        battery_optimization_page, "get_microgrid_names", lambda: {243: "Test"}
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_component_types",
+        lambda _microgrid_id: ("battery",),
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_battery_capacity_data_kwh",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_microgrid_config",
+        lambda _microgrid_id: SimpleNamespace(
+            ctype={"battery": SimpleNamespace(formula=None)}
+        ),
+    )
+
+    def get_microgrid_data(
+        *,
+        microgrid_id: int,
+        start_date: datetime,
+        end_date: datetime,
+        resolution: timedelta,
+    ) -> pd.DataFrame:
+        del microgrid_id, resolution
+        power_range.extend([start_date, end_date])
+        return raw_data
+
+    def get_day_ahead_prices(
+        _country_code: str, start: datetime, end: datetime
+    ) -> pd.Series:
+        price_range.extend([start, end])
+        return pd.Series(dtype="float64")
+
+    monkeypatch.setattr(
+        battery_optimization_page, "get_microgrid_data", get_microgrid_data
+    )
+    monkeypatch.setattr(
+        battery_optimization_page, "get_day_ahead_prices", get_day_ahead_prices
+    )
+    monkeypatch.setattr(
+        battery_optimization_page, "build_master_df", lambda *_args, **_kwargs: raw_data
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "split_periods",
+        lambda master_df, *_args: (master_df, pd.DataFrame()),
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "render_battery_optimization",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(battery_optimization_page.st, "title", lambda *_args: None)
+    monkeypatch.setattr(battery_optimization_page.st, "caption", lambda *_args: None)
+    monkeypatch.setattr(
+        battery_optimization_page.st, "spinner", lambda *_args: nullcontext()
+    )
+
+    battery_optimization_page.render()
+
+    assert price_range == power_range
+    assert price_range[1] - price_range[0] > timedelta(days=2)
 
 
 def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
