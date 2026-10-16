@@ -220,7 +220,17 @@ packages = ["frequenz.cs_reporting"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["mkdocs_macros.*", "sybil", "sybil.*", "pvlib", "pvlib.*", "plotly", "plotly.*"]
+module = [
+  "mkdocs_macros.*",
+  "sybil",
+  "sybil.*",
+  "pvlib",
+  "pvlib.*",
+  "plotly",
+  "plotly.*",
+  "st_aggrid",
+  "st_aggrid.*",
+]
 ignore_missing_imports = true
 
 [tool.setuptools_scm]

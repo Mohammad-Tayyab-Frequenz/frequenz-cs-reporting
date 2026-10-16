@@ -36,9 +36,7 @@ def load_style(style_name: str) -> str:
 @lru_cache(maxsize=None)
 def load_tooltips(group: str) -> dict[str, str]:
     """Load one tooltip group from the packaged copy catalogue."""
-    tooltip_path = resources.files(_BASE_PACKAGE).joinpath(
-        "content", "tooltips.toml"
-    )
+    tooltip_path = resources.files(_BASE_PACKAGE).joinpath("content", "tooltips.toml")
     catalogue = tomllib.loads(tooltip_path.read_text(encoding="utf-8"))
     tooltip_group = catalogue.get(group)
     if not isinstance(tooltip_group, dict):

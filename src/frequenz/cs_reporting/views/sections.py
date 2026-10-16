@@ -14,13 +14,11 @@ from __future__ import annotations
 from frequenz.cs_reporting.constants import COLOR_DICT as color_dict
 
 from .metric_renderers import render_box_grid, render_summary_boxes
-
 from .plot_renderers import (
     render_energy_pie_chart,
     render_plots_tabs,
     render_time_series,
 )
-
 from .table_renderers import render_data_tabs, render_master_df, render_table_section
 
 __all__ = [
