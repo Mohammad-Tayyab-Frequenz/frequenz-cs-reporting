@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
+import streamlit as st
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages import (
@@ -396,11 +397,9 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
         "render_battery_optimization",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(battery_optimization_page.st, "title", lambda *_args: None)
-    monkeypatch.setattr(battery_optimization_page.st, "caption", lambda *_args: None)
-    monkeypatch.setattr(
-        battery_optimization_page.st, "spinner", lambda *_args: nullcontext()
-    )
+    monkeypatch.setattr(st, "title", lambda *_args: None)
+    monkeypatch.setattr(st, "caption", lambda *_args: None)
+    monkeypatch.setattr(st, "spinner", lambda *_args: nullcontext())
 
     battery_optimization_page.render()
 
@@ -684,7 +683,7 @@ def test_kpi_value_colour_can_be_set_for_one_metric(
 
     monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
     monkeypatch.setattr(
-        metric_renderers.st,
+        st,
         "columns",
         lambda count, gap: [FakeColumn() for _ in range(count)],
     )
@@ -695,7 +694,7 @@ def test_kpi_value_colour_can_be_set_for_one_metric(
         value_colors={"Netto-Einsparung (€)": "#16a34a"},
     )
 
-    assert '--kpi-value-color:#16a34a;' in rendered_markup[0]
+    assert "--kpi-value-color:#16a34a;" in rendered_markup[0]
 
 
 def test_balance_and_battery_kpi_delta_comparisons() -> None:
@@ -751,15 +750,15 @@ def test_tooltip_copy_is_loaded_from_the_content_catalogue() -> None:
     """Editable tooltip copy is available from the packaged TOML resource."""
     battery_tooltips = load_tooltips("battery_optimization")
 
-    assert "Berechnung\nJe Viertelstunde" in battery_tooltips[
-        "discharging_value_eur"
-    ]
-    assert "Berechnung\nJe Viertelstunde: geladene Menge ×" in battery_tooltips[
-        "charging_cost_eur"
-    ]
-    assert "aus dem Netz oder aus Eigenerzeugung stammt" in battery_tooltips[
-        "charging_cost_eur"
-    ]
+    assert "Berechnung\nJe Viertelstunde" in battery_tooltips["discharging_value_eur"]
+    assert (
+        "Berechnung\nJe Viertelstunde: geladene Menge *"
+        in battery_tooltips["charging_cost_eur"]
+    )
+    assert (
+        "aus dem Netz oder aus Eigenerzeugung stammt"
+        in battery_tooltips["charging_cost_eur"]
+    )
     assert load_tooltips("common")["prior_period"].startswith("Vorperiode")
     assert "Netzbetreiber" in load_tooltips("reporting")["invoicing_warning"]
 

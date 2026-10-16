@@ -304,7 +304,7 @@ def test_empty_day_ahead_response_does_not_mark_range_as_covered(
     with pytest.raises(ValueError, match="No day-ahead prices returned"):
         cache.get(key, start, end, lambda *_args: pd.DataFrame())
 
-    assert cache.metadata(key).covered_ranges == []
+    assert not cache.metadata(key).covered_ranges
     assert len(cache.get(key, start, end, _frame)) == 1
 
 

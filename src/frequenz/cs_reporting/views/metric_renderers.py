@@ -374,7 +374,7 @@ def _filter_section_box_specs(
     ]
 
 
-# pylint: disable = too-many-locals
+# pylint: disable = too-many-locals, too-many-arguments, too-many-positional-arguments
 def render_box_grid(
     boxes: Sequence[
         tuple[str, object]
