@@ -7,6 +7,7 @@
 
 from base64 import b64decode
 from collections.abc import Callable, Iterable
+from concurrent.futures import Future
 from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -444,17 +445,22 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
         power_range.extend([start_date, end_date])
         return raw_data
 
-    def get_day_ahead_prices(
+    price_future: Future[pd.Series] = Future()
+    price_future.set_result(pd.Series(dtype="float64"))
+
+    def start_day_ahead_price_sync(
         _country_code: str, start: datetime, end: datetime
-    ) -> pd.Series:
+    ) -> Future[pd.Series]:
         price_range.extend([start, end])
-        return pd.Series(dtype="float64")
+        return price_future
 
     monkeypatch.setattr(
         battery_optimization_page, "get_microgrid_data", get_microgrid_data
     )
     monkeypatch.setattr(
-        battery_optimization_page, "get_day_ahead_prices", get_day_ahead_prices
+        battery_optimization_page,
+        "start_background_day_ahead_price_sync",
+        start_day_ahead_price_sync,
     )
     monkeypatch.setattr(
         battery_optimization_page, "build_master_df", lambda *_args, **_kwargs: raw_data
