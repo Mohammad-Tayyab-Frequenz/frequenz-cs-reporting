@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import calendar
+from concurrent.futures import Future
 from datetime import UTC, date, datetime, timedelta
 
+import pandas as pd
 import streamlit as st
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.reporting.utils.helpers import (
@@ -29,9 +31,9 @@ from frequenz.cs_reporting.services.client_factory import (
 )
 from frequenz.cs_reporting.services.data_service import (
     get_battery_capacity_data_kwh,
-    get_day_ahead_prices,
     get_microgrid_data,
     get_microgrid_soc_data,
+    start_background_day_ahead_price_sync,
 )
 from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
 from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
@@ -57,7 +59,16 @@ def _previous_month_date(value: date) -> date:
     return date(year, previous_month, min(value.day, previous_month_days))
 
 
-# pylint: disable=too-many-locals,too-many-statements
+@st.fragment(run_every=2.0)
+def _poll_day_ahead_price_sync(future: Future[pd.Series]) -> None:
+    """Rerun after the selected day-ahead price range finishes loading."""
+    if not future.done():
+        st.info("Day-Ahead-Preise werden für den gewählten Zeitraum geladen …")
+        return
+    st.rerun()
+
+
+# pylint: disable=too-many-branches,too-many-locals,too-many-statements
 def render() -> None:
     """Render the battery optimization savings page."""
     st.title("Batterie Reporting")
@@ -93,6 +104,21 @@ def render() -> None:
         st.error(str(exc))
         st.stop()
 
+    price_sync = start_background_day_ahead_price_sync(
+        "DE_LU", start_time, end_time
+    )
+    if not price_sync.done():
+        _poll_day_ahead_price_sync(price_sync)
+        st.stop()
+    try:
+        price_sync.result()
+    except Exception as exc:  # pylint: disable=broad-except
+        st.error(
+            "Day-Ahead-Preise konnten nicht geladen werden. "
+            f"Details: {type(exc).__name__}: {exc}"
+        )
+        st.stop()
+
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
             component_types = list(get_component_types(microgrid_id))
@@ -118,7 +144,6 @@ def render() -> None:
                 end_date=end_time,
                 resolution=resolution,
             )
-            get_day_ahead_prices("DE_LU", start_time, end_time)
             battery_soc_df = None
             battery_formula = mcfg.ctype["battery"].formula
             has_battery_soc_formula = (
