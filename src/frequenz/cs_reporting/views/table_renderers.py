@@ -26,6 +26,16 @@ _MASTER_DF_DISPLAY_RENAMES = {
     "production_self_usage": "Eigenverbrauch Share",
 }
 
+_CORE_DATA_COLUMNS = {
+    "timestamp": "timestamp",
+    "grid_consumption": "Netzbezug",
+    "mid_consumption": "Gesamtverbrauch",
+    "grid_feed_in": "Netz Einspeisung",
+    "pv_asset_production": "PV-Erzeugung",
+    "production_self_use": "production_self_use",
+    "day_ahead_price": "Day Ahead Preis",
+}
+
 
 def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `df` with number columns rounded to three decimals."""
@@ -230,6 +240,22 @@ def render_master_df(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
         st.info("Master-DF nicht verfügbar (keine MicrogridConfig).")
 
 
+def _build_core_data_df(master_df: pd.DataFrame) -> pd.DataFrame:
+    """Return the compact subset of columns used by the core-data tab."""
+    available_columns = [
+        column for column in _CORE_DATA_COLUMNS if column in master_df.columns
+    ]
+    return master_df.loc[:, available_columns].rename(columns=_CORE_DATA_COLUMNS)
+
+
+def render_core_data(master_df: pd.DataFrame) -> None:
+    """Render the most relevant reporting columns in a compact table."""
+    render_table_section(
+        _build_core_data_df(master_df),
+        key_prefix="core_data",
+    )
+
+
 # pylint: disable=too-many-locals
 def render_data_tabs(
     master_df: pd.DataFrame,
@@ -261,17 +287,19 @@ def render_data_tabs(
         st.info("Keine Datentabellen verfügbar.")
         return
 
-    tab_labels = []
+    tab_labels: list[str] = []
     if include_master:
-        tab_labels.append("Gesamt-Datensatz")
+        tab_labels.extend(("Kerndaten", "Gesamt-Datensatz"))
     tab_labels.extend(spec["label"] for spec in available_specs)
     tabs = st.tabs(tab_labels)
 
     table_tabs = tabs
     if include_master:
         with tabs[0]:
+            render_core_data(master_df)
+        with tabs[1]:
             render_master_df(master_df, mapper)
-        table_tabs = tabs[1:]
+        table_tabs = tabs[2:]
 
     for tab, spec in zip(table_tabs, available_specs):
         value = tables_dict.get(spec["table_key"])
