@@ -26,7 +26,7 @@ from frequenz.cs_reporting.app_pages.battery_optimization import (
     _SIDEBAR_KEY_PREFIX,
     _completed_price_range_end,
     _mid_caption,
-    _previous_month_date,
+    _previous_week_date,
 )
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.components import inputs
@@ -377,10 +377,10 @@ def test_validate_range_rejects_invalid_order() -> None:
         time.validate_range("2024-01-03", "2024-01-02")
 
 
-def test_battery_optimization_default_start_uses_previous_month() -> None:
-    """Battery optimization defaults start date to the previous month."""
-    assert _previous_month_date(date(2026, 9, 16)) == date(2026, 8, 16)
-    assert _previous_month_date(date(2026, 3, 31)) == date(2026, 2, 28)
+def test_battery_optimization_default_start_uses_previous_week() -> None:
+    """Battery optimization defaults start date to the previous week."""
+    assert _previous_week_date(date(2026, 9, 16)) == date(2026, 9, 9)
+    assert _previous_week_date(date(2026, 3, 3)) == date(2026, 2, 24)
 
 
 def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
