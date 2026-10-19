@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import calendar
 from concurrent.futures import Future
 from datetime import UTC, date, datetime, timedelta
 
@@ -47,16 +46,9 @@ def _mid_caption(microgrid_id: int, microgrid_name: str | None) -> str:
     return f"MID{microgrid_id} - {name}"
 
 
-def _previous_month_date(value: date) -> date:
-    """Return the same calendar day in the previous month when possible."""
-    previous_month = value.month - 1
-    year = value.year
-    if previous_month == 0:
-        previous_month = 12
-        year -= 1
-
-    previous_month_days = calendar.monthrange(year, previous_month)[1]
-    return date(year, previous_month, min(value.day, previous_month_days))
+def _previous_week_date(value: date) -> date:
+    """Return the date one week before ``value``."""
+    return value - timedelta(weeks=1)
 
 
 def _completed_price_range_end(
@@ -82,7 +74,7 @@ def render() -> None:
 
     today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
-        default_start=_previous_month_date(today),
+        default_start=_previous_week_date(today),
         default_end=today,
         resolution_options=("15min", "30min", "1hour"),
         default_resolution="15min",
