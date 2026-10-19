@@ -57,7 +57,7 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
 
 ### Microgrid configs
 
-Microgrid definitions are loaded from TOML files in `MICROGRID_CONFIG_DIR`.
+Microgrid definitions are loaded from TOML files in `MICROGRID_CONFIG_DIR`. The UI only lists configured microgrids returned by the Assets API for the current `FREQUENZ_API_KEY` and `FREQUENZ_API_SECRET`; inaccessible TOML entries are not displayed.
 
 ## Running the Streamlit app
 

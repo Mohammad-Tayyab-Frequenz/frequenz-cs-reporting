@@ -149,7 +149,7 @@ def test_microgrid_selector_uses_custom_option_formatter() -> None:
 def test_microgrid_names_prefer_current_assets_api_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Current Assets API names take precedence over configured TOML names."""
+    """Only accessible configs are returned, using current Assets API names."""
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
     monkeypatch.setattr(
         client_factory,
@@ -159,7 +159,10 @@ def test_microgrid_names_prefer_current_assets_api_names(
     monkeypatch.setattr(
         client_factory,
         "_load_microgrid_configs",
-        lambda: {243: SimpleNamespace(name="Configured name")},
+        lambda: {
+            243: SimpleNamespace(name="Configured name"),
+            244: SimpleNamespace(name="Inaccessible config"),
+        },
     )
     monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
 
@@ -172,7 +175,7 @@ def test_microgrid_names_prefer_current_assets_api_names(
         async def list_microgrids(
             self, microgrid_ids: Iterable[int] = ()
         ) -> list[SimpleNamespace]:
-            assert [int(microgrid_id) for microgrid_id in microgrid_ids] == [243]
+            assert [int(microgrid_id) for microgrid_id in microgrid_ids] == [243, 244]
             return [SimpleNamespace(id=243, name="Current API name")]
 
         async def disconnect(self) -> None:
@@ -181,16 +184,28 @@ def test_microgrid_names_prefer_current_assets_api_names(
     monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
 
     assert client_factory.get_microgrid_names() == {243: "Current API name"}
+    assert client_factory.get_microgrid_ids() == [243]
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
 
 
+# pylint: disable=too-many-locals
 def test_microgrid_configs_reload_after_toml_contents_change(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A Streamlit rerun loads edited TOML files without restarting the process."""
     config_file = tmp_path / "microgrid.toml"
-    config_file.write_text("name = 'first'\n", encoding="utf-8")
+    first_contents = """\
+[assets.microgrids.231]
+name = "inaccessible"
+
+[assets.microgrids.243]
+name = "first"
+"""
+    second_contents = first_contents.replace('name = "first"', 'name = "second"')
+    config_file.write_text(first_contents, encoding="utf-8")
     load_calls: list[str] = []
+    listed_config_ids: list[list[int]] = []
+    requested_api_ids: list[list[int]] = []
 
     class FakeAssetsClient:
         """Minimal assets client used while loading test configurations."""
@@ -198,13 +213,32 @@ def test_microgrid_configs_reload_after_toml_contents_change(
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             pass
 
+        async def list_microgrids(
+            self, microgrid_ids: Iterable[int] = ()
+        ) -> list[SimpleNamespace]:
+            requested_ids = [int(microgrid_id) for microgrid_id in microgrid_ids]
+            listed_config_ids.append(requested_ids)
+            return [SimpleNamespace(id=243)]
+
         async def disconnect(self) -> None:
             pass
 
-    async def load_configs(*, default_files: list[str], **_kwargs: object) -> object:
+    async def load_configs(
+        *,
+        default_files: list[str],
+        assets_client: object | None = None,
+        microgrid_ids: list[int] | None = None,
+    ) -> object:
         contents = Path(default_files[0]).read_text(encoding="utf-8")
-        load_calls.append(contents)
-        return SimpleNamespace(microgrids={243: SimpleNamespace(name=contents)})
+        if assets_client is not None:
+            load_calls.append(contents)
+            requested_api_ids.append(microgrid_ids or [])
+        return SimpleNamespace(
+            microgrids={
+                231: SimpleNamespace(name="inaccessible"),
+                243: SimpleNamespace(name=contents),
+            }
+        )
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
@@ -219,14 +253,16 @@ def test_microgrid_configs_reload_after_toml_contents_change(
     unchanged = load_from_disk()
     config_file.unlink()
     while_replacing = load_from_disk()
-    config_file.write_text("name = 'second'\n", encoding="utf-8")
+    config_file.write_text(second_contents, encoding="utf-8")
     second = load_from_disk()
 
-    assert first[243].name == "name = 'first'\n"
+    assert first[243].name == first_contents
     assert unchanged is first
     assert while_replacing is first
-    assert second[243].name == "name = 'second'\n"
-    assert load_calls == ["name = 'first'\n", "name = 'second'\n"]
+    assert second[243].name == second_contents
+    assert load_calls == [first_contents, second_contents]
+    assert listed_config_ids == [[231, 243], [231, 243]]
+    assert requested_api_ids == [[243], [243]]
     cached_loader.clear()
 
 

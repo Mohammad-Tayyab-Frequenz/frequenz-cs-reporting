@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import tomllib
 from pathlib import Path
 from threading import Lock
 from typing import TypeAlias
@@ -25,6 +26,31 @@ MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevisio
 
 _CONFIG_SOURCE_LOCK = Lock()
 _LAST_GOOD_CONFIG_SOURCE: MicrogridConfigSource | None = None
+
+
+def _configured_microgrid_ids(config_files: tuple[str, ...]) -> list[int]:
+    """Read microgrid IDs without validating incomplete configuration entries."""
+    microgrid_ids: set[int] = set()
+    for config_file in config_files:
+        with Path(config_file).open("rb") as file_handle:
+            document = tomllib.load(file_handle)
+
+        assets = document.get("assets")
+        if assets is None:
+            microgrids = document
+        elif isinstance(assets, dict):
+            microgrids = assets.get("microgrids", {})
+        else:
+            raise TypeError(f"{config_file}: `assets` must be a table")
+
+        if not isinstance(microgrids, dict):
+            raise TypeError(f"{config_file}: `assets.microgrids` must be a table")
+        try:
+            microgrid_ids.update(int(microgrid_id) for microgrid_id in microgrids)
+        except ValueError as exc:
+            raise ValueError(f"{config_file}: microgrid IDs must be integers") from exc
+
+    return sorted(microgrid_ids)
 
 
 @st.cache_resource(show_spinner=False)
@@ -45,9 +71,19 @@ def _load_microgrid_configs_cached(
             sign_secret=sign_secret,
         )
         try:
+            configured_ids = _configured_microgrid_ids(config_files)
+            accessible_microgrids = await assets_client.list_microgrids(
+                microgrid_ids=(
+                    MicrogridId(microgrid_id) for microgrid_id in configured_ids
+                )
+            )
+            accessible_ids = sorted(
+                int(microgrid.id) for microgrid in accessible_microgrids
+            )
             assets_config = await load_configs(
                 default_files=list(config_files),
                 assets_client=assets_client,
+                microgrid_ids=accessible_ids,
             )
             return assets_config.microgrids
         finally:
@@ -172,30 +208,25 @@ def get_microgrid_config(microgrid_id: int) -> MicrogridConfig:
     return _load_microgrid_configs()[microgrid_id]
 
 
-@st.cache_data(show_spinner=False)
-def _get_microgrid_ids(revision: MicrogridConfigRevision) -> list[int]:
-    """Return available microgrid IDs for one config revision."""
-    del revision
-    return sorted(_load_microgrid_configs())
-
-
 def get_microgrid_ids() -> list[int]:
-    """Return available microgrid IDs sorted ascending.
+    """Return configured microgrid IDs accessible with the current credentials.
 
     Returns:
-        List of configured microgrid IDs.
+        List of accessible, configured microgrid IDs sorted ascending.
     """
-    return _get_microgrid_ids(get_microgrid_config_revision())
+    return sorted(get_microgrid_names())
 
 
 @st.cache_data(show_spinner=False, ttl=300)
 def _get_microgrid_names(
     revision: MicrogridConfigRevision,
 ) -> dict[int, str | None]:
-    """Return current names for the configured microgrids from the Assets API.
+    """Return configured microgrids accessible through the Assets API.
 
-    Names are refreshed at most every five minutes.  A configured TOML name is
-    used when the Assets API is unavailable or does not provide a name.
+    The Assets API limits its response to the scope of the current credentials.
+    Its response is therefore also used as an allow-list for the configured
+    TOML microgrids.  Names and access are refreshed at most every five minutes.
+    A configured TOML name is used when an accessible microgrid has no API name.
     """
     del revision
     configs = _load_microgrid_configs()
@@ -219,19 +250,17 @@ def _get_microgrid_names(
         finally:
             await assets_client.disconnect()
 
-    try:
-        asset_names = asyncio.run(load())
-    except Exception:  # pylint: disable=broad-except
-        return names
+    asset_names = asyncio.run(load())
 
     return {
-        microgrid_id: asset_names.get(microgrid_id) or configured_name
+        microgrid_id: asset_names[microgrid_id] or configured_name
         for microgrid_id, configured_name in names.items()
+        if microgrid_id in asset_names
     }
 
 
 def get_microgrid_names() -> dict[int, str | None]:
-    """Return microgrid names, invalidating cached names after TOML changes."""
+    """Return accessible microgrid names, invalidating after TOML changes."""
     return _get_microgrid_names(get_microgrid_config_revision())
 
 
