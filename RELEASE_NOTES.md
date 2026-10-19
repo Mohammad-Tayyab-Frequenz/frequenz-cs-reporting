@@ -36,6 +36,7 @@ platform scheduler.
   synchronization command can pre-warm datasets independently of Streamlit.
 - The reporting sidebar displays each microgrid's ID alongside its current name from the Assets API. The reporting page title now uses the format `MID<id> - <name>`.
 - Data tables now provide a compact toolbar in every tab, with controls to select the component data source where applicable, reset active filters, and download the displayed data as CSV.
+- Reporting data tables now include a compact `Kerndaten` tab with the most relevant consumption, feed-in, production, and day-ahead price data. The displayed subset can be downloaded as CSV, and unavailable source columns are omitted automatically.
 - Reporting data tables now offer German and English formatting from the CSV
   toolbar. The selection updates both the displayed number format and the CSV
   delimiter and decimal mark; German formatting remains the default.
