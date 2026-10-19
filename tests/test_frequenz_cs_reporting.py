@@ -48,6 +48,7 @@ from frequenz.cs_reporting.views.plot_renderers import (
     _component_ids_for_plot_source,
     _render_overview_plot,
 )
+from frequenz.cs_reporting.views.table_renderers import _build_core_data_df
 
 
 class _FakeMicrogridConfig:
@@ -101,6 +102,54 @@ def _decode_csv_data_url(data_url: str) -> str:
     """Decode a base64 CSV data URL for assertions."""
     _, encoded_csv = data_url.split(",", maxsplit=1)
     return b64decode(encoded_csv).decode("utf-8")
+
+
+def test_core_data_table_contains_requested_columns_in_order() -> None:
+    """The compact data table exposes only the requested reporting fields."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
+            "grid_consumption": [1.0],
+            "mid_consumption": [2.0],
+            "grid_feed_in": [3.0],
+            "pv_asset_production": [4.0],
+            "production_self_use": [5.0],
+            "day_ahead_price": [6.0],
+            "unrelated": [7.0],
+        }
+    )
+
+    core_data = _build_core_data_df(master_df)
+
+    assert list(core_data.columns) == [
+        "timestamp",
+        "Netzbezug",
+        "Gesamtverbrauch",
+        "Netz Einspeisung",
+        "PV-Erzeugung",
+        "production_self_use",
+        "Day Ahead Preis",
+    ]
+    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :7])
+
+
+def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None:
+    """Production and price columns are omitted without source data."""
+    core_data = _build_core_data_df(
+        pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
+                "grid_consumption": [1.0],
+                "mid_consumption": [2.0],
+            }
+        )
+    )
+
+    assert list(core_data.columns) == [
+        "timestamp",
+        "Netzbezug",
+        "Gesamtverbrauch",
+    ]
 
 
 def test_csv_download_urls_support_german_and_english_formats() -> None:
