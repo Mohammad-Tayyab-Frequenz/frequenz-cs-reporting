@@ -26,11 +26,10 @@ from frequenz.cs_reporting.services.client_factory import (
 )
 from frequenz.cs_reporting.services.data_service import (
     get_cached_microgrid_data,
-    get_cached_microgrid_soc_data,
     get_dataset_sync_metadata,
     get_microgrid_data,
+    get_microgrid_soc_data,
     start_background_microgrid_data_sync,
-    start_background_microgrid_soc_data_sync,
 )
 from frequenz.cs_reporting.services.reporting_session import (
     ReportingDataKey,
@@ -302,13 +301,7 @@ def render() -> None:
             if snapshot is None and has_battery_soc_formula:
                 try:
                     with log_duration("reporting.load_battery_soc"):
-                        fetched_soc_df = get_cached_microgrid_soc_data(
-                            microgrid_id=microgrid_id,
-                            start_date=previous_start_time,
-                            end_date=end_time,
-                            resolution=resolution,
-                        )
-                        start_background_microgrid_soc_data_sync(
+                        fetched_soc_df = get_microgrid_soc_data(
                             microgrid_id=microgrid_id,
                             start_date=previous_start_time,
                             end_date=end_time,
@@ -316,8 +309,7 @@ def render() -> None:
                         )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
-                        f"Zwischengespeicherte Batterie-SOC-Daten konnten nicht "
-                        f"geladen werden: {exc}"
+                        f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
