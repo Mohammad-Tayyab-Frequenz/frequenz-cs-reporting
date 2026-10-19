@@ -20,7 +20,11 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
 )
 
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
-from frequenz.cs_reporting.services.client_factory import get_meter_display_names
+from frequenz.cs_reporting.services.client_factory import (
+    MicrogridConfigRevision,
+    get_meter_display_names,
+    get_microgrid_config_revision,
+)
 from frequenz.cs_reporting.services.data_service import (
     get_cached_day_ahead_prices,
     start_background_day_ahead_price_sync,
@@ -289,6 +293,7 @@ def build_master_df(
         tuple(component_types),
         int(mcfg.microgrid_id),
         timezone,
+        get_microgrid_config_revision(),
         battery_soc_df,
         _mcfg=mcfg,
         _mapper=mapper,
@@ -305,12 +310,14 @@ def _build_master_df_cached(
     component_types: tuple[str, ...],
     microgrid_id: int,
     timezone: str,
+    config_revision: MicrogridConfigRevision,
     battery_soc_df: pd.DataFrame | None,
     *,
     _mcfg: Any,
     _mapper: ColumnMapper,
 ) -> pd.DataFrame:
     """Build and cache the complete master dataframe transformation."""
+    del config_revision
     filtered_component_types = [col for col in component_types if col in raw_df.columns]
 
     # Now drop components whose meters sum to zero
