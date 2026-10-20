@@ -299,7 +299,7 @@ def render_data_tabs(
     tab_labels.extend(spec["label"] for spec in available_specs)
     tabs = st.tabs(tab_labels)
 
-    table_tab_index = 0
+    table_tabs = tabs
     if include_master:
         with tabs[0]:
             render_core_data(master_df)
@@ -307,7 +307,7 @@ def render_data_tabs(
             render_master_df(master_df, mapper)
         table_tabs = tabs[2:]
 
-    for tab, spec in zip(tabs[table_tab_index:], available_specs):
+    for tab, spec in zip(table_tabs, available_specs):
         value = tables_dict.get(spec["table_key"])
         with tab:
             analysis_key = spec.get("analysis_key")
