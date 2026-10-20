@@ -224,7 +224,7 @@ def test_microgrid_names_prefer_current_assets_api_names(
         async def list_microgrids(
             self, microgrid_ids: Iterable[int] = ()
         ) -> list[SimpleNamespace]:
-            assert [int(microgrid_id) for microgrid_id in microgrid_ids] == [243, 244]
+            assert not tuple(microgrid_ids)
             return [SimpleNamespace(id=243, name="Current API name")]
 
         async def disconnect(self) -> None:
@@ -237,11 +237,10 @@ def test_microgrid_names_prefer_current_assets_api_names(
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
 
 
-# pylint: disable=too-many-locals
-def test_microgrid_configs_reload_after_toml_contents_change(
+def test_static_microgrid_configs_are_discovered_and_loaded_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A Streamlit rerun loads edited TOML files without restarting the process."""
+    """The TOML catalog remains cached until the Streamlit process cache resets."""
     config_file = tmp_path / "microgrid.toml"
     first_contents = """\
 [assets.microgrids.231]
@@ -253,24 +252,6 @@ name = "first"
     second_contents = first_contents.replace('name = "first"', 'name = "second"')
     config_file.write_text(first_contents, encoding="utf-8")
     load_calls: list[str] = []
-    listed_config_ids: list[list[int]] = []
-    requested_api_ids: list[list[int]] = []
-
-    class FakeAssetsClient:
-        """Minimal assets client used while loading test configurations."""
-
-        def __init__(self, *_args: object, **_kwargs: object) -> None:
-            pass
-
-        async def list_microgrids(
-            self, microgrid_ids: Iterable[int] = ()
-        ) -> list[SimpleNamespace]:
-            requested_ids = [int(microgrid_id) for microgrid_id in microgrid_ids]
-            listed_config_ids.append(requested_ids)
-            return [SimpleNamespace(id=243)]
-
-        async def disconnect(self) -> None:
-            pass
 
     async def load_configs(
         *,
@@ -278,10 +259,10 @@ name = "first"
         assets_client: object | None = None,
         microgrid_ids: list[int] | None = None,
     ) -> object:
+        assert assets_client is None
+        assert microgrid_ids is None
         contents = Path(default_files[0]).read_text(encoding="utf-8")
-        if assets_client is not None:
-            load_calls.append(contents)
-            requested_api_ids.append(microgrid_ids or [])
+        load_calls.append(contents)
         return SimpleNamespace(
             microgrids={
                 231: SimpleNamespace(name="inaccessible"),
@@ -290,29 +271,29 @@ name = "first"
         )
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
-    monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
-    monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
     monkeypatch.setattr(client_factory, "load_configs", load_configs)
-    monkeypatch.setattr(client_factory, "_LAST_GOOD_CONFIG_SOURCE", None)
     cached_loader = getattr(client_factory, "_load_microgrid_configs_cached")
+    cached_source = getattr(client_factory, "_microgrid_config_source_cached")
     load_from_disk = getattr(client_factory, "_load_microgrid_configs")
     cached_loader.clear()
+    cached_source.clear()
 
     first = load_from_disk()
     unchanged = load_from_disk()
-    config_file.unlink()
-    while_replacing = load_from_disk()
     config_file.write_text(second_contents, encoding="utf-8")
-    second = load_from_disk()
+    still_cached = load_from_disk()
+
+    cached_loader.clear()
+    cached_source.clear()
+    after_process_cache_reset = load_from_disk()
 
     assert first[243].name == first_contents
     assert unchanged is first
-    assert while_replacing is first
-    assert second[243].name == second_contents
+    assert still_cached is first
+    assert after_process_cache_reset[243].name == second_contents
     assert load_calls == [first_contents, second_contents]
-    assert listed_config_ids == [[231, 243], [231, 243]]
-    assert requested_api_ids == [[243], [243]]
     cached_loader.clear()
+    cached_source.clear()
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:
