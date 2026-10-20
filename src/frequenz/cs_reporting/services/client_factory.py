@@ -110,7 +110,9 @@ def _remember_good_config_source(source: MicrogridConfigSource) -> None:
 
 def _microgrid_config_source() -> MicrogridConfigSource:
     """Return configured TOML paths and a fingerprint of their current contents."""
-    config_root = Path(os.getenv("MICROGRID_CONFIG_DIR", "toml_directory/"))
+    config_root = Path(
+        os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
+    )
     if not config_root.is_dir():
         raise RuntimeError(f"Microgrid config directory not found: {config_root}")
 

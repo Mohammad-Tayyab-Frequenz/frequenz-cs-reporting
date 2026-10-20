@@ -30,9 +30,8 @@ class AppConfig:
     paths: Paths
 
 
-_default_microgrids = (
-    os.getenv("MICROGRID_TOML_ROOT")
-    or "configs/microgrids"  # e.g. /path/to/configs/microgrids
+_default_microgrids = os.getenv(
+    "MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/"
 )
 
 CFG = AppConfig(paths=Paths(microgrids_dir=Path(_default_microgrids)))
