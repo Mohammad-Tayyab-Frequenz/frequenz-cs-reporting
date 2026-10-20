@@ -25,6 +25,7 @@ class ReportingDataKey:
     end_iso: str
     timezone: str
     resolution_seconds: int
+    credential_revision: str
 
 
 @dataclass

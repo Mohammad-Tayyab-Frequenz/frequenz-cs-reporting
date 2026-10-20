@@ -22,6 +22,19 @@ from frequenz.cs_reporting.utils.env import require_env
 
 MicrogridConfigRevision: TypeAlias = tuple[str, tuple[tuple[str, str], ...]]
 MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevision]
+ApiCredentialRevision: TypeAlias = str
+
+
+def get_api_credential_revision() -> ApiCredentialRevision:
+    """Return a non-secret fingerprint of the current API credentials."""
+    digest = hashlib.sha256()
+    for variable in ("ASSETS_API_URL", "FREQUENZ_API_KEY", "FREQUENZ_API_SECRET"):
+        value = require_env(variable)
+        digest.update(variable.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 @st.cache_resource(show_spinner=False)
@@ -158,6 +171,7 @@ def get_microgrid_ids() -> list[int]:
 @st.cache_data(show_spinner=False, ttl=300)
 def _get_microgrid_names(
     revision: MicrogridConfigRevision,
+    credential_revision: ApiCredentialRevision,
 ) -> dict[int, str | None]:
     """Return configured microgrids accessible through the Assets API.
 
@@ -166,7 +180,7 @@ def _get_microgrid_names(
     acts only as an allow-list and source of current names.  Visibility and
     names are refreshed at most every five minutes.
     """
-    del revision
+    del revision, credential_revision
     configs = _load_microgrid_configs()
     names = {microgrid_id: config.name for microgrid_id, config in configs.items()}
     auth_key = require_env("FREQUENZ_API_KEY")
@@ -196,7 +210,10 @@ def _get_microgrid_names(
 
 def get_microgrid_names() -> dict[int, str | None]:
     """Return accessible microgrid names for the static TOML catalog."""
-    return _get_microgrid_names(get_microgrid_config_revision())
+    return _get_microgrid_names(
+        get_microgrid_config_revision(),
+        get_api_credential_revision(),
+    )
 
 
 @st.cache_data(show_spinner=False)
