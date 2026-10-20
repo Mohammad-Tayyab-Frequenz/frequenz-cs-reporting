@@ -8,9 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import tomllib
 from pathlib import Path
-from threading import Lock
 from typing import TypeAlias
 
 import streamlit as st
@@ -24,134 +22,62 @@ from frequenz.cs_reporting.utils.env import require_env
 MicrogridConfigRevision: TypeAlias = tuple[str, tuple[tuple[str, str], ...]]
 MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevision]
 
-_CONFIG_SOURCE_LOCK = Lock()
-_LAST_GOOD_CONFIG_SOURCE: MicrogridConfigSource | None = None
-
-
-def _configured_microgrid_ids(config_files: tuple[str, ...]) -> list[int]:
-    """Read microgrid IDs without validating incomplete configuration entries."""
-    microgrid_ids: set[int] = set()
-    for config_file in config_files:
-        with Path(config_file).open("rb") as file_handle:
-            document = tomllib.load(file_handle)
-
-        assets = document.get("assets")
-        if assets is None:
-            microgrids = document
-        elif isinstance(assets, dict):
-            microgrids = assets.get("microgrids", {})
-        else:
-            raise TypeError(f"{config_file}: `assets` must be a table")
-
-        if not isinstance(microgrids, dict):
-            raise TypeError(f"{config_file}: `assets.microgrids` must be a table")
-        try:
-            microgrid_ids.update(int(microgrid_id) for microgrid_id in microgrids)
-        except ValueError as exc:
-            raise ValueError(f"{config_file}: microgrid IDs must be integers") from exc
-
-    return sorted(microgrid_ids)
-
 
 @st.cache_resource(show_spinner=False)
 def _load_microgrid_configs_cached(
     config_files: tuple[str, ...],
     revision: MicrogridConfigRevision,
 ) -> dict[int, MicrogridConfig]:
-    """Load microgrid configs for one immutable set of file contents."""
+    """Load the process-wide static TOML microgrid catalog."""
     del revision
-    auth_key = require_env("FREQUENZ_API_KEY")
-    sign_secret = require_env("FREQUENZ_API_SECRET")
-    assets_api_url = require_env("ASSETS_API_URL")
 
     async def load() -> dict[int, MicrogridConfig]:
-        assets_client = AssetsApiClient(
-            assets_api_url,
-            auth_key=auth_key,
-            sign_secret=sign_secret,
+        assets_config = await load_configs(
+            default_files=list(config_files),
         )
-        try:
-            configured_ids = _configured_microgrid_ids(config_files)
-            accessible_microgrids = await assets_client.list_microgrids(
-                microgrid_ids=(
-                    MicrogridId(microgrid_id) for microgrid_id in configured_ids
-                )
-            )
-            accessible_ids = sorted(
-                int(microgrid.id) for microgrid in accessible_microgrids
-            )
-            assets_config = await load_configs(
-                default_files=list(config_files),
-                assets_client=assets_client,
-                microgrid_ids=accessible_ids,
-            )
-            return assets_config.microgrids
-        finally:
-            await assets_client.disconnect()
+        return assets_config.microgrids
 
     return asyncio.run(load())
 
 
-def _last_good_config_source(config_root: Path) -> MicrogridConfigSource | None:
-    """Return the last loaded source when it belongs to the configured directory."""
-    with _CONFIG_SOURCE_LOCK:
-        source = _LAST_GOOD_CONFIG_SOURCE
-    if source is None or source[1][0] != str(config_root.resolve()):
-        return None
-    return source
-
-
-def _remember_good_config_source(source: MicrogridConfigSource) -> None:
-    """Remember a source only after all of its TOML files loaded successfully."""
-    global _LAST_GOOD_CONFIG_SOURCE  # pylint: disable=global-statement
-    with _CONFIG_SOURCE_LOCK:
-        _LAST_GOOD_CONFIG_SOURCE = source
-
-
-def _microgrid_config_source() -> MicrogridConfigSource:
-    """Return configured TOML paths and a fingerprint of their current contents."""
-    config_root = Path(
-        os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
-    )
+@st.cache_resource(show_spinner=False)
+def _microgrid_config_source_cached(config_root_value: str) -> MicrogridConfigSource:
+    """Discover and fingerprint the static TOML file manifest once per process."""
+    config_root = Path(config_root_value)
     if not config_root.is_dir():
         raise RuntimeError(f"Microgrid config directory not found: {config_root}")
 
     config_paths = tuple(sorted(config_root.glob("*.toml")))
-    try:
-        file_revisions = tuple(
-            (path.name, hashlib.sha256(path.read_bytes()).hexdigest())
-            for path in config_paths
-        )
-    except FileNotFoundError:
-        config_paths = ()
-
     if not config_paths:
-        previous_source = _last_good_config_source(config_root)
-        if previous_source is not None:
-            return previous_source
         raise RuntimeError(f"No microgrid config files found in: {config_root}")
 
+    manifest = "\0".join(path.name for path in config_paths).encode("utf-8")
+    file_revisions = (("static-catalog", hashlib.sha256(manifest).hexdigest()),)
     config_files = tuple(str(path.resolve()) for path in config_paths)
     revision = (str(config_root.resolve()), file_revisions)
     return config_files, revision
 
 
+def _microgrid_config_source() -> MicrogridConfigSource:
+    """Return the process-cached static TOML source."""
+    config_root = os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
+    return _microgrid_config_source_cached(config_root)
+
+
 def get_microgrid_config_revision() -> MicrogridConfigRevision:
-    """Return a fingerprint that changes when the configured TOML files change."""
+    """Return the process-stable fingerprint of the static TOML catalog."""
     _, revision = _microgrid_config_source()
     return revision
 
 
 def _load_microgrid_configs() -> dict[int, MicrogridConfig]:
-    """Load microgrid configs, reloading automatically after TOML changes.
+    """Return the process-wide static TOML microgrid catalog.
 
     Returns:
         Mapping of microgrid IDs to configurations.
     """
     source = _microgrid_config_source()
-    configs = _load_microgrid_configs_cached(*source)
-    _remember_good_config_source(source)
-    return configs
+    return _load_microgrid_configs_cached(*source)
 
 
 def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
@@ -225,10 +151,10 @@ def _get_microgrid_names(
 ) -> dict[int, str | None]:
     """Return configured microgrids accessible through the Assets API.
 
-    The Assets API limits its response to the scope of the current credentials.
-    Its response is therefore also used as an allow-list for the configured
-    TOML microgrids.  Names and access are refreshed at most every five minutes.
-    A configured TOML name is used when an accessible microgrid has no API name.
+    The static TOML catalog supplies configuration.  The Assets API is queried
+    separately and limits its response to the current credential scope, so it
+    acts only as an allow-list and source of current names.  Visibility and
+    names are refreshed at most every five minutes.
     """
     del revision
     configs = _load_microgrid_configs()
@@ -245,9 +171,7 @@ def _get_microgrid_names(
             sign_secret=sign_secret,
         )
         try:
-            microgrids = await assets_client.list_microgrids(
-                microgrid_ids=(MicrogridId(microgrid_id) for microgrid_id in configs)
-            )
+            microgrids = await assets_client.list_microgrids()
             return {int(microgrid.id): microgrid.name for microgrid in microgrids}
         finally:
             await assets_client.disconnect()
@@ -262,7 +186,7 @@ def _get_microgrid_names(
 
 
 def get_microgrid_names() -> dict[int, str | None]:
-    """Return accessible microgrid names, invalidating after TOML changes."""
+    """Return accessible microgrid names for the static TOML catalog."""
     return _get_microgrid_names(get_microgrid_config_revision())
 
 
