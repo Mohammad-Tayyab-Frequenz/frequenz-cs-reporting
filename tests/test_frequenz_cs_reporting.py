@@ -50,7 +50,7 @@ from frequenz.cs_reporting.services.data_service import (
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
-from frequenz.cs_reporting.views import dashboard, metric_renderers
+from frequenz.cs_reporting.views import dashboard, metric_renderers, table_renderers
 from frequenz.cs_reporting.views.battery_optimization import (
     _HIDDEN_NORMALIZED_METRICS,
     _KPI_CARDS_PER_ROW,
@@ -193,6 +193,72 @@ def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None
         "timestamp",
         "Netzbezug",
         "Gesamtverbrauch",
+    ]
+
+
+def test_data_table_specs_render_after_overview_tabs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Analysis tables do not render inside the two overview tabs."""
+    active_tab: list[int] = []
+    rendered: list[tuple[str, int]] = []
+
+    class FakeTab:
+        """Track which fake Streamlit tab is active."""
+
+        def __init__(self, index: int) -> None:
+            self.index = index
+
+        def __enter__(self) -> None:
+            active_tab.append(self.index)
+
+        def __exit__(self, *_args: object) -> None:
+            active_tab.pop()
+
+    monkeypatch.setattr(
+        table_renderers.st,
+        "tabs",
+        lambda labels: [FakeTab(index) for index, _label in enumerate(labels)],
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "_table_spec_has_data",
+        lambda spec, *_args: spec["table_key"] in {"power_table", "pv_energy_table"},
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_core_data",
+        lambda *_args: rendered.append(("core", active_tab[-1])),
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_master_df",
+        lambda *_args: rendered.append(("master", active_tab[-1])),
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_table_section",
+        lambda _value, **kwargs: rendered.append(
+            (str(kwargs["key_prefix"]), active_tab[-1])
+        ),
+    )
+
+    table_renderers.render_data_tabs(
+        master_df=pd.DataFrame({"timestamp": [pd.Timestamp("2026-01-01")]}),
+        tables_dict={
+            "power_table": pd.DataFrame({"value": [1.0]}),
+            "pv_energy_table": pd.DataFrame({"value": [2.0]}),
+        },
+        mapper=object(),  # type: ignore[arg-type]
+        mcfg=None,
+        component_types=(),
+    )
+
+    assert rendered == [
+        ("core", 0),
+        ("master", 1),
+        ("power_mix", 2),
+        ("pv_energy", 3),
     ]
 
 
