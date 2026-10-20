@@ -62,13 +62,15 @@ def collect_sidebar_inputs(
 
     form_key = f"{key_prefix}filters_form" if key_prefix else "filters_form"
     state_key = f"{key_prefix}applied_filters" if key_prefix else "applied_filters"
+    microgrid_names = get_microgrid_names()
+    available_microgrids = sorted(microgrid_names)
+    _reconcile_microgrid_selection(available_microgrids, key_prefix, state_key)
 
     with st.sidebar.form(form_key):
         st.subheader("Microgrid")
-        microgrid_names = get_microgrid_names()
         microgrid_id = inputs.microgrid_selector(
             label="Microgrid auswählen",
-            ids=get_microgrid_ids(),
+            ids=available_microgrids,
             format_func=lambda microgrid_id: _microgrid_option_label(
                 microgrid_id, microgrid_names
             ),
@@ -166,6 +168,34 @@ def collect_sidebar_inputs(
     return dict(st.session_state[state_key])
 
 
+def _reconcile_microgrid_selection(
+    available_microgrids: Sequence[int],
+    key_prefix: str,
+    applied_filters_key: str | None = None,
+) -> None:
+    """Replace session selections that are invalid for the current credentials."""
+    if not available_microgrids:
+        return
+
+    microgrid_key = f"{key_prefix}microgrid_id"
+    selected_microgrid = st.session_state.get(microgrid_key)
+    if selected_microgrid not in available_microgrids:
+        selected_microgrid = available_microgrids[0]
+        st.session_state[microgrid_key] = selected_microgrid
+
+    if applied_filters_key is None:
+        return
+    applied_filters = st.session_state.get(applied_filters_key)
+    if not isinstance(applied_filters, dict):
+        return
+    if applied_filters.get("microgrid_id") in available_microgrids:
+        return
+
+    updated_filters = dict(applied_filters)
+    updated_filters["microgrid_id"] = selected_microgrid
+    st.session_state[applied_filters_key] = updated_filters
+
+
 def _microgrid_option_label(
     microgrid_id: int, microgrid_names: dict[int, str | None]
 ) -> str:
@@ -226,6 +256,8 @@ def collect_solar_sidebar_inputs(
     if not available_microgrids:
         st.error("Keine Microgrid-Konfigurationen gefunden.")
         return None, False
+
+    _reconcile_microgrid_selection(available_microgrids, key_prefix)
 
     timezone_options_list = list(timezone_options or TIMEZONE_OPTIONS)
     timezone_default_index = next(

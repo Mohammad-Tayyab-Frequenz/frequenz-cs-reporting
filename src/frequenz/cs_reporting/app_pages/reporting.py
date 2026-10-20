@@ -20,6 +20,7 @@ from frequenz.lib.notebooks.reporting.utils.helpers import (
 from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
+    get_api_credential_revision,
     get_component_types,
     get_microgrid_config,
     get_microgrid_names,
@@ -232,6 +233,7 @@ def render() -> None:
         end_iso=selections["end_date"].isoformat(),
         timezone=timezone,
         resolution_seconds=int(resolution.total_seconds()),
+        credential_revision=get_api_credential_revision(),
     )
 
     # We extend the fetch end date by 1 day to ensure the API returns data

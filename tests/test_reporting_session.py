@@ -18,7 +18,7 @@ from frequenz.cs_reporting.services.reporting_session import (
 def test_snapshot_is_reused_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """A price rerun consumes one matching reporting snapshot."""
     monkeypatch.setattr(st, "session_state", {})
-    key = ReportingDataKey(243, "start", "end", "Europe/Berlin", 900)
+    key = ReportingDataKey(243, "start", "end", "Europe/Berlin", 900, "credentials")
     snapshot = ReportingDataSnapshot(
         key=key,
         active_power=pd.DataFrame({"value": [1.0]}),
@@ -37,12 +37,40 @@ def test_snapshot_is_not_reused_for_different_inputs(
 ) -> None:
     """A changed reporting selection invalidates the one-time reuse request."""
     monkeypatch.setattr(st, "session_state", {})
-    stored_key = ReportingDataKey(243, "start", "end", "Europe/Berlin", 900)
-    requested_key = ReportingDataKey(244, "start", "end", "Europe/Berlin", 900)
+    stored_key = ReportingDataKey(
+        243, "start", "end", "Europe/Berlin", 900, "credentials"
+    )
+    requested_key = ReportingDataKey(
+        244, "start", "end", "Europe/Berlin", 900, "credentials"
+    )
     reporting_session.store_reporting_data_snapshot(
         ReportingDataSnapshot(
             key=stored_key,
             active_power=pd.DataFrame(),
+            battery_soc=None,
+            sync_metadata=SyncMetadata(dataset="active_power_mid243_900s"),
+        )
+    )
+    reporting_session.request_reporting_data_reuse()
+
+    assert reporting_session.take_reporting_data_snapshot(requested_key) is None
+
+
+def test_snapshot_is_not_reused_after_credentials_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changed integration credentials invalidate data from the prior scope."""
+    monkeypatch.setattr(st, "session_state", {})
+    stored_key = ReportingDataKey(
+        243, "start", "end", "Europe/Berlin", 900, "old-credentials"
+    )
+    requested_key = ReportingDataKey(
+        243, "start", "end", "Europe/Berlin", 900, "new-credentials"
+    )
+    reporting_session.store_reporting_data_snapshot(
+        ReportingDataSnapshot(
+            key=stored_key,
+            active_power=pd.DataFrame({"value": [1.0]}),
             battery_soc=None,
             sync_metadata=SyncMetadata(dataset="active_power_mid243_900s"),
         )

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
@@ -38,6 +39,7 @@ from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
 _DAY_AHEAD_PRICE_RESOLUTION = pd.Timedelta(15, unit="min")
+_PRICE_SYNC_RERUN_STATE_KEY = "_reporting_price_sync_rerun_future"
 _FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
     "timestamp": "Zeitpunkt",
     "grid_feed_in": "Netzeinspeisung",
@@ -52,6 +54,10 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
 _DAY_AHEAD_PRICE_WARNING = (
     "Day-ahead prices are not available in the local cache. "
     "Please check the scheduled data synchronization."
+)
+_INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
+    "Day-ahead prices are not available for the complete selected period. "
+    "Available cached prices are shown."
 )
 
 
@@ -431,9 +437,19 @@ def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     """Poll background price synchronization and rerun the app when it finishes."""
     future = start_background_day_ahead_price_sync("DE_LU", start, end)
     if future.done():
-        request_reporting_data_reuse()
-        st.rerun()
+        _rerun_after_price_sync_once(future)
+        return
     st.info("Day-ahead prices are loading in the background …")
+
+
+def _rerun_after_price_sync_once(future: Future[pd.Series]) -> bool:
+    """Request at most one full app rerun for a completed price-sync future."""
+    if st.session_state.get(_PRICE_SYNC_RERUN_STATE_KEY) is future:
+        return False
+    st.session_state[_PRICE_SYNC_RERUN_STATE_KEY] = future
+    request_reporting_data_reuse()
+    st.rerun()
+    return True
 
 
 def _render_day_ahead_price_sync_status(
@@ -456,8 +472,9 @@ def _render_day_ahead_price_sync_status(
         st.warning(_DAY_AHEAD_PRICE_WARNING)
         return
 
-    request_reporting_data_reuse()
-    st.rerun()
+    if _rerun_after_price_sync_once(future):
+        return
+    st.warning(_INCOMPLETE_DAY_AHEAD_PRICE_WARNING)
 
 
 def render_dashboard(

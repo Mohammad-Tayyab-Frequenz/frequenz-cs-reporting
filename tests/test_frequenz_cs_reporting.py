@@ -30,7 +30,10 @@ from frequenz.cs_reporting.app_pages.battery_optimization import (
 )
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.components import inputs
-from frequenz.cs_reporting.components.sidebar_inputs import _microgrid_option_label
+from frequenz.cs_reporting.components.sidebar_inputs import (
+    _microgrid_option_label,
+    _reconcile_microgrid_selection,
+)
 from frequenz.cs_reporting.components.tables import (
     _LOCALE_NUMBER_FORMATTER,
     _csv_download_urls,
@@ -67,10 +70,12 @@ from frequenz.cs_reporting.views.battery_optimization import (
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
+    _PRICE_SYNC_RERUN_STATE_KEY,
     _aggregate_metrics,
     _filter_component_types_for_master_df,
     _has_current_day_ahead_prices,
     _merge_cached_day_ahead_prices,
+    _render_day_ahead_price_sync_status,
     split_periods,
 )
 from frequenz.cs_reporting.views.metric_renderers import (
@@ -345,6 +350,92 @@ def test_microgrid_names_prefer_current_assets_api_names(
     assert client_factory.get_microgrid_names() == {243: "Current API name"}
     assert client_factory.get_microgrid_ids() == [243]
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+
+
+def test_microgrid_names_refresh_when_api_credentials_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing integration secrets invalidates accessible microgrid names."""
+    client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+    credentials = {
+        "ASSETS_API_URL": "https://assets.example.com",
+        "FREQUENZ_API_KEY": "first-key",
+        "FREQUENZ_API_SECRET": "first-secret",
+    }
+    monkeypatch.setattr(client_factory, "require_env", credentials.__getitem__)
+    monkeypatch.setattr(
+        client_factory,
+        "get_microgrid_config_revision",
+        lambda: ("test", (("microgrid.toml", "revision"),)),
+    )
+    monkeypatch.setattr(
+        client_factory,
+        "_load_microgrid_configs",
+        lambda: {
+            243: SimpleNamespace(name="First config"),
+            244: SimpleNamespace(name="Second config"),
+        },
+    )
+    api_calls: list[str] = []
+
+    class FakeAssetsClient:
+        """Return microgrids belonging to the supplied API key."""
+
+        def __init__(
+            self,
+            _url: str,
+            *,
+            auth_key: str,
+            sign_secret: str,
+        ) -> None:
+            del sign_secret
+            self.auth_key = auth_key
+
+        async def list_microgrids(self) -> list[SimpleNamespace]:
+            api_calls.append(self.auth_key)
+            microgrid_id = 243 if self.auth_key == "first-key" else 244
+            return [SimpleNamespace(id=microgrid_id, name=self.auth_key)]
+
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
+
+    assert client_factory.get_microgrid_names() == {243: "first-key"}
+    credentials["FREQUENZ_API_KEY"] = "second-key"
+    credentials["FREQUENZ_API_SECRET"] = "second-secret"
+    assert client_factory.get_microgrid_names() == {244: "second-key"}
+    assert api_calls == ["first-key", "second-key"]
+    client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+
+
+def test_invalid_microgrid_session_selection_is_reconciled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A credential change replaces unavailable widget and applied selections."""
+    monkeypatch.setattr(
+        st,
+        "session_state",
+        {
+            "reporting_microgrid_id": 243,
+            "reporting_applied_filters": {
+                "microgrid_id": 243,
+                "resolution": "15min",
+            },
+        },
+    )
+
+    _reconcile_microgrid_selection(
+        [244, 245],
+        "reporting_",
+        "reporting_applied_filters",
+    )
+
+    assert st.session_state["reporting_microgrid_id"] == 244
+    assert st.session_state["reporting_applied_filters"] == {
+        "microgrid_id": 244,
+        "resolution": "15min",
+    }
 
 
 def test_static_microgrid_configs_are_discovered_and_loaded_once(
@@ -990,6 +1081,37 @@ def test_stale_day_ahead_price_is_not_filled_across_missing_intervals(
 
     assert merged["day_ahead_price"].notna().tolist() == [True, False, False, False]
     assert not _has_current_day_ahead_prices(merged)
+
+
+def test_completed_price_sync_triggers_only_one_full_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial completed price sync cannot cause an infinite rerun loop."""
+    future: Future[pd.Series] = Future()
+    future.set_result(pd.Series([100.0], dtype="float64"))
+    reruns: list[None] = []
+    reuse_requests: list[None] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(st, "session_state", {})
+    monkeypatch.setattr(
+        dashboard, "start_background_day_ahead_price_sync", lambda *_args: future
+    )
+    monkeypatch.setattr(
+        dashboard, "request_reporting_data_reuse", lambda: reuse_requests.append(None)
+    )
+    monkeypatch.setattr(dashboard.st, "rerun", lambda: reruns.append(None))
+    monkeypatch.setattr(dashboard.st, "warning", warnings.append)
+    master_df = pd.DataFrame(
+        {"timestamp": [pd.Timestamp("2026-10-16 00:00", tz="Europe/Berlin")]}
+    )
+
+    _render_day_ahead_price_sync_status(master_df, None, timedelta(minutes=15))
+    _render_day_ahead_price_sync_status(master_df, None, timedelta(minutes=15))
+
+    assert reruns == [None]
+    assert reuse_requests == [None]
+    assert st.session_state[_PRICE_SYNC_RERUN_STATE_KEY] is future
+    assert len(warnings) == 1
 
 
 def test_overview_plot_renders_without_day_ahead_price(
