@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
-import tomllib
+import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TypeAlias
 
@@ -22,11 +24,14 @@ from frequenz.gridpool.config import MicrogridConfig, load_configs
 from frequenz.cs_reporting.utils.env import require_env
 from frequenz.cs_reporting.utils.timing import log_duration
 
+_logger = logging.getLogger(__name__)
+
 MicrogridConfigRevision: TypeAlias = tuple[str, tuple[tuple[str, str], ...]]
 MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevision]
 ApiCredentialRevision: TypeAlias = str
 _ASSETS_API_TIMEOUT_SECONDS = 20.0
 _LAST_ASSET_NAMES: dict[str, dict[int, str | None]] = {}
+_ENTERPRISE_IDS: dict[int, int] = {}
 
 
 def get_api_credential_revision() -> ApiCredentialRevision:
@@ -41,22 +46,39 @@ def get_api_credential_revision() -> ApiCredentialRevision:
     return digest.hexdigest()
 
 
+_MICROGRID_ID_PATTERN = re.compile(
+    rb"^[ \t]*(?:\[{1,2}[ \t]*)?(?:(?:assets\.)?microgrids\.|(?=\d+\.[A-Za-z_]))(\d+)\b",
+    re.MULTILINE,
+)
+
+
+def _microgrid_ids_in_file(config_file: str) -> set[int]:
+    """Return microgrid IDs defined in a TOML file without parsing it."""
+    with open(config_file, "rb") as handle:
+        content = handle.read()
+    return {
+        int(match.group(1))
+        for match in _MICROGRID_ID_PATTERN.finditer(content)
+    }
+
+
 @st.cache_resource(show_spinner=False)
 def _microgrid_file_index_cached(
     config_files: tuple[str, ...],
 ) -> dict[int, tuple[str, ...]]:
     """Map each microgrid ID to the TOML files that define it.
 
-    Files are only parsed as plain TOML here, which is cheap compared to
-    ``load_configs`` that merges, validates and builds the full catalog.
+    Files are scanned as plain text in parallel instead of being parsed,
+    migrated and validated, which is what makes ``load_configs`` slow.
     """
     index: dict[int, list[str]] = {}
-    for config_file in config_files:
-        with open(config_file, "rb") as handle:
-            data = tomllib.load(handle)
-        microgrids = data.get("assets", {}).get("microgrids", {})
-        for microgrid_id in microgrids:
-            index.setdefault(int(microgrid_id), []).append(config_file)
+    with log_duration("client_factory.index_microgrid_files"):
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            for config_file, ids in zip(
+                config_files, executor.map(_microgrid_ids_in_file, config_files)
+            ):
+                for microgrid_id in ids:
+                    index.setdefault(microgrid_id, []).append(config_file)
     return {mid: tuple(files) for mid, files in index.items()}
 
 
@@ -80,31 +102,45 @@ def _load_microgrid_config_cached(
 @st.cache_resource(show_spinner=False)
 def _microgrid_config_source_cached(config_root_value: str) -> MicrogridConfigSource:
     """Discover and fingerprint the static TOML file manifest once per process."""
+    with log_duration("client_factory.discover_config_files"):
+        return _discover_config_source(config_root_value)
+
+
+def _discover_config_source(config_root_value: str) -> MicrogridConfigSource:
+    """Glob the TOML files and fingerprint their names."""
     config_root = Path(config_root_value)
     if not config_root.is_dir():
         raise RuntimeError(f"Microgrid config directory not found: {config_root}")
 
-    config_paths = tuple(sorted(config_root.glob("*.toml")))
-    if not config_paths:
+    resolved_root = config_root.resolve()
+    with os.scandir(resolved_root) as entries:
+        names = sorted(
+            entry.name for entry in entries if entry.name.endswith(".toml")
+        )
+    if not names:
         raise RuntimeError(f"No microgrid config files found in: {config_root}")
 
-    manifest = "\0".join(path.name for path in config_paths).encode("utf-8")
+    manifest = "\0".join(names).encode("utf-8")
     file_revisions = (("static-catalog", hashlib.sha256(manifest).hexdigest()),)
-    config_files = tuple(str(path.resolve()) for path in config_paths)
-    revision = (str(config_root.resolve()), file_revisions)
-    return config_files, revision
+    config_files = tuple(str(resolved_root / name) for name in names)
+    return config_files, (str(resolved_root), file_revisions)
+
+
+def _config_root() -> str:
+    """Return the configured TOML directory."""
+    return os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
 
 
 def _microgrid_config_source() -> MicrogridConfigSource:
     """Return the process-cached static TOML source."""
-    config_root = os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
-    return _microgrid_config_source_cached(config_root)
+    return _microgrid_config_source_cached(_config_root())
 
 
 def get_microgrid_config_revision() -> MicrogridConfigRevision:
     """Return the process-stable fingerprint of the static TOML catalog."""
-    _, revision = _microgrid_config_source()
-    return revision
+    # The catalog is static for the lifetime of the process, so the directory
+    # does not need to be listed just to build a cache key.
+    return (str(Path(_config_root())), (("static-catalog", "process"),))
 
 
 def _load_microgrid_config(microgrid_id: int) -> MicrogridConfig:
@@ -116,11 +152,52 @@ def _load_microgrid_config(microgrid_id: int) -> MicrogridConfig:
     Raises:
         KeyError: If no TOML file defines the microgrid.
     """
-    config_files, revision = _microgrid_config_source()
-    files = _microgrid_file_index_cached(config_files).get(microgrid_id)
+    revision = get_microgrid_config_revision()
+    files = _enterprise_config_files(microgrid_id)
+    if files is None:
+        config_files, _ = _microgrid_config_source()
+        files = _microgrid_file_index_cached(config_files).get(microgrid_id)
     if not files:
         raise KeyError(f"Microgrid {microgrid_id} not found in configured microgrids.")
     return _load_microgrid_config_cached(microgrid_id, files, revision)
+
+
+def _enterprise_config_files(microgrid_id: int) -> tuple[str, ...] | None:
+    """Locate a microgrid's TOML file from its enterprise ID without scanning.
+
+    Config files are named ``eid<enterprise_id>.toml``.  The Assets
+    API provides each microgrid's enterprise ID, so the file can be opened
+    directly.  Returns ``None`` when the convention does not hold, in which
+    case the caller falls back to scanning the directory.
+    """
+    enterprise_id = _ENTERPRISE_IDS.get(microgrid_id)
+    if not enterprise_id:
+        _logger.warning(
+            "No enterprise ID known for microgrid %s (known: %d); scanning config "
+            "directory.",
+            microgrid_id,
+            len(_ENTERPRISE_IDS),
+        )
+        return None
+    root = Path(_config_root())
+    for name in (f"eid{enterprise_id}.toml", f"microgrids_eid{enterprise_id}.toml"):
+        path = root / name
+        try:
+            with log_duration(f"client_factory.enterprise_lookup.{path.stem}"):
+                found = microgrid_id in _microgrid_ids_in_file(str(path))
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            _logger.warning("Cannot read %s: %s; scanning config directory.", path, exc)
+            return None
+        if found:
+            return (str(path.resolve()),)
+    _logger.warning(
+        "Microgrid %s not found in eid%s.toml; scanning config directory.",
+        microgrid_id,
+        enterprise_id,
+    )
+    return None
 
 
 def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
@@ -221,6 +298,10 @@ def _get_microgrid_names(
             microgrids = await asyncio.wait_for(
                 assets_client.list_microgrids(), _ASSETS_API_TIMEOUT_SECONDS
             )
+            for microgrid in microgrids:
+                enterprise_id = getattr(microgrid, "enterprise_id", None)
+                if enterprise_id:
+                    _ENTERPRISE_IDS[int(microgrid.id)] = int(enterprise_id)
             return {int(microgrid.id): microgrid.name for microgrid in microgrids}
         finally:
             await assets_client.disconnect()
