@@ -12,6 +12,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Thread
 from typing import TypeAlias
 
 import streamlit as st
@@ -32,6 +33,7 @@ ApiCredentialRevision: TypeAlias = str
 _ASSETS_API_TIMEOUT_SECONDS = 20.0
 _LAST_ASSET_NAMES: dict[str, dict[int, str | None]] = {}
 _ENTERPRISE_IDS: dict[int, int] = {}
+_ENTERPRISE_FILES: dict[tuple[str, int], tuple[str, ...] | None] = {}
 
 
 def get_api_credential_revision() -> ApiCredentialRevision:
@@ -126,6 +128,28 @@ def _discover_config_source(config_root_value: str) -> MicrogridConfigSource:
     return config_files, (str(resolved_root), file_revisions)
 
 
+@st.cache_resource(show_spinner=False)
+def warm_up_config_directory() -> bool:
+    """Touch the TOML directory once per process in a background thread.
+
+    The first access to the configuration directory can take seconds on a cold
+    or network-backed filesystem.  Starting it while the home page renders keeps
+    that cost off the critical path of the first dashboard visit.
+    """
+
+    def touch() -> None:
+        try:
+            with log_duration("client_factory.warm_up_config_directory"):
+                with os.scandir(_config_root()) as entries:
+                    for _ in entries:
+                        pass
+        except OSError as exc:
+            _logger.warning("Config directory warm-up failed: %s", exc)
+
+    Thread(target=touch, name="config-dir-warmup", daemon=True).start()
+    return True
+
+
 def _config_root() -> str:
     """Return the configured TOML directory."""
     return os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
@@ -153,10 +177,20 @@ def _load_microgrid_config(microgrid_id: int) -> MicrogridConfig:
         KeyError: If no TOML file defines the microgrid.
     """
     revision = get_microgrid_config_revision()
-    files = _enterprise_config_files(microgrid_id)
-    if files is None:
-        config_files, _ = _microgrid_config_source()
-        files = _microgrid_file_index_cached(config_files).get(microgrid_id)
+    enterprise_files = _enterprise_config_files(microgrid_id)
+    if enterprise_files:
+        try:
+            return _load_microgrid_config_cached(
+                microgrid_id, enterprise_files, revision
+            )
+        except KeyError:
+            _logger.warning(
+                "Microgrid %s not defined in %s; scanning config directory.",
+                microgrid_id,
+                enterprise_files[0],
+            )
+    config_files, _ = _microgrid_config_source()
+    files = _microgrid_file_index_cached(config_files).get(microgrid_id)
     if not files:
         raise KeyError(f"Microgrid {microgrid_id} not found in configured microgrids.")
     return _load_microgrid_config_cached(microgrid_id, files, revision)
@@ -165,10 +199,11 @@ def _load_microgrid_config(microgrid_id: int) -> MicrogridConfig:
 def _enterprise_config_files(microgrid_id: int) -> tuple[str, ...] | None:
     """Locate a microgrid's TOML file from its enterprise ID without scanning.
 
-    Config files are named ``eid<enterprise_id>.toml``.  The Assets
-    API provides each microgrid's enterprise ID, so the file can be opened
-    directly.  Returns ``None`` when the convention does not hold, in which
-    case the caller falls back to scanning the directory.
+    Config files are named ``eid<enterprise_id>.toml``.  The Assets API provides
+    each microgrid's enterprise ID, so the file can be addressed directly.  Only
+    its existence is checked here; ``load_configs`` raises ``KeyError`` if the
+    microgrid is not defined in it.  Returns ``None`` when no such file exists,
+    in which case the caller falls back to scanning the directory.
     """
     enterprise_id = _ENTERPRISE_IDS.get(microgrid_id)
     if not enterprise_id:
@@ -180,24 +215,17 @@ def _enterprise_config_files(microgrid_id: int) -> tuple[str, ...] | None:
         )
         return None
     root = Path(_config_root())
+    cache_key = (str(root), enterprise_id)
+    if cache_key in _ENTERPRISE_FILES:
+        return _ENTERPRISE_FILES[cache_key]
+    found: tuple[str, ...] | None = None
     for name in (f"eid{enterprise_id}.toml", f"microgrids_eid{enterprise_id}.toml"):
         path = root / name
-        try:
-            with log_duration(f"client_factory.enterprise_lookup.{path.stem}"):
-                found = microgrid_id in _microgrid_ids_in_file(str(path))
-        except FileNotFoundError:
-            continue
-        except OSError as exc:
-            _logger.warning("Cannot read %s: %s; scanning config directory.", path, exc)
-            return None
-        if found:
-            return (str(path.resolve()),)
-    _logger.warning(
-        "Microgrid %s not found in eid%s.toml; scanning config directory.",
-        microgrid_id,
-        enterprise_id,
-    )
-    return None
+        if path.is_file():
+            found = (str(path.resolve()),)
+            break
+    _ENTERPRISE_FILES[cache_key] = found
+    return found
 
 
 def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:

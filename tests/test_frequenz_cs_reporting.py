@@ -461,11 +461,13 @@ def test_microgrid_config_loads_only_files_defining_it(
         "assets.microgrids.777.name = 'direct'\n", encoding="utf-8"
     )
     monkeypatch.setitem(getattr(client_factory, "_ENTERPRISE_IDS"), 777, 7)
+    getattr(client_factory, "_ENTERPRISE_FILES").clear()
     monkeypatch.setattr(
         client_factory,
         "_microgrid_file_index_cached",
         lambda *_a: index_calls.append(None) or {},
     )
+    # Only existence is checked; no file content is read for the lookup.
     assert getattr(client_factory, "_enterprise_config_files")(777) == (
         str((tmp_path / "eid7.toml").resolve()),
     )
