@@ -313,25 +313,12 @@ def test_microgrid_selector_uses_custom_option_formatter() -> None:
 def test_microgrid_names_prefer_current_assets_api_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only accessible configs are returned, using current Assets API names."""
+    """The microgrid list and names come directly from the Assets API."""
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
-    monkeypatch.setattr(
-        client_factory,
-        "get_microgrid_config_revision",
-        lambda: ("test", (("microgrid.toml", "revision"),)),
-    )
-    monkeypatch.setattr(
-        client_factory,
-        "_load_microgrid_configs",
-        lambda: {
-            243: SimpleNamespace(name="Configured name"),
-            244: SimpleNamespace(name="Inaccessible config"),
-        },
-    )
     monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
 
     class FakeAssetsClient:
-        """Return a current microgrid name from the Assets API."""
+        """Return the microgrid list and names from the Assets API."""
 
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             pass
@@ -363,19 +350,6 @@ def test_microgrid_names_refresh_when_api_credentials_change(
         "FREQUENZ_API_SECRET": "first-secret",
     }
     monkeypatch.setattr(client_factory, "require_env", credentials.__getitem__)
-    monkeypatch.setattr(
-        client_factory,
-        "get_microgrid_config_revision",
-        lambda: ("test", (("microgrid.toml", "revision"),)),
-    )
-    monkeypatch.setattr(
-        client_factory,
-        "_load_microgrid_configs",
-        lambda: {
-            243: SimpleNamespace(name="First config"),
-            244: SimpleNamespace(name="Second config"),
-        },
-    )
     api_calls: list[str] = []
 
     class FakeAssetsClient:
@@ -438,63 +412,68 @@ def test_invalid_microgrid_session_selection_is_reconciled(
     }
 
 
-def test_static_microgrid_configs_are_discovered_and_loaded_once(
+def test_microgrid_config_loads_only_files_defining_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The TOML catalog remains cached until the Streamlit process cache resets."""
-    config_file = tmp_path / "microgrid.toml"
-    first_contents = """\
-[assets.microgrids.231]
-name = "inaccessible"
+    """Only the TOML files defining the selected microgrid are loaded, once."""
+    (tmp_path / "a.toml").write_text(
+        '[assets.microgrids.231]\nname = "other"\n', encoding="utf-8"
+    )
+    (tmp_path / "b.toml").write_text(
+        '[assets.microgrids.243]\nname = "wanted"\n', encoding="utf-8"
+    )
+    (tmp_path / "dotted.toml").write_text(
+        'assets.microgrids.555.meta.name = "dotted"\n', encoding="utf-8"
+    )
+    (tmp_path / "legacy.toml").write_text(
+        '# legacy\n86.meta.name = "legacy"\n', encoding="utf-8"
+    )
+    load_calls: list[list[str]] = []
 
-[assets.microgrids.243]
-name = "first"
-"""
-    second_contents = first_contents.replace('name = "first"', 'name = "second"')
-    config_file.write_text(first_contents, encoding="utf-8")
-    load_calls: list[str] = []
-
-    async def load_configs(
-        *,
-        default_files: list[str],
-        assets_client: object | None = None,
-        microgrid_ids: list[int] | None = None,
-    ) -> object:
-        assert assets_client is None
-        assert microgrid_ids is None
-        contents = Path(default_files[0]).read_text(encoding="utf-8")
-        load_calls.append(contents)
-        return SimpleNamespace(
-            microgrids={
-                231: SimpleNamespace(name="inaccessible"),
-                243: SimpleNamespace(name=contents),
-            }
-        )
+    async def load_configs(*, default_files: list[str]) -> object:
+        load_calls.append([Path(file).name for file in default_files])
+        return SimpleNamespace(microgrids={243: SimpleNamespace(name="wanted")})
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(client_factory, "load_configs", load_configs)
-    cached_loader = getattr(client_factory, "_load_microgrid_configs_cached")
+    cached_config = getattr(client_factory, "_load_microgrid_config_cached")
+    cached_index = getattr(client_factory, "_microgrid_file_index_cached")
     cached_source = getattr(client_factory, "_microgrid_config_source_cached")
-    load_from_disk = getattr(client_factory, "_load_microgrid_configs")
-    cached_loader.clear()
-    cached_source.clear()
+    load_config = getattr(client_factory, "_load_microgrid_config")
+    for cache in (cached_config, cached_index, cached_source):
+        cache.clear()
 
-    first = load_from_disk()
-    unchanged = load_from_disk()
-    config_file.write_text(second_contents, encoding="utf-8")
-    still_cached = load_from_disk()
+    index_calls: list[None] = []
+    first = load_config(243)
+    assert load_config(243) is first
+    with pytest.raises(KeyError):
+        load_config(999)
+    index = getattr(client_factory, "_microgrid_file_index_cached")(
+        getattr(client_factory, "_microgrid_config_source")()[0]
+    )
+    assert index[555] == (str(tmp_path.resolve() / "dotted.toml"),)
+    assert index.get(86) == (str(tmp_path.resolve() / "legacy.toml"),)
 
-    cached_loader.clear()
-    cached_source.clear()
-    after_process_cache_reset = load_from_disk()
+    assert load_calls == [["b.toml"]]
 
-    assert first[243].name == first_contents
-    assert unchanged is first
-    assert still_cached is first
-    assert after_process_cache_reset[243].name == second_contents
-    assert load_calls == [first_contents, second_contents]
-    cached_loader.clear()
-    cached_source.clear()
+    # With the enterprise ID known, the file is opened directly without a scan.
+    (tmp_path / "eid7.toml").write_text(
+        "assets.microgrids.777.name = 'direct'\n", encoding="utf-8"
+    )
+    monkeypatch.setitem(getattr(client_factory, "_ENTERPRISE_IDS"), 777, 7)
+    getattr(client_factory, "_ENTERPRISE_FILES").clear()
+    monkeypatch.setattr(
+        client_factory,
+        "_microgrid_file_index_cached",
+        lambda *_a: index_calls.append(None) or {},
+    )
+    # Only existence is checked; no file content is read for the lookup.
+    assert getattr(client_factory, "_enterprise_config_files")(777) == (
+        str((tmp_path / "eid7.toml").resolve()),
+    )
+    assert not index_calls
+    for cache in (cached_config, cached_index, cached_source):
+        cache.clear()
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:
