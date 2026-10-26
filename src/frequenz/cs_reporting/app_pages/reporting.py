@@ -315,7 +315,7 @@ def render() -> None:
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
-            if snapshot is None:
+            if snapshot is None and active_power_sync is None:
                 store_reporting_data_snapshot(
                     ReportingDataSnapshot(
                         key=data_key,
@@ -372,6 +372,10 @@ def render() -> None:
             mcfg=mcfg,
             previous_master_df=previous_master_df,
         )
+    if active_power_sync is not None and not active_power_sync.done():
+        # Rerun once the refresh finishes so the cached-but-stale data shown
+        # above is replaced without requiring a second filter click.
+        _poll_active_power_sync(active_power_sync)
     _scroll_to_section_if_requested()
 
 
