@@ -110,12 +110,14 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
         {
             "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
             "grid_consumption": [1.0],
-            "mid_consumption": [2.0],
-            "grid_feed_in": [3.0],
-            "pv_asset_production": [4.0],
-            "production_self_use": [5.0],
-            "day_ahead_price": [6.0],
-            "unrelated": [7.0],
+            "dso_import_power": [2.0],
+            "dso_export_power": [3.0],
+            "mid_consumption": [4.0],
+            "grid_feed_in": [5.0],
+            "pv_asset_production": [6.0],
+            "production_self_use": [7.0],
+            "day_ahead_price": [8.0],
+            "unrelated": [9.0],
         }
     )
 
@@ -124,13 +126,15 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
     assert list(core_data.columns) == [
         "timestamp",
         "Netzbezug",
+        "DSO Netzbezug (kW)",
+        "DSO Netzeinspeisung (kW)",
         "Gesamtverbrauch",
         "Netz Einspeisung",
         "PV-Erzeugung",
         "production_self_use",
         "Day Ahead Preis",
     ]
-    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :7])
+    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :9])
 
 
 def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None:
@@ -272,7 +276,7 @@ name = "first"
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(client_factory, "load_configs", load_configs)
-    cached_loader = getattr(client_factory, "_load_microgrid_configs_cached")
+    cached_loader = getattr(client_factory, "_load_assets_config_cached")
     cached_source = getattr(client_factory, "_microgrid_config_source_cached")
     load_from_disk = getattr(client_factory, "_load_microgrid_configs")
     cached_loader.clear()
@@ -628,6 +632,37 @@ def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
         "grid_consumption_sum",
         "grid_feed_in_sum",
         "peak",
+    ]
+
+
+def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
+    """The optional DSO card appears when its aggregate is available."""
+    grid_section = next(
+        section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
+    )
+    box_specs = _filter_section_box_specs(
+        grid_section,
+        component_type_set={"grid"},
+        component_types_provided=True,
+        microgrid_id=123,
+    )
+
+    filtered_specs = _skip_missing_day_ahead_price_specs(
+        box_specs,
+        metrics={
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "dso_import_energy_sum": 9.5,
+            "dso_export_energy_sum": 1.5,
+        },
+    )
+
+    assert [spec.get("key") for spec in filtered_specs] == [
+        "grid_consumption_sum",
+        "grid_feed_in_sum",
+        "peak",
+        "dso_import_energy_sum",
+        "dso_export_energy_sum",
     ]
 
 
