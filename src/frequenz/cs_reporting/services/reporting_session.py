@@ -35,6 +35,7 @@ class ReportingDataSnapshot:
     active_power: pd.DataFrame
     battery_soc: pd.DataFrame | None
     sync_metadata: SyncMetadata
+    dso_energy: pd.DataFrame | None = None
 
 
 def store_reporting_data_snapshot(snapshot: ReportingDataSnapshot) -> None:

@@ -53,6 +53,8 @@ _PRIOR_PERIOD_TOOLTIP = (
 
 _DELTA_COMPARISONS = {
     "Netzbezug (kWh)": "neutral",
+    "DSO Netzbezug (kWh)": "neutral",
+    "DSO Netzeinspeisung (kWh)": "neutral",
     "Netzeinspeisung (kWh)": "neutral",
     "Gesamtverbrauch Strom (kWh)": "neutral",
     "Gesamterzeugung (kWh)": "more_is_good",
@@ -133,11 +135,12 @@ def _peak_label(metrics: dict[str, object]) -> str:
 
 
 _INVOICING_WARNING = (
-    "Die dargestellten Preise und Daten basieren auf einer Prognose eigener "
-    "gemessener Werte und entsprechen nicht den offiziellen Daten des "
-    "Verteilernetzbetreibers. Für Abrechnungen sind ausschließlich die "
-    "Netzbetreiber-Daten maßgeblich, daher sind Abweichungen zu Rechnungswerten "
-    "möglich."
+    "Der Netzbezug aus Microgrid-Messdaten und die dargestellten Preise basieren "
+    "auf eigenen Messwerten beziehungsweise Prognosen. DSO-Netzbezug und "
+    "DSO-Netzeinspeisung werden separat aus den Marktmessdaten des "
+    "Verteilnetzbetreibers geladen. Für "
+    "Abrechnungen sind ausschließlich die Netzbetreiber-Abrechnungsdaten "
+    "maßgeblich."
 )
 
 _DAY_AHEAD_PRICE_METRIC_KEYS = {
@@ -145,6 +148,10 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_feed_in_revenue_sum",
     "average_da_price_grid_import",
     "average_da_price_grid_feed_in",
+}
+_OPTIONAL_METRIC_KEYS = {
+    "dso_import_energy_sum",
+    "dso_export_energy_sum",
 }
 
 
@@ -156,6 +163,11 @@ SECTION_SPECS: list[dict[str, Any]] = [
             {"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"},
             {"label": "Netzeinspeisung (kWh)", "key": "grid_feed_in_sum"},
             {"label_fn": _peak_label, "key": "peak"},
+            {"label": "DSO Netzbezug (kWh)", "key": "dso_import_energy_sum"},
+            {
+                "label": "DSO Netzeinspeisung (kWh)",
+                "key": "dso_export_energy_sum",
+            },
             {
                 "label": "Prognostizierte Netzbezugskosten (€)",
                 "key": "grid_import_cost_sum",
@@ -289,14 +301,21 @@ def _skip_missing_day_ahead_price_specs(
 ) -> list[dict[str, Any]]:
     """Remove day-ahead price KPI boxes when ENTSOE prices are unavailable."""
     missing_price_metrics = _DAY_AHEAD_PRICE_METRIC_KEYS.difference(metrics)
-    if not missing_price_metrics:
-        return box_specs
 
     return [
         spec
         for spec in box_specs
-        if spec.get("key") not in _DAY_AHEAD_PRICE_METRIC_KEYS
-        and not (spec.get("key") is None and spec.get("microgrid_ids") is not None)
+        if not (
+            missing_price_metrics and spec.get("key") in _DAY_AHEAD_PRICE_METRIC_KEYS
+        )
+        and not (
+            spec.get("key") in _OPTIONAL_METRIC_KEYS and spec.get("key") not in metrics
+        )
+        and not (
+            missing_price_metrics
+            and spec.get("key") is None
+            and spec.get("microgrid_ids") is not None
+        )
     ]
 
 

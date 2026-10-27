@@ -30,6 +30,7 @@ from frequenz.cs_reporting.services.client_factory import (
 from frequenz.cs_reporting.services.deepnote_cache import (
     start_background_deepnote_cache_persist,
 )
+from frequenz.cs_reporting.services.market_metering import fetch_market_metering_data
 from frequenz.cs_reporting.services.parquet_cache import (
     DatasetKey,
     ParquetRangeCache,
@@ -180,6 +181,45 @@ async def fetch_microgrid_soc_data(
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame()
     return df.copy()
+
+
+def get_market_metering_data(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float | None = None,
+) -> pd.DataFrame:
+    """Load DSO energy through the persistent range cache."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        config = get_cache_config()
+        effective_timeout = timeout or max(float(config.request_timeout_seconds), 300.0)
+        cache = ParquetRangeCache(
+            config.storage_path,
+            sync_interval=timedelta(minutes=config.sync_interval_minutes),
+            overlap=timedelta(minutes=config.sync_overlap_minutes),
+        )
+        with log_duration("data.market_metering.cache_get"):
+            return cache.get(
+                _dataset_key("dso_energy_flows", microgrid_id, resolution),
+                start_date,
+                end_date,
+                lambda fetch_start, fetch_end: asyncio.run(
+                    fetch_market_metering_data(
+                        microgrid_id,
+                        fetch_start,
+                        fetch_end,
+                        resolution,
+                        timeout=effective_timeout,
+                    )
+                ),
+            )
+    raise RuntimeError(
+        "get_market_metering_data() called from within an active event loop. "
+        "Use `await fetch_market_metering_data(...)` in async contexts."
+    )
 
 
 def get_microgrid_data(

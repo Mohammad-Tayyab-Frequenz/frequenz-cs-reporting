@@ -22,6 +22,8 @@ from frequenz.cs_reporting.views.component_sources import (
 )
 
 _MASTER_DF_DISPLAY_RENAMES = {
+    "dso_import_power": "DSO Netzbezug (kW)",
+    "dso_export_power": "DSO Netzeinspeisung (kW)",
     "production_self_use": "Eigenverbrauch",
     "production_self_usage": "Eigenverbrauch Share",
 }
@@ -29,6 +31,8 @@ _MASTER_DF_DISPLAY_RENAMES = {
 _CORE_DATA_COLUMNS = {
     "timestamp": "timestamp",
     "grid_consumption": "Netzbezug",
+    "dso_import_power": "DSO Netzbezug (kW)",
+    "dso_export_power": "DSO Netzeinspeisung (kW)",
     "mid_consumption": "Gesamtverbrauch",
     "grid_feed_in": "Netz Einspeisung",
     "pv_asset_production": "PV-Erzeugung",

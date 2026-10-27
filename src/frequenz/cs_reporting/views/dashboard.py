@@ -29,6 +29,7 @@ from frequenz.cs_reporting.services.data_service import (
     get_cached_day_ahead_prices,
     start_background_day_ahead_price_sync,
 )
+from frequenz.cs_reporting.services.market_metering import merge_dso_energy
 from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
@@ -113,6 +114,16 @@ def _aggregate_metrics(
         resolution,
         price_column=_DAY_AHEAD_PRICE_COLUMN if has_day_ahead_prices else None,
     )
+    for direction in ("import", "export"):
+        power_column = f"dso_{direction}_power"
+        if power_column not in master_df.columns:
+            continue
+        dso_energy_sum = (
+            pd.to_numeric(master_df[power_column], errors="coerce")
+            * (resolution.total_seconds() / 3600)
+        ).sum(min_count=1)
+        if pd.notna(dso_energy_sum):
+            metrics[f"dso_{direction}_energy_sum"] = float(dso_energy_sum)
     if not has_day_ahead_prices:
         for key in _DAY_AHEAD_PRICE_METRIC_KEYS:
             metrics.pop(key, None)
@@ -265,6 +276,8 @@ def build_master_df(
     mapper: ColumnMapper,
     timezone: str = "Europe/Berlin",
     battery_soc_df: pd.DataFrame | None = None,
+    dso_energy_df: pd.DataFrame | None = None,
+    resolution: timedelta = timedelta(minutes=15),
 ) -> pd.DataFrame:
     """Transform raw microgrid data into master analysis dataframe.
 
@@ -282,6 +295,8 @@ def build_master_df(
         mapper: Column name mapper for converting internal names to display names.
         timezone: Timezone name to use for the report timestamps.
         battery_soc_df: Optional battery SOC dataframe to merge into the report.
+        dso_energy_df: Optional DSO active-energy dataframe to merge into the report.
+        resolution: Duration represented by each DSO energy sample.
 
     Returns:
         Master dataframe with processed and aggregated component data, ready for
@@ -295,6 +310,8 @@ def build_master_df(
         timezone,
         get_microgrid_config_revision(),
         battery_soc_df,
+        dso_energy_df,
+        resolution,
         _mcfg=mcfg,
         _mapper=mapper,
     )
@@ -312,6 +329,8 @@ def _build_master_df_cached(
     timezone: str,
     config_revision: MicrogridConfigRevision,
     battery_soc_df: pd.DataFrame | None,
+    dso_energy_df: pd.DataFrame | None,
+    resolution: timedelta,
     *,
     _mcfg: Any,
     _mapper: ColumnMapper,
@@ -337,6 +356,7 @@ def _build_master_df_cached(
         component_display_names=component_display_names,
         battery_soc_df=battery_soc_df,
     )
+    master_df = merge_dso_energy(master_df, dso_energy_df, resolution)
     return master_df
 
 
