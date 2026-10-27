@@ -166,7 +166,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "grid_feed_in_revenue_sum",
                 "microgrid_ids": {231},
             },
-            {"label": "", "key": None, "microgrid_ids": {231}},
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_import",
@@ -202,7 +201,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Verbrauchskennzahlen",
-        "per_row": 3,
         "boxes": [
             {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
             {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
@@ -211,7 +209,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
     {
         "title": "Batteriekennzahlen",
         "required_component_type": "battery",
-        "per_row": 3,
         "boxes": [
             {
                 "label": "Erzeugung zu Batterie (kWh)",
@@ -223,7 +220,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "grid_to_battery_sum",
                 "component_type": "battery",
             },
-            {"label": "", "key": None},
             {
                 "label": "Batterie zu Netz (kWh)",
                 "key": "battery_to_grid_sum",
@@ -238,7 +234,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Bilanzkennzahlen",
-        "per_row": 3,
         "boxes": [
             {
                 "label": "Autarkiegrad (%)",
@@ -296,7 +291,6 @@ def _skip_missing_day_ahead_price_specs(
         spec
         for spec in box_specs
         if spec.get("key") not in _DAY_AHEAD_PRICE_METRIC_KEYS
-        and not (spec.get("key") is None and spec.get("microgrid_ids") is not None)
     ]
 
 
@@ -333,19 +327,65 @@ def _filter_section_box_specs(
 
 
 # pylint: disable = too-many-locals
+def _card_html(
+    label: str,
+    val: object,
+    previous_val: object,
+    accent: str,
+    delta_comparisons: dict[str, str] | None,
+) -> str:
+    """Build the HTML of a single KPI card."""
+    if val is None:
+        value_html = '<div class="kpi-card__value kpi-card__value--null">—</div>'
+    else:
+        comparison = (delta_comparisons or {}).get(label, "less_is_good")
+        value_html = (
+            '<div class="kpi-card__value-row">'
+            f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
+            f"{_delta_html(val, previous_val, comparison)}"
+            "</div>"
+        )
+    previous_html = (
+        f'<div class="kpi-card__previous">'
+        f"{_format_previous_value(label, previous_val)}</div>"
+        if previous_val is not None
+        else ""
+    )
+    return (
+        f'<div class="kpi-card" style="--kpi-accent:{accent};">'
+        f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
+        f"{value_html}{previous_html}</div>"
+    )
+
+
+def _box_grid_html(
+    boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
+    accent: str,
+    delta_comparisons: dict[str, str] | None,
+) -> str:
+    """Build a responsive CSS grid of KPI cards."""
+    cards = "".join(
+        _card_html(
+            item[0],
+            item[1],
+            item[2] if len(item) == 3 else None,
+            accent,
+            delta_comparisons,
+        )
+        for item in boxes
+    )
+    return f'<div class="kpi-grid">{cards}</div>'
+
+
 def render_box_grid(
     boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
-    per_row: int = 3,
-    row_gap: int = 12,
     accent: str = "#3b82f6",
     delta_comparisons: dict[str, str] | None = None,
 ) -> None:
-    """Render KPI boxes in a card grid.
+    """Render KPI boxes in a responsive card grid.
 
     Args:
         boxes: Prepared list of label/value tuples.
-        per_row: Maximum number of boxes to render per row.
-        row_gap: Vertical gap between rows in pixels.
         accent: Left-border accent colour for the cards.
         delta_comparisons: Mapping of metric labels to comparison semantics. Values
             are ``"more_is_good"``, ``"less_is_good"``, or ``"neutral"``.
@@ -354,60 +394,9 @@ def render_box_grid(
         Streamlit markup is written directly to the page.
     """
     _ensure_kpi_css()
-
-    for i in range(0, len(boxes), per_row):
-        row = [
-            item if len(item) == 3 else (item[0], item[1], None)
-            for item in boxes[i : i + per_row]
-        ]
-        while len(row) < per_row:
-            row.append(("", None, None))
-
-        cols = st.columns(per_row, gap="small")
-        for col, (label, val, previous_val) in zip(cols, row):
-            if label == "" and val is None:
-                col.markdown(
-                    '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                if val is None:
-                    value_html = (
-                        '<div class="kpi-card__value kpi-card__value--null">—</div>'
-                    )
-                else:
-                    comparison = (delta_comparisons or {}).get(label, "less_is_good")
-                    delta_html = _delta_html(val, previous_val, comparison)
-                    value_html = (
-                        '<div class="kpi-card__value-row">'
-                        f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
-                        f"{delta_html}"
-                        "</div>"
-                    )
-
-                previous_html = (
-                    f'<div class="kpi-card__previous">'
-                    f"{_format_previous_value(label, previous_val)}</div>"
-                    if previous_val is not None
-                    else ""
-                )
-
-                col.markdown(
-                    f"""
-                    <div class="kpi-card" style="--kpi-accent:{accent};">
-                        <div class="kpi-card__label">{_kpi_label_html(label)}</div>
-                        {value_html}
-                        {previous_html}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-        if i + per_row < len(boxes):
-            st.markdown(
-                f"<div style='margin-top:{row_gap}px;'></div>",
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        _box_grid_html(boxes, accent, delta_comparisons), unsafe_allow_html=True
+    )
 
 
 def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | None]:
@@ -464,6 +453,7 @@ def render_summary_boxes(
         unsafe_allow_html=True,
     )
 
+    section_blocks: list[str] = []
     for section in SECTION_SPECS:
         box_specs = _filter_section_box_specs(
             section,
@@ -489,26 +479,21 @@ def render_summary_boxes(
             if warning
             else ""
         )
-
-        st.markdown(
-            f"""
-            <div class="kpi-section-header">
-                <div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>
-                <p class="kpi-section-title">{title}</p>
-                {warning_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
-        per_row = section.get("per_row", 3)
-        render_box_grid(
-            boxes,
-            per_row=per_row,
-            accent=accent,
-            delta_comparisons=_DELTA_COMPARISONS,
+        section_blocks.append(
+            '<section class="kpi-section">'
+            '<div class="kpi-section-header">'
+            f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
+            f'<p class="kpi-section-title">{title}</p>'
+            f"{warning_html}</div>"
+            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS)}"
+            "</section>"
         )
+
+    st.markdown(
+        f'<div class="kpi-sections">{"".join(section_blocks)}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     consumption_dict = _build_consumption_breakdown(metrics)
