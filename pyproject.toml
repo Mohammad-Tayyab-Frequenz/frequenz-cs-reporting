@@ -29,8 +29,9 @@ requires-python = ">= 3.11, < 4"
 
 dependencies = [
     "css-inline>=0.17.0",
-    "frequenz-gridpool>=0.7.1,<0.10.0",
-    "frequenz-lib-notebooks>=0.16.6,<0.18.0",
+    "frequenz-gridpool>=0.8.0,<0.9.0",
+    "frequenz-lib-notebooks>=0.17,<0.18.0",
+    "frequenz-client-marketmetering>=0.1.2,<0.2.0",
     "matplotlib>=3.10.6",
     "numpy>=2.3.2",
     "pandas>=2.3.2",
@@ -221,15 +222,17 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
+  "frequenz.client.marketmetering",
+  "frequenz.client.marketmetering.*",
   "mkdocs_macros.*",
-  "sybil",
-  "sybil.*",
-  "pvlib",
-  "pvlib.*",
   "plotly",
   "plotly.*",
+  "pvlib",
+  "pvlib.*",
   "st_aggrid",
   "st_aggrid.*",
+  "sybil",
+  "sybil.*",
 ]
 ignore_missing_imports = true
 
