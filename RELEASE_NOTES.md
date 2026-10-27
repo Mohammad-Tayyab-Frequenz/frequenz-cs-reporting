@@ -25,13 +25,18 @@ The following optional environment variables are available:
   refresh. It defaults to 5 minutes.
 - `API_REQUEST_TIMEOUT_SECONDS` controls Reporting API request timeouts. It
   defaults to 300 seconds.
-
-Deployments can move synchronization out of Streamlit page execution by
+- Deployments can move synchronization out of Streamlit page execution by
 running `python -m frequenz.cs_reporting.services.sync_data` from cron or a
 platform scheduler.
+- To load DSO data, set `MARKET_METERING_API_URL`. Each microgrid that should display DSO data must have its MaLo IDs associated through `assets.relations` in the configured asset TOML files.
 
 ## New Features
 
+- The reporting dashboard loads DSO import and export energy from the Market
+  Metering API for every MaLo associated with the selected microgrid. Values
+  from multiple MaLos are combined independently by flow direction, use the
+  latest available revisions, and are cached in the persistent range-aware
+  data store.
 - Active-power, battery-SOC, and ENTSO-E day-ahead price data are persisted as
   Parquet and loaded through a shared range-aware data-access layer.
 - Requests fully covered by the local dataset are served without another API
