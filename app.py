@@ -213,6 +213,11 @@ def _inject_global_theme() -> None:
             background: #ffffff;
         }
 
+        [data-testid="stSidebar"]
+        button[data-testid="stDateInputCalendarButton"] {
+            display: none;
+        }
+
         [data-testid="stSidebar"] [data-testid="stForm"] hr {
             margin: 0.35rem 0;
         }
