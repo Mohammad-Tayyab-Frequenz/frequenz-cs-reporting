@@ -13,11 +13,11 @@ Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen.
 
 [reporting]
 invoicing_warning = """
-Die dargestellten Preise und Daten basieren auf einer Prognose eigener
-gemessener Werte und entsprechen nicht den offiziellen Daten des
-Verteilernetzbetreibers. Für Abrechnungen sind ausschließlich die
-Netzbetreiber-Daten maßgeblich, daher sind Abweichungen zu Rechnungswerten
-möglich.
+Der Netzbezug aus Microgrid-Messdaten und die dargestellten Preise basieren auf
+eigenen Messwerten beziehungsweise Prognosen. DSO-Netzbezug und
+DSO-Netzeinspeisung werden separat aus den Marktmessdaten des
+Verteilnetzbetreibers geladen. Für Abrechnungen sind ausschließlich die
+Netzbetreiber-Abrechnungsdaten maßgeblich.
 """
 
 [battery_optimization]

@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from threading import Thread
 from typing import TypeAlias
@@ -18,9 +19,10 @@ from typing import TypeAlias
 import streamlit as st
 from frequenz.client.assets import AssetsApiClient
 from frequenz.client.common.microgrid import MicrogridId
+from frequenz.client.marketmetering import MarketMeteringApiClient
 from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
-from frequenz.gridpool.config import MicrogridConfig, load_configs
+from frequenz.gridpool.config import AssetsConfig, MicrogridConfig, load_configs
 
 from frequenz.cs_reporting.utils.env import require_env
 from frequenz.cs_reporting.utils.timing import log_duration
@@ -96,6 +98,21 @@ def _load_microgrid_config_cached(
         return assets_config.microgrids[microgrid_id]
 
     with log_duration(f"client_factory.load_config.mid{microgrid_id}"):
+        return asyncio.run(load())
+
+
+@st.cache_resource(show_spinner=False)
+def _load_assets_config_cached(
+    config_files: tuple[str, ...],
+    revision: MicrogridConfigRevision,
+) -> AssetsConfig:
+    """Load the complete asset configuration needed for market relations."""
+    del revision
+
+    async def load() -> AssetsConfig:
+        return await load_configs(default_files=list(config_files))
+
+    with log_duration("client_factory.load_assets_config"):
         return asyncio.run(load())
 
 
@@ -289,6 +306,36 @@ def get_microgrid_config(microgrid_id: int) -> MicrogridConfig:
         Loaded configuration for the microgrid.
     """
     return _load_microgrid_config(microgrid_id)
+
+
+def _load_assets_config() -> AssetsConfig:
+    """Return the cached complete asset configuration, including relations."""
+    return _load_assets_config_cached(*_microgrid_config_source())
+
+
+def get_market_location_ids(microgrid_id: int) -> tuple[str, ...]:
+    """Return configured market-location IDs associated with a microgrid."""
+    return tuple(
+        sorted(
+            {
+                str(relation.market_location_id)
+                for relation in _load_assets_config().relations.values()
+                if relation.microgrid_id == microgrid_id
+                and relation.market_location_id is not None
+            }
+        )
+    )
+
+
+def get_market_metering_client(timeout: float) -> MarketMeteringApiClient:
+    """Create a Market Metering client for one bounded request."""
+    return MarketMeteringApiClient(
+        server_url=require_env("MARKET_METERING_API_URL"),
+        auth_key=require_env("FREQUENZ_API_KEY"),
+        sign_secret=require_env("FREQUENZ_API_SECRET"),
+        call_timeout=timedelta(seconds=timeout),
+        stream_timeout=timedelta(seconds=timeout),
+    )
 
 
 def get_microgrid_ids() -> list[int]:

@@ -61,6 +61,8 @@ _PRIOR_PERIOD_TOOLTIP = load_tooltips("common")["prior_period"]
 
 _DELTA_COMPARISONS = {
     "Netzbezug (kWh)": "neutral",
+    "DSO Netzbezug (kWh)": "neutral",
+    "DSO Netzeinspeisung (kWh)": "neutral",
     "Netzeinspeisung (kWh)": "neutral",
     "Gesamtverbrauch Strom (kWh)": "neutral",
     "Gesamterzeugung (kWh)": "more_is_good",
@@ -175,6 +177,10 @@ def _peak_label(metrics: dict[str, object]) -> str:
 
 
 _INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
+_OPTIONAL_METRIC_KEYS = {
+    "dso_import_energy_sum",
+    "dso_export_energy_sum",
+}
 
 
 SECTION_SPECS: list[dict[str, Any]] = [
@@ -185,6 +191,11 @@ SECTION_SPECS: list[dict[str, Any]] = [
             {"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"},
             {"label": "Netzeinspeisung (kWh)", "key": "grid_feed_in_sum"},
             {"label_fn": _peak_label, "key": "peak"},
+            {"label": "DSO Netzbezug (kWh)", "key": "dso_import_energy_sum"},
+            {
+                "label": "DSO Netzeinspeisung (kWh)",
+                "key": "dso_export_energy_sum",
+            },
             {
                 "label": "Prognostizierte Netzbezugskosten (€)",
                 "key": "grid_import_cost_sum",
@@ -489,6 +500,12 @@ def render_summary_boxes(
             component_types_provided,
             microgrid_id,
         )
+        box_specs = [
+            spec
+            for spec in box_specs
+            if spec.get("key") not in _OPTIONAL_METRIC_KEYS
+            or spec.get("key") in metrics
+        ]
         if not box_specs:
             continue
 

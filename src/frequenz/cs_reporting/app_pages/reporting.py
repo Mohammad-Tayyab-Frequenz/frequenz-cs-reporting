@@ -28,6 +28,7 @@ from frequenz.cs_reporting.services.client_factory import (
 from frequenz.cs_reporting.services.data_service import (
     get_cached_microgrid_data,
     get_dataset_sync_metadata,
+    get_market_metering_data,
     get_microgrid_data,
     get_microgrid_soc_data,
     start_background_microgrid_data_sync,
@@ -268,6 +269,9 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     if snapshot.battery_soc is None
                     else snapshot.battery_soc.copy()
                 )
+                dso_energy_df = (
+                    None if snapshot.dso_energy is None else snapshot.dso_energy.copy()
+                )
             else:
                 with log_duration("reporting.load_active_power"):
                     df, sync_metadata = get_cached_microgrid_data(
@@ -295,6 +299,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
                             resolution=resolution,
                         )
                 battery_soc_df = None
+                dso_energy_df = None
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
                 st.warning(
@@ -322,6 +327,23 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
+            if snapshot is None:
+                try:
+                    with log_duration("reporting.load_market_metering"):
+                        fetched_dso_energy_df = get_market_metering_data(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
+                except Exception as exc:  # pylint: disable=broad-except
+                    st.warning(
+                        "DSO-Energiedaten konnten nicht geladen werden: " f"{exc}"
+                    )
+                else:
+                    dso_energy_df = (
+                        None if fetched_dso_energy_df.empty else fetched_dso_energy_df
+                    )
             if snapshot is None and active_power_sync is None:
                 store_reporting_data_snapshot(
                     ReportingDataSnapshot(
@@ -331,6 +353,9 @@ def _render_reporting_page(*, export_only: bool) -> None:
                             None if battery_soc_df is None else battery_soc_df.copy()
                         ),
                         sync_metadata=sync_metadata,
+                        dso_energy=(
+                            None if dso_energy_df is None else dso_energy_df.copy()
+                        ),
                     )
                 )
     except Exception as exc:  # pylint: disable=broad-except
@@ -354,6 +379,8 @@ def _render_reporting_page(*, export_only: bool) -> None:
             mapper,
             timezone=timezone,
             battery_soc_df=battery_soc_df,
+            dso_energy_df=dso_energy_df,
+            resolution=resolution,
         )
     with log_duration("reporting.split_periods"):
         current_master_df, previous_master_df = split_periods(
