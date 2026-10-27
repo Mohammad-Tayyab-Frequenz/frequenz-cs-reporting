@@ -85,16 +85,10 @@ def _delta_html(
     """Build a percentage-delta badge for numeric KPI values."""
     if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
         return ""
-    current_value = float(current)
-    previous_value = float(previous)
-    if (
-        not isfinite(current_value)
-        or not isfinite(previous_value)
-        or previous_value == 0
-    ):
+    if previous == 0:
         return ""
 
-    delta = ((current_value - previous_value) / abs(previous_value)) * 100
+    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
     if delta == 0 or comparison == "neutral":
         delta_class = "kpi-card__delta--neutral"
     elif (delta > 0) == (comparison == "more_is_good"):
@@ -182,6 +176,7 @@ def _peak_label(metrics: dict[str, object]) -> str:
 
 _INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
 
+
 SECTION_SPECS: list[dict[str, Any]] = [
     {
         "title": "Netzkennzahlen",
@@ -198,7 +193,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "label": "Prognostizierte Einspeiseerloese (€)",
                 "key": "grid_feed_in_revenue_sum",
             },
-            {"label": "", "key": None},
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_import",
@@ -232,43 +226,19 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Verbrauchskennzahlen",
-        "per_row": 3,
         "boxes": [
             {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
             {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
         ],
     },
-    {
-        "title": "Batteriekennzahlen",
-        "required_component_type": "battery",
-        "per_row": 3,
-        "boxes": [
-            {
-                "label": "Erzeugung zu Batterie (kWh)",
-                "key": "production_to_battery_sum",
-                "component_type": "battery",
-            },
-            {
-                "label": "Netz zu Batterie (kWh)",
-                "key": "grid_to_battery_sum",
-                "component_type": "battery",
-            },
-            {"label": "", "key": None},
-            {
-                "label": "Batterie zu Netz (kWh)",
-                "key": "battery_to_grid_sum",
-                "component_type": "battery",
-            },
-            {
-                "label": "Batterie zu Verbrauch (kWh)",
-                "key": "battery_to_consumption_sum",
-                "component_type": "battery",
-            },
-        ],
-    },
+    # Battery KPI cards are temporarily hidden.
+    # {
+    #     "title": "Batteriekennzahlen",
+    #     "required_component_type": "battery",
+    #     "boxes": [...],
+    # },
     {
         "title": "Bilanzkennzahlen",
-        "per_row": 3,
         "boxes": [
             {
                 "label": "Autarkiegrad (%)",
@@ -320,6 +290,7 @@ def _filter_section_box_specs(
     microgrid_id: int | None,
 ) -> list[dict[str, Any]]:
     """Return KPI box specs that apply to the selected microgrid."""
+    del microgrid_id
     required_component_type = section.get("required_component_type")
     if (
         component_types_provided
@@ -337,15 +308,91 @@ def _filter_section_box_specs(
             or spec.get("component_type") in component_type_set
         ]
 
-    return [
-        spec
-        for spec in box_specs
-        if spec.get("microgrid_ids") is None
-        or microgrid_id in spec.get("microgrid_ids", set())
-    ]
+    if section["title"] == "(Eigen-)Erzeugungskennzahlen":
+        production_types = component_type_set.intersection({"pv", "chp", "wind"})
+        if component_types_provided and len(production_types) <= 1:
+            box_specs = [
+                spec for spec in box_specs if spec.get("key") != "total_production_sum"
+            ]
+
+    return box_specs
 
 
-# pylint: disable = too-many-locals, too-many-arguments, too-many-positional-arguments
+# pylint: disable = too-many-locals
+def _card_html(
+    label: str,
+    val: object,
+    previous_val: object,
+    tooltip: object,
+    accent: str,
+    delta_comparisons: dict[str, str] | None,
+    value_colors: Mapping[str, str] | None,
+) -> str:
+    """Build the HTML of a single KPI card."""
+    if val is None:
+        value_html = '<div class="kpi-card__value kpi-card__value--null">—</div>'
+    else:
+        comparison = (delta_comparisons or {}).get(label, "less_is_good")
+        value_html = (
+            '<div class="kpi-card__value-row">'
+            f'<div class="kpi-card__value">{_format_current_value(label, val)}</div>'
+            f"{_delta_html(val, previous_val, comparison)}"
+            "</div>"
+        )
+    previous_html = (
+        f'<div class="kpi-card__previous">'
+        f"<span>{_format_previous_value(label, previous_val)}</span>"
+        f"{_prior_period_help_html()}</div>"
+        if previous_val is not None
+        else ""
+    )
+    tooltip_html = (
+        '<span class="kpi-card__tooltip" role="button" tabindex="0" '
+        f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
+        '<span class="kpi-card__tooltip-icon">i</span>'
+        '<span class="kpi-card__tooltip-text">'
+        f"{_kpi_tooltip_content_html(tooltip)}</span>"
+        "</span>"
+        if tooltip
+        else ""
+    )
+    value_color = (value_colors or {}).get(label, "#1a2740")
+    return (
+        f'<div class="kpi-card" style="--kpi-accent:{accent};'
+        f'--kpi-value-color:{escape(value_color, quote=True)};">'
+        '<div class="kpi-card__label-row">'
+        f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
+        f"{tooltip_html}</div>"
+        f"{value_html}{previous_html}</div>"
+    )
+
+
+def _box_grid_html(
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
+    accent: str,
+    delta_comparisons: dict[str, str] | None,
+    value_colors: Mapping[str, str] | None = None,
+) -> str:
+    """Build a responsive CSS grid of KPI cards."""
+    cards = "".join(
+        _card_html(
+            item[0],
+            item[1],
+            item[2] if len(item) >= 3 else None,
+            item[3] if len(item) == 4 else None,
+            accent,
+            delta_comparisons,
+            value_colors,
+        )
+        for item in boxes
+    )
+    return f'<div class="kpi-grid">{cards}</div>'
+
+
 def render_box_grid(
     boxes: Sequence[
         tuple[str, object]
@@ -358,12 +405,12 @@ def render_box_grid(
     delta_comparisons: dict[str, str] | None = None,
     value_colors: Mapping[str, str] | None = None,
 ) -> None:
-    """Render KPI boxes in a card grid.
+    """Render KPI boxes in a responsive card grid.
 
     Args:
         boxes: Prepared list of label/value tuples.
-        per_row: Maximum number of boxes to render per row.
-        row_gap: Vertical gap between rows in pixels.
+        per_row: Retained for compatibility; the responsive grid chooses columns.
+        row_gap: Retained for compatibility; CSS controls the grid gap.
         accent: Left-border accent colour for the cards.
         delta_comparisons: Mapping of metric labels to comparison semantics. Values
             are ``"more_is_good"``, ``"less_is_good"``, or ``"neutral"``.
@@ -372,86 +419,12 @@ def render_box_grid(
     Returns:
         Streamlit markup is written directly to the page.
     """
-    del delta_comparisons
+    del per_row, row_gap
     _ensure_kpi_css()
-
-    for i in range(0, len(boxes), per_row):
-        row = []
-        for item in boxes[i : i + per_row]:
-            if len(item) == 4:
-                row.append(item)
-            elif len(item) == 3:
-                row.append((item[0], item[1], item[2], None))
-            else:
-                row.append((item[0], item[1], None, None))
-        while len(row) < per_row:
-            row.append(("", None, None, None))
-
-        cols = st.columns(per_row, gap="small")
-        for col, (label, val, previous_val, tooltip) in zip(cols, row):
-            if label == "" and val is None:
-                col.markdown(
-                    '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                if val is None:
-                    value_html = (
-                        '<div class="kpi-card__value kpi-card__value--null">—</div>'
-                    )
-                else:
-                    # Temporarily hide percentage comparisons in KPI cards.
-                    # comparison = (delta_comparisons or {}).get(
-                    #     label, "less_is_good"
-                    # )
-                    # delta_html = _delta_html(val, previous_val, comparison)
-                    delta_html = ""
-                    value_html = (
-                        '<div class="kpi-card__value-row">'
-                        f'<div class="kpi-card__value">'
-                        f"{_format_current_value(label, val)}</div>"
-                        f"{delta_html}"
-                        "</div>"
-                    )
-
-                # Temporarily hide previous-period values in KPI cards.
-                # previous_html = (
-                #     f'<div class="kpi-card__previous">'
-                #     f"<span>{_format_previous_value(label, previous_val)}</span>"
-                #     f"{_prior_period_help_html()}</div>"
-                #     if previous_val is not None
-                #     else ""
-                # )
-                previous_html = ""
-                tooltip_html = (
-                    '<span class="kpi-card__tooltip" role="button" tabindex="0" '
-                    f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
-                    '<span class="kpi-card__tooltip-icon">i</span>'
-                    '<span class="kpi-card__tooltip-text">'
-                    f"{_kpi_tooltip_content_html(tooltip)}</span>"
-                    "</span>"
-                    if tooltip
-                    else ""
-                )
-                value_color = (value_colors or {}).get(label, "#1a2740")
-                card_html = (
-                    f'<div class="kpi-card" style="--kpi-accent:{accent};'
-                    f'--kpi-value-color:{escape(value_color, quote=True)};">'
-                    '<div class="kpi-card__label-row">'
-                    f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
-                    f"{tooltip_html}</div>"
-                    f"{value_html}{previous_html}</div>"
-                )
-                col.markdown(
-                    card_html,
-                    unsafe_allow_html=True,
-                )
-
-        if i + per_row < len(boxes):
-            st.markdown(
-                f"<div style='margin-top:{row_gap}px;'></div>",
-                unsafe_allow_html=True,
-            )
+    st.markdown(
+        _box_grid_html(boxes, accent, delta_comparisons, value_colors),
+        unsafe_allow_html=True,
+    )
 
 
 def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | None]:
@@ -508,6 +481,7 @@ def render_summary_boxes(
         unsafe_allow_html=True,
     )
 
+    section_blocks: list[str] = []
     for section in SECTION_SPECS:
         box_specs = _filter_section_box_specs(
             section,
@@ -532,26 +506,21 @@ def render_summary_boxes(
             if warning
             else ""
         )
-
-        st.markdown(
-            f"""
-            <div class="kpi-section-header">
-                <div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>
-                <p class="kpi-section-title">{title}</p>
-                {warning_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
-        per_row = section.get("per_row", 3)
-        render_box_grid(
-            boxes,
-            per_row=per_row,
-            accent=accent,
-            delta_comparisons=_DELTA_COMPARISONS,
+        section_blocks.append(
+            '<section class="kpi-section">'
+            '<div class="kpi-section-header">'
+            f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
+            f'<p class="kpi-section-title">{title}</p>'
+            f"{warning_html}</div>"
+            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS)}"
+            "</section>"
         )
+
+    st.markdown(
+        f'<div class="kpi-sections">{"".join(section_blocks)}</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
     consumption_dict = _build_consumption_breakdown(metrics)
