@@ -37,18 +37,11 @@ from frequenz.cs_reporting.services.data_service import (
 from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
 from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
 
-_SIDEBAR_KEY_PREFIX = "battery_optimization_"
-
 
 def _mid_caption(microgrid_id: int, microgrid_name: str | None) -> str:
     """Return the MID identification displayed below the page title."""
     name = microgrid_name or "Nicht verfügbar"
     return f"MID{microgrid_id} - {name}"
-
-
-def _previous_week_date(value: date) -> date:
-    """Return the date one week before ``value``."""
-    return value - timedelta(weeks=1)
 
 
 def _completed_price_range_end(
@@ -74,11 +67,8 @@ def render() -> None:
 
     today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
-        default_start=_previous_week_date(today),
-        default_end=today,
         resolution_options=("15min", "30min", "1hour"),
         default_resolution="15min",
-        key_prefix=_SIDEBAR_KEY_PREFIX,
     )
 
     timezone = selections["timezone"]

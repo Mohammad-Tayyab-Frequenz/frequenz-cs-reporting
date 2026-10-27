@@ -23,16 +23,16 @@ from frequenz.cs_reporting.app_pages import (
     battery_optimization as battery_optimization_page,
 )
 from frequenz.cs_reporting.app_pages.battery_optimization import (
-    _SIDEBAR_KEY_PREFIX,
     _completed_price_range_end,
     _mid_caption,
-    _previous_week_date,
 )
 from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
 from frequenz.cs_reporting.components import inputs
 from frequenz.cs_reporting.components.sidebar_inputs import (
+    _default_reporting_date_range,
     _microgrid_option_label,
     _reconcile_microgrid_selection,
+    _restore_reporting_widget_state,
 )
 from frequenz.cs_reporting.components.tables import (
     _LOCALE_NUMBER_FORMATTER,
@@ -513,15 +513,41 @@ def test_validate_range_rejects_invalid_order() -> None:
         time.validate_range("2024-01-03", "2024-01-02")
 
 
-def test_battery_optimization_default_start_uses_previous_week() -> None:
-    """Battery optimization defaults start date to the previous week."""
-    assert _previous_week_date(date(2026, 9, 16)) == date(2026, 9, 9)
-    assert _previous_week_date(date(2026, 3, 3)) == date(2026, 2, 24)
+def test_reporting_sidebar_defaults_to_previous_week() -> None:
+    """All reporting pages initially show the previous week."""
+    assert _default_reporting_date_range(date(2026, 9, 16)) == (
+        date(2026, 9, 9),
+        date(2026, 9, 16),
+    )
 
 
-def test_battery_optimization_sidebar_uses_page_specific_state() -> None:
-    """Battery optimization sidebar state is isolated from reporting filters."""
-    assert _SIDEBAR_KEY_PREFIX == "battery_optimization_"
+def test_reporting_sidebar_restores_last_applied_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reporting pages rebuild their widgets from shared durable state."""
+    applied_filters = {
+        "microgrid_id": 243,
+        "start_date": date(2026, 9, 9),
+        "end_date": date(2026, 9, 16),
+        "timezone": "Europe/Berlin",
+        "resolution": "30min",
+    }
+    monkeypatch.setattr(
+        st,
+        "session_state",
+        {"reporting_applied_filters": applied_filters},
+    )
+
+    _restore_reporting_widget_state()
+
+    assert st.session_state == {
+        "reporting_applied_filters": applied_filters,
+        "reporting_microgrid_id": 243,
+        "reporting_start_date": date(2026, 9, 9),
+        "reporting_end_date": date(2026, 9, 16),
+        "reporting_timezone": "Europe/Berlin",
+        "reporting_resolution": "30min",
+    }
 
 
 def test_battery_price_sync_excludes_the_incomplete_current_day() -> None:

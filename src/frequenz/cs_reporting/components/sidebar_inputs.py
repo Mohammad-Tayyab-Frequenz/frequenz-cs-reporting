@@ -27,17 +27,18 @@ TIMEZONE_OPTIONS = (
     "UTC",
 )
 
+_REPORTING_FILTER_KEY_PREFIX = "reporting_"
+_REPORTING_FORM_KEY = f"{_REPORTING_FILTER_KEY_PREFIX}filters_form"
+_REPORTING_STATE_KEY = f"{_REPORTING_FILTER_KEY_PREFIX}applied_filters"
+
 
 # pylint: disable=too-many-locals, too-many-arguments
 def collect_sidebar_inputs(
     *,
-    default_start: date,
-    default_end: date,
     resolution_options: Sequence[str] = ("15min", "30min", "1hour", "4hour"),
     default_resolution: str = "15min",
     timezone_options: Sequence[str] = TIMEZONE_OPTIONS,
     default_timezone: str = "Europe/Berlin",
-    key_prefix: str = "",
 ) -> dict[str, Any]:
     """Render the sidebar filters.
 
@@ -45,13 +46,10 @@ def collect_sidebar_inputs(
     range, and resolution.
 
     Args:
-        default_start: Default start date for the date picker.
-        default_end: Default end date for the date picker.
         resolution_options: Allowed resolution values for selection.
         default_resolution: Default resolution shown initially.
         timezone_options: Allowed timezone values for selection.
         default_timezone: Default timezone shown initially.
-        key_prefix: Optional prefix for Streamlit widget keys.
 
     Returns:
         Dictionary containing ``microgrid_id``, ``start_date``,
@@ -60,13 +58,16 @@ def collect_sidebar_inputs(
     st.sidebar.header("Filter Einstellungen")
     st.sidebar.caption("Wählen Sie die Parameter für die Analyse.")
 
-    form_key = f"{key_prefix}filters_form" if key_prefix else "filters_form"
-    state_key = f"{key_prefix}applied_filters" if key_prefix else "applied_filters"
     microgrid_names = get_microgrid_names()
     available_microgrids = sorted(microgrid_names)
-    _reconcile_microgrid_selection(available_microgrids, key_prefix, state_key)
+    _restore_reporting_widget_state()
+    _reconcile_microgrid_selection(
+        available_microgrids,
+        _REPORTING_FILTER_KEY_PREFIX,
+        _REPORTING_STATE_KEY,
+    )
 
-    with st.sidebar.form(form_key):
+    with st.sidebar.form(_REPORTING_FORM_KEY):
         st.subheader("Microgrid")
         microgrid_id = inputs.microgrid_selector(
             label="Microgrid auswählen",
@@ -74,7 +75,7 @@ def collect_sidebar_inputs(
             format_func=lambda microgrid_id: _microgrid_option_label(
                 microgrid_id, microgrid_names
             ),
-            key_prefix=key_prefix,
+            key_prefix=_REPORTING_FILTER_KEY_PREFIX,
             container=st,
         )
 
@@ -82,14 +83,14 @@ def collect_sidebar_inputs(
 
         st.subheader("Zeitraum")
 
-        today = datetime.now(tz=UTC).date()
-        fallback_start = default_start or (today - timedelta(days=7))
+        default_start, default_end = _default_reporting_date_range()
+        today = default_end
 
-        start_key = f"{key_prefix}start_date"
-        end_key = f"{key_prefix}end_date"
-        timezone_key = f"{key_prefix}timezone"
+        start_key = f"{_REPORTING_FILTER_KEY_PREFIX}start_date"
+        end_key = f"{_REPORTING_FILTER_KEY_PREFIX}end_date"
+        timezone_key = f"{_REPORTING_FILTER_KEY_PREFIX}timezone"
 
-        start_initial = st.session_state.get(start_key, fallback_start)
+        start_initial = st.session_state.get(start_key, default_start)
 
         columns = st.columns(2)
         with columns[0]:
@@ -101,7 +102,7 @@ def collect_sidebar_inputs(
             )
 
         end_initial = min(
-            st.session_state.get(end_key, default_end or today),
+            st.session_state.get(end_key, default_end),
             today,
         )
 
@@ -144,7 +145,7 @@ def collect_sidebar_inputs(
                 ),
                 0,
             ),
-            key=f"{key_prefix}resolution",
+            key=f"{_REPORTING_FILTER_KEY_PREFIX}resolution",
             help="Zeitliche Auflösung der Daten",
         )
 
@@ -162,10 +163,33 @@ def collect_sidebar_inputs(
         "resolution": resolution,
     }
 
-    if submitted or state_key not in st.session_state:
-        st.session_state[state_key] = current_selection
+    if submitted or _REPORTING_STATE_KEY not in st.session_state:
+        st.session_state[_REPORTING_STATE_KEY] = current_selection
 
-    return dict(st.session_state[state_key])
+    return dict(st.session_state[_REPORTING_STATE_KEY])
+
+
+def _default_reporting_date_range(today: date | None = None) -> tuple[date, date]:
+    """Return the default reporting range covering the previous week."""
+    range_end = today or datetime.now(tz=UTC).date()
+    return range_end - timedelta(weeks=1), range_end
+
+
+def _restore_reporting_widget_state() -> None:
+    """Restore missing widget values from the last applied reporting filters.
+
+    Streamlit may discard widget-owned keys while another page is rendered.
+    The applied-filter dictionary is regular session state, so it remains the
+    durable source for rebuilding the shared reporting sidebar.
+    """
+    applied_filters = st.session_state.get(_REPORTING_STATE_KEY)
+    if not isinstance(applied_filters, dict):
+        return
+
+    for field in ("microgrid_id", "start_date", "end_date", "timezone", "resolution"):
+        widget_key = f"{_REPORTING_FILTER_KEY_PREFIX}{field}"
+        if widget_key not in st.session_state and field in applied_filters:
+            st.session_state[widget_key] = applied_filters[field]
 
 
 def _reconcile_microgrid_selection(

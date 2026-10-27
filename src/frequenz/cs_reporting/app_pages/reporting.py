@@ -191,14 +191,10 @@ def render() -> None:
     Returns:
         Streamlit components are rendered directly.
     """
-    today = datetime.now(tz=UTC).date()
     with log_duration("reporting.sidebar_inputs"):
         selections = collect_sidebar_inputs(
-            default_start=today,
-            default_end=today,
             resolution_options=("15min", "30min", "1hour"),
             default_resolution="15min",
-            key_prefix="reporting_",
         )
 
     timezone = selections["timezone"]
