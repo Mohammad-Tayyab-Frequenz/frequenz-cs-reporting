@@ -329,6 +329,17 @@ def _filter_section_box_specs(
     return box_specs
 
 
+def _filter_available_optional_metric_specs(
+    box_specs: list[dict[str, Any]], metrics: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Hide optional KPI cards only when their source metric is unavailable."""
+    return [
+        spec
+        for spec in box_specs
+        if spec.get("key") not in _OPTIONAL_METRIC_KEYS or spec.get("key") in metrics
+    ]
+
+
 # pylint: disable = too-many-locals
 def _card_html(
     label: str,
@@ -500,12 +511,7 @@ def render_summary_boxes(
             component_types_provided,
             microgrid_id,
         )
-        box_specs = [
-            spec
-            for spec in box_specs
-            if spec.get("key") not in _OPTIONAL_METRIC_KEYS
-            or spec.get("key") in metrics
-        ]
+        box_specs = _filter_available_optional_metric_specs(box_specs, metrics)
         if not box_specs:
             continue
 

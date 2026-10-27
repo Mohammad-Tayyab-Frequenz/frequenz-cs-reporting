@@ -95,6 +95,7 @@ from frequenz.cs_reporting.views.metric_renderers import (
     SECTION_SPECS,
     _build_consumption_breakdown,
     _delta_html,
+    _filter_available_optional_metric_specs,
     _filter_section_box_specs,
     _fmt_metric_value,
     _kpi_label_html,
@@ -234,16 +235,18 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
         {
             "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
             "grid_consumption": [1.0],
-            "mid_consumption": [2.0],
-            "grid_feed_in": [3.0],
-            "pv_asset_production": [4.0],
-            "production_self_use": [5.0],
-            "production_to_battery": [6.0],
-            "grid_to_battery": [7.0],
-            "battery_to_grid": [8.0],
-            "battery_to_consumption": [9.0],
-            "day_ahead_price": [10.0],
-            "unrelated": [11.0],
+            "dso_import_power": [2.0],
+            "dso_export_power": [3.0],
+            "mid_consumption": [4.0],
+            "grid_feed_in": [5.0],
+            "pv_asset_production": [6.0],
+            "production_self_use": [7.0],
+            "production_to_battery": [8.0],
+            "grid_to_battery": [9.0],
+            "battery_to_grid": [10.0],
+            "battery_to_consumption": [11.0],
+            "day_ahead_price": [12.0],
+            "unrelated": [13.0],
         }
     )
 
@@ -252,6 +255,8 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
     assert list(core_data.columns) == [
         "Zeitpunkt",
         "Netzbezug",
+        "DSO Netzbezug (kW)",
+        "DSO Netzeinspeisung (kW)",
         "MID Gesamtverbrauch",
         "Netz Einspeisung",
         "PV-Erzeugung",
@@ -262,7 +267,7 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
         "Batterie zu Verbrauch",
         "Day Ahead Preis",
     ]
-    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :11])
+    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :13])
 
 
 def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None:
@@ -1396,6 +1401,33 @@ def test_completed_price_sync_triggers_only_one_full_rerun(
     assert reuse_requests == [None]
     assert st.session_state[_PRICE_SYNC_RERUN_STATE_KEY] is future
     assert len(warnings) == 1
+
+
+def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
+    """The optional DSO card appears when its aggregate is available."""
+    grid_section = next(
+        section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
+    )
+    box_specs = _filter_section_box_specs(
+        grid_section,
+        component_type_set={"grid"},
+        component_types_provided=True,
+        microgrid_id=123,
+    )
+
+    filtered_specs = _filter_available_optional_metric_specs(
+        box_specs,
+        metrics={
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "dso_import_energy_sum": 9.5,
+            "dso_export_energy_sum": 1.5,
+        },
+    )
+
+    filtered_keys = [spec.get("key") for spec in filtered_specs]
+    assert "dso_import_energy_sum" in filtered_keys
+    assert "dso_export_energy_sum" in filtered_keys
 
 
 def test_overview_plot_renders_without_day_ahead_price(
