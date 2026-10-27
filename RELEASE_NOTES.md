@@ -70,6 +70,8 @@ platform scheduler.
 - Timing entries are written asynchronously in batches. Ephemeral `/tmp`
   metadata skips durability `fsync`, synchronization persists only its final
   metadata state, and cache reads return data with the metadata already read.
+- The UI KPI cards now adjust according to the zoom level and are evenly spaced in the UI.
+
 
 ## Bug Fixes
 
