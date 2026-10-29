@@ -54,7 +54,10 @@ _KWH_PER_MWH = 1000.0
 _KPI_CARDS_PER_ROW = 4
 _OPERATING_KPI_CARDS_PER_ROW = 4
 _PRIMARY_PLOT_METRICS = ("battery_price_spread_eur_per_mwh",)
-_SECONDARY_PLOT_METRICS = ("value_per_kwh_capacity", "battery_cycles")
+_SECONDARY_PLOT_METRICS = (
+    # "value_per_kwh_capacity",  # Temporarily hidden.
+    "battery_cycles",
+)
 _NORMALIZED_PLOT_METRICS = (
     ("value_per_mwh_throughput", "Wert pro MWh Batteriedurchsatz (€/MWh)", "€"),
     ("value_per_mwh_discharged", "Wert pro MWh entladene Energie (€/MWh)", "€"),
@@ -85,8 +88,6 @@ _RESULTS_TABLE_CALCULATION_COLUMNS = {
     "battery_charging_kwh": "Geladene Energie (kWh)",
     "battery_discharging_kwh": "Entladene Energie (kWh)",
     "battery_throughput_kwh": "Batteriedurchsatz (kWh)",
-    "day_ahead_price_available": "Day-Ahead-Preis verfügbar",
-    "charging_cost_eur": "Ladekosten (€)",
     "discharging_value_eur": "Entladewert (€)",
     "optimization_savings_eur": "Netto-Einsparung (€)",
     "battery_capacity_kwh": "Batteriekapazität (kWh)",
@@ -720,7 +721,6 @@ def render_battery_optimization(
     )
 
 
-# pylint: disable=too-many-locals
 def _render_battery_optimization_plot_tabs(
     interval_data: pd.DataFrame,
     battery_capacity_kwh: float | None,
@@ -751,39 +751,79 @@ def _render_battery_optimization_plot_tabs(
     labels = (["Netto-Einsparung"] if include_optimization else []) + [
         tab_labels[metric_key] for metric_key in metric_keys
     ]
+    if len(plot_configs) == 1:
+        plot_key, title, metric_key = plot_configs[0]
+        _BATTERY_PLOT_FRAGMENT_RENDERERS[plot_key](
+            interval_data=interval_data,
+            battery_capacity_kwh=battery_capacity_kwh,
+            plot_key=plot_key,
+            title=title,
+            metric_key=metric_key,
+        )
+        return
+
     plot_tabs = st.tabs(labels)
     for tab, (plot_key, title, metric_key) in zip(plot_tabs, plot_configs):
         with tab:
-            aggregation_key = f"{plot_key}_aggregation"
-            aggregation = str(st.session_state.get(aggregation_key, "daily"))
-
-            def aggregation_selector(key: str = aggregation_key) -> None:
-                st.selectbox(
-                    "Aggregation",
-                    options=tuple(_AGGREGATION_OPTIONS),
-                    format_func=lambda value: _AGGREGATION_OPTIONS[str(value)],
-                    key=key,
-                    label_visibility="collapsed",
-                )
-
-            if metric_key is None:
-                fig = build_daily_battery_optimization_figure(
-                    interval_data,
-                    aggregation,
-                )
-            else:
-                fig = build_normalized_battery_optimization_figure(
-                    interval_data,
-                    metric_key,
-                    aggregation,
-                    battery_capacity_kwh=battery_capacity_kwh,
-                )
-            render_plot_card(
-                title,
-                fig,
-                header_control=aggregation_selector,
-                key=plot_key,
+            _BATTERY_PLOT_FRAGMENT_RENDERERS[plot_key](
+                interval_data=interval_data,
+                battery_capacity_kwh=battery_capacity_kwh,
+                plot_key=plot_key,
+                title=title,
+                metric_key=metric_key,
             )
+
+
+def _render_battery_optimization_plot(
+    interval_data: pd.DataFrame,
+    battery_capacity_kwh: float | None,
+    plot_key: str,
+    title: str,
+    metric_key: str | None,
+) -> None:
+    """Render one independently refreshable battery optimization plot."""
+    aggregation_key = f"{plot_key}_aggregation"
+    aggregation = str(st.session_state.get(aggregation_key, "daily"))
+
+    def aggregation_selector() -> None:
+        st.selectbox(
+            "Aggregation",
+            options=tuple(_AGGREGATION_OPTIONS),
+            format_func=lambda value: _AGGREGATION_OPTIONS[str(value)],
+            key=aggregation_key,
+            label_visibility="collapsed",
+        )
+
+    if metric_key is None:
+        fig = build_daily_battery_optimization_figure(interval_data, aggregation)
+    else:
+        fig = build_normalized_battery_optimization_figure(
+            interval_data,
+            metric_key,
+            aggregation,
+            battery_capacity_kwh=battery_capacity_kwh,
+        )
+    render_plot_card(
+        title,
+        fig,
+        header_control=aggregation_selector,
+        key=plot_key,
+    )
+
+
+_BATTERY_PLOT_FRAGMENT_RENDERERS = {
+    # Do not pass ``key=`` here: the project and existing Deepnote image support
+    # Streamlit 1.49, whose fragment API only accepts ``func`` and ``run_every``.
+    # Each call is still an independent fragment because it occupies a distinct
+    # tab/render location in the Streamlit element tree.
+    plot_key: st.fragment(_render_battery_optimization_plot)
+    for plot_key in (
+        "battery_optimization",
+        "battery_optimization_battery_price_spread_eur_per_mwh",
+        # "battery_optimization_value_per_kwh_capacity",  # Temporarily hidden.
+        "battery_optimization_battery_cycles",
+    )
+}
 
 
 def _build_battery_optimization_kpi_boxes(
@@ -839,10 +879,10 @@ def _build_battery_optimization_kpi_boxes(
             None,
             _KPI_TOOLTIPS["battery_charging_kwh"],
         ),
-        (
-            "Wert pro kWh Batteriekapazität (€/kWh)",
-            metrics["value_per_kwh_capacity"],
-            None,
-            _KPI_TOOLTIPS["value_per_kwh_capacity"],
-        ),
+        # (
+        #     "Wert pro kWh Batteriekapazität (€/kWh)",
+        #     metrics["value_per_kwh_capacity"],
+        #     None,
+        #     _KPI_TOOLTIPS["value_per_kwh_capacity"],
+        # ),
     ]

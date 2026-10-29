@@ -55,12 +55,14 @@ from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import dashboard, metric_renderers, table_renderers
 from frequenz.cs_reporting.views.battery_optimization import (
+    _BATTERY_PLOT_FRAGMENT_RENDERERS,
     _HIDDEN_NORMALIZED_METRICS,
     _KPI_CARDS_PER_ROW,
     _OPERATING_KPI_CARDS_PER_ROW,
     _PRIMARY_PLOT_METRICS,
     _SECONDARY_PLOT_METRICS,
     _build_battery_optimization_kpi_boxes,
+    _render_battery_optimization_plot_tabs,
     aggregate_battery_optimization_summary,
     build_battery_optimization_results_table,
     build_daily_battery_optimization_figure,
@@ -685,6 +687,71 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
 
     assert price_range == power_range
     assert price_range[1] - price_range[0] > timedelta(days=2)
+
+
+def test_battery_optimization_clears_previous_report_before_filter_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A new filter run removes KPI cards before waiting for fresh data."""
+    selections = {
+        "start_date": date(2026, 9, 1),
+        "end_date": date(2026, 9, 5),
+        "timezone": "UTC",
+        "microgrid_id": 243,
+        "resolution": "15min",
+    }
+    events: list[str] = []
+
+    class ReportPlaceholder:
+        """Record when the previous report is cleared and reused."""
+
+        def empty(self) -> None:
+            events.append("clear")
+
+        def container(self) -> nullcontext[None]:
+            return nullcontext()
+
+    class FilterRunStopped(Exception):
+        """Stand in for Streamlit's control-flow exception."""
+
+    pending_price_sync: Future[pd.Series] = Future()
+
+    def start_price_sync(*_args: object) -> Future[pd.Series]:
+        events.append("sync")
+        return pending_price_sync
+
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "collect_sidebar_inputs",
+        lambda **_kwargs: selections,
+    )
+    monkeypatch.setattr(
+        battery_optimization_page, "get_microgrid_names", lambda: {243: "Test"}
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "start_background_day_ahead_price_sync",
+        start_price_sync,
+    )
+    monkeypatch.setattr(st, "title", lambda *_args: None)
+    monkeypatch.setattr(st, "caption", lambda *_args: None)
+    monkeypatch.setattr(st, "empty", ReportPlaceholder)
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "_poll_day_ahead_price_sync",
+        lambda _future: events.append("poll"),
+    )
+
+    def stop() -> None:
+        events.append("stop")
+        raise FilterRunStopped
+
+    monkeypatch.setattr(st, "stop", stop)
+
+    with pytest.raises(FilterRunStopped):
+        battery_optimization_page.render()
+
+    assert events == ["clear", "sync", "poll", "stop"]
 
 
 def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
@@ -1318,8 +1385,8 @@ def test_battery_optimization_selection_metrics_include_charge_and_discharge_val
     assert metrics["battery_efficiency_pct"] == pytest.approx(200.0)
 
 
-def test_battery_optimization_hides_throughput_card_and_plot() -> None:
-    """The battery throughput value is absent from both KPI and plot output."""
+def test_battery_optimization_hides_disabled_cards_and_plots() -> None:
+    """Disabled throughput and capacity values are absent from visible output."""
     metrics: dict[str, float | None] = {
         "total_savings": 10.0,
         "charging_cost_eur": 20.0,
@@ -1337,6 +1404,7 @@ def test_battery_optimization_hides_throughput_card_and_plot() -> None:
     assert "Wert Entladung (€)" in labels
     assert "Wert Beladung (€)" in labels
     assert not any("Batteriedurchsatz" in label for label in labels)
+    assert not any("Wert pro kWh Batteriekapazität" in label for label in labels)
     assert "value_per_mwh_throughput" in _HIDDEN_NORMALIZED_METRICS
     assert _KPI_CARDS_PER_ROW == 4
     assert labels[:_KPI_CARDS_PER_ROW][-1] == "Preis-Spread Batterie (€/MWh)"
@@ -1345,14 +1413,48 @@ def test_battery_optimization_hides_throughput_card_and_plot() -> None:
         "Wirkungsgrad (%)",
         "Entladene Menge (kWh)",
         "Geladene Menge (kWh)",
-        "Wert pro kWh Batteriekapazität (€/kWh)",
     ]
     assert _OPERATING_KPI_CARDS_PER_ROW == 4
     assert _PRIMARY_PLOT_METRICS == ("battery_price_spread_eur_per_mwh",)
-    assert _SECONDARY_PLOT_METRICS == (
-        "value_per_kwh_capacity",
-        "battery_cycles",
+    assert _SECONDARY_PLOT_METRICS == ("battery_cycles",)
+
+
+def test_battery_plot_aggregation_controls_use_independent_fragments() -> None:
+    """Each visible battery plot has its own fragment-only rerun boundary."""
+    expected_plot_keys = {
+        "battery_optimization",
+        "battery_optimization_battery_price_spread_eur_per_mwh",
+        "battery_optimization_battery_cycles",
+    }
+
+    assert set(_BATTERY_PLOT_FRAGMENT_RENDERERS) == expected_plot_keys
+    assert len(
+        {id(renderer) for renderer in _BATTERY_PLOT_FRAGMENT_RENDERERS.values()}
+    ) == len(expected_plot_keys)
+
+
+def test_single_battery_plot_is_rendered_without_tabs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The standalone cycles plot does not render a redundant tab control."""
+    tab_calls: list[list[str]] = []
+    render_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(st, "tabs", lambda labels: tab_calls.append(list(labels)) or [])
+    monkeypatch.setitem(
+        _BATTERY_PLOT_FRAGMENT_RENDERERS,
+        "battery_optimization_battery_cycles",
+        lambda **kwargs: render_calls.append(kwargs),
     )
+
+    _render_battery_optimization_plot_tabs(
+        pd.DataFrame(),
+        None,
+        ("battery_cycles",),
+    )
+
+    assert not tab_calls
+    assert render_calls[0]["plot_key"] == "battery_optimization_battery_cycles"
+    assert render_calls[0]["metric_key"] == "battery_cycles"
 
 
 def test_normalized_battery_optimization_metrics_use_throughput_and_spread() -> None:
@@ -1432,8 +1534,6 @@ def test_battery_optimization_results_table_includes_interval_inputs_and_calcula
         "Geladene Energie (kWh)",
         "Entladene Energie (kWh)",
         "Batteriedurchsatz (kWh)",
-        "Day-Ahead-Preis verfügbar",
-        "Ladekosten (€)",
         "Entladewert (€)",
         "Netto-Einsparung (€)",
         "Batteriekapazität (kWh)",
@@ -1442,7 +1542,8 @@ def test_battery_optimization_results_table_includes_interval_inputs_and_calcula
     assert results.loc[0, "Zeitpunkt"] == pd.Timestamp("2026-01-01T00:00:00Z")
     assert results.loc[0, "Gesamterzeugung (kW)"] == pytest.approx(60.0)
     assert results.loc[0, "Geladene Energie (kWh)"] == pytest.approx(100.0)
-    assert results.loc[0, "Ladekosten (€)"] == pytest.approx(5.0)
+    assert "Day-Ahead-Preis verfügbar" not in results
+    assert "Ladekosten (€)" not in results
 
 
 def test_battery_optimization_results_table_is_timestamp_descending() -> None:

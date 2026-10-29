@@ -74,6 +74,14 @@ def render() -> None:
     timezone = selections["timezone"]
     microgrid_id = selections["microgrid_id"]
     st.caption(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
+
+    # Clear the previous filter result before any asynchronous synchronization or
+    # data loading can stop this run.  Otherwise Streamlit can keep the old report
+    # body visible while the newly selected range is still loading, which makes
+    # the KPI cards appear to contain current data when they are actually stale.
+    report_content = st.empty()
+    report_content.empty()
+
     start_time = set_date_to_midnight(selections["start_date"], timezone)
     end_time = normalize_date_for_reporting(selections["end_date"], timezone)
     end_time = end_time.replace(microsecond=0)
@@ -183,11 +191,12 @@ def render() -> None:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    render_battery_optimization(
-        current_master_df,
-        resolution,
-        battery_capacity_data=battery_capacity_data,
-    )
+    with report_content.container():
+        render_battery_optimization(
+            current_master_df,
+            resolution,
+            battery_capacity_data=battery_capacity_data,
+        )
 
 
 PAGE = PageSpec(
