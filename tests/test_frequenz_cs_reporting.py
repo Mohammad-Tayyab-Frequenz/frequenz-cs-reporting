@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 import streamlit as st
+from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 
 from frequenz.cs_reporting.app_pages import (
@@ -165,23 +166,31 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
             "grid_feed_in": [3.0],
             "pv_asset_production": [4.0],
             "production_self_use": [5.0],
-            "day_ahead_price": [6.0],
-            "unrelated": [7.0],
+            "production_to_battery": [6.0],
+            "grid_to_battery": [7.0],
+            "battery_to_grid": [8.0],
+            "battery_to_consumption": [9.0],
+            "day_ahead_price": [10.0],
+            "unrelated": [11.0],
         }
     )
 
-    core_data = _build_core_data_df(master_df)
+    core_data = _build_core_data_df(master_df, ColumnMapper.from_default())
 
     assert list(core_data.columns) == [
-        "timestamp",
+        "Zeitpunkt",
         "Netzbezug",
-        "Gesamtverbrauch",
+        "MID Gesamtverbrauch",
         "Netz Einspeisung",
         "PV-Erzeugung",
-        "production_self_use",
+        "Eigenverbrauch",
+        "Erzeugung zu Batterie",
+        "Netz zu Batterie",
+        "Batterie zu Netz",
+        "Batterie zu Verbrauch",
         "Day Ahead Preis",
     ]
-    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :7])
+    assert core_data.iloc[0].tolist() == list(master_df.iloc[0, :11])
 
 
 def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None:
@@ -193,13 +202,14 @@ def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None
                 "grid_consumption": [1.0],
                 "mid_consumption": [2.0],
             }
-        )
+        ),
+        ColumnMapper.from_default(),
     )
 
     assert list(core_data.columns) == [
-        "timestamp",
+        "Zeitpunkt",
         "Netzbezug",
-        "Gesamtverbrauch",
+        "MID Gesamtverbrauch",
     ]
 
 
@@ -225,7 +235,9 @@ def test_data_table_specs_render_after_overview_tabs(
     monkeypatch.setattr(
         table_renderers.st,
         "tabs",
-        lambda labels: [FakeTab(index) for index, _label in enumerate(labels)],
+        lambda labels, **_kwargs: [
+            FakeTab(index) for index, _label in enumerate(labels)
+        ],
     )
     monkeypatch.setattr(
         table_renderers,
@@ -267,6 +279,64 @@ def test_data_table_specs_render_after_overview_tabs(
         ("power_mix", 2),
         ("pv_energy", 3),
     ]
+
+
+def test_data_table_prepares_both_sources_for_fragment_switching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Meter and inverter tables are passed to the isolated table fragment."""
+    rendered_source_keys: list[set[str]] = []
+
+    class FakeTab:
+        """Provide the context-manager interface expected by Streamlit tabs."""
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        table_renderers,
+        "TABLE_TAB_SPECS",
+        [
+            {
+                "label": "PV-Analyse",
+                "table_key": "pv_analysis",
+                "analysis_key": "pv",
+                "key_prefix": "pv_analysis",
+                "caption": "PV-Energieerzeugung (Zeitreihe)",
+                "empty_info": "Keine PV-Analysedaten verfügbar.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        table_renderers.st,
+        "tabs",
+        lambda _labels, **_kwargs: [FakeTab()],
+    )
+    monkeypatch.setattr(table_renderers, "_table_spec_has_data", lambda *_args: True)
+
+    monkeypatch.setattr(
+        table_renderers,
+        "_component_analysis_table_for_source",
+        lambda *_args: pd.DataFrame({"value": [1.0]}),
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_component_source_table",
+        lambda frames, **_kwargs: rendered_source_keys.append(set(frames)),
+    )
+
+    table_renderers.render_data_tabs(
+        master_df=pd.DataFrame(),
+        tables_dict={},
+        mapper=object(),  # type: ignore[arg-type]
+        mcfg=None,
+        component_types=("pv",),
+    )
+
+    assert rendered_source_keys == [{"meter", "inverter"}]
 
 
 def test_csv_download_urls_support_german_and_english_formats() -> None:
@@ -329,7 +399,13 @@ def test_microgrid_names_prefer_current_assets_api_names(
             self, microgrid_ids: Iterable[int] = ()
         ) -> list[SimpleNamespace]:
             assert not tuple(microgrid_ids)
-            return [SimpleNamespace(id=243, name="Current API name")]
+            return [
+                SimpleNamespace(
+                    id=243,
+                    name="Current API name",
+                    enterprise_id=7,
+                )
+            ]
 
         async def disconnect(self) -> None:
             pass
@@ -337,6 +413,11 @@ def test_microgrid_names_prefer_current_assets_api_names(
     monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
 
     assert client_factory.get_microgrid_names() == {243: "Current API name"}
+    assert getattr(client_factory, "_ENTERPRISE_IDS") == {243: 7}
+    # Simulate a process-local reset while the Streamlit data cache survives.
+    getattr(client_factory, "_ENTERPRISE_IDS").clear()
+    assert client_factory.get_microgrid_names() == {243: "Current API name"}
+    assert getattr(client_factory, "_ENTERPRISE_IDS") == {243: 7}
     assert client_factory.get_microgrid_ids() == [243]
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
 

@@ -30,8 +30,9 @@ _logger = logging.getLogger(__name__)
 MicrogridConfigRevision: TypeAlias = tuple[str, tuple[tuple[str, str], ...]]
 MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevision]
 ApiCredentialRevision: TypeAlias = str
+MicrogridCatalog: TypeAlias = tuple[dict[int, str | None], dict[int, int]]
 _ASSETS_API_TIMEOUT_SECONDS = 20.0
-_LAST_ASSET_NAMES: dict[str, dict[int, str | None]] = {}
+_LAST_ASSET_CATALOG: dict[str, MicrogridCatalog] = {}
 _ENTERPRISE_IDS: dict[int, int] = {}
 _ENTERPRISE_FILES: dict[tuple[str, int], tuple[str, ...] | None] = {}
 
@@ -58,10 +59,7 @@ def _microgrid_ids_in_file(config_file: str) -> set[int]:
     """Return microgrid IDs defined in a TOML file without parsing it."""
     with open(config_file, "rb") as handle:
         content = handle.read()
-    return {
-        int(match.group(1))
-        for match in _MICROGRID_ID_PATTERN.finditer(content)
-    }
+    return {int(match.group(1)) for match in _MICROGRID_ID_PATTERN.finditer(content)}
 
 
 @st.cache_resource(show_spinner=False)
@@ -116,9 +114,7 @@ def _discover_config_source(config_root_value: str) -> MicrogridConfigSource:
 
     resolved_root = config_root.resolve()
     with os.scandir(resolved_root) as entries:
-        names = sorted(
-            entry.name for entry in entries if entry.name.endswith(".toml")
-        )
+        names = sorted(entry.name for entry in entries if entry.name.endswith(".toml"))
     if not names:
         raise RuntimeError(f"No microgrid config files found in: {config_root}")
 
@@ -303,8 +299,8 @@ def get_microgrid_ids() -> list[int]:
 @st.cache_data(show_spinner=False, ttl=3600)
 def _get_microgrid_names(
     credential_revision: ApiCredentialRevision,
-) -> dict[int, str | None]:
-    """Return the microgrids accessible through the Assets API.
+) -> MicrogridCatalog:
+    """Return microgrid names and enterprise IDs from the Assets API.
 
     The Assets API limits its response to the current credential scope, so it
     is the single source of the microgrid list and names.  The cache is keyed
@@ -316,7 +312,7 @@ def _get_microgrid_names(
     sign_secret = require_env("FREQUENZ_API_SECRET")
     assets_api_url = require_env("ASSETS_API_URL")
 
-    async def load() -> dict[int, str | None]:
+    async def load() -> MicrogridCatalog:
         assets_client = AssetsApiClient(
             assets_api_url,
             auth_key=auth_key,
@@ -326,28 +322,35 @@ def _get_microgrid_names(
             microgrids = await asyncio.wait_for(
                 assets_client.list_microgrids(), _ASSETS_API_TIMEOUT_SECONDS
             )
-            for microgrid in microgrids:
-                enterprise_id = getattr(microgrid, "enterprise_id", None)
-                if enterprise_id:
-                    _ENTERPRISE_IDS[int(microgrid.id)] = int(enterprise_id)
-            return {int(microgrid.id): microgrid.name for microgrid in microgrids}
+            names = {int(microgrid.id): microgrid.name for microgrid in microgrids}
+            enterprise_ids = {
+                int(microgrid.id): int(microgrid.enterprise_id)
+                for microgrid in microgrids
+                if getattr(microgrid, "enterprise_id", None)
+            }
+            return names, enterprise_ids
         finally:
             await assets_client.disconnect()
 
     try:
         with log_duration("client_factory.assets_list_microgrids"):
-            names = asyncio.run(load())
+            catalog = asyncio.run(load())
     except (TimeoutError, OSError):
-        if credential_revision not in _LAST_ASSET_NAMES:
+        if credential_revision not in _LAST_ASSET_CATALOG:
             raise
-        return _LAST_ASSET_NAMES[credential_revision]
-    _LAST_ASSET_NAMES[credential_revision] = names
-    return names
+        return _LAST_ASSET_CATALOG[credential_revision]
+    _LAST_ASSET_CATALOG[credential_revision] = catalog
+    return catalog
 
 
 def get_microgrid_names() -> dict[int, str | None]:
     """Return accessible microgrid IDs and names from the Assets API."""
-    return _get_microgrid_names(get_api_credential_revision())
+    names, enterprise_ids = _get_microgrid_names(get_api_credential_revision())
+    # This wrapper executes even when Streamlit serves the catalog from cache,
+    # so the process-local fast-path index is restored reliably after a reload.
+    _ENTERPRISE_IDS.clear()
+    _ENTERPRISE_IDS.update(enterprise_ids)
+    return names
 
 
 @st.cache_data(show_spinner=False)

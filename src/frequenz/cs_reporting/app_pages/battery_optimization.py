@@ -39,7 +39,7 @@ from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
 
 
 def _mid_caption(microgrid_id: int, microgrid_name: str | None) -> str:
-    """Return the MID identification displayed below the page title."""
+    """Return the MID identification displayed as the page title."""
     name = microgrid_name or "Nicht verfügbar"
     return f"MID{microgrid_id} - {name}"
 
@@ -63,8 +63,6 @@ def _poll_day_ahead_price_sync(future: Future[pd.Series]) -> None:
 # pylint: disable=too-many-branches,too-many-locals,too-many-statements
 def render() -> None:
     """Render the battery optimization savings page."""
-    st.title("Batterie Reporting")
-
     today = datetime.now(tz=UTC).date()
     selections = collect_sidebar_inputs(
         resolution_options=("15min", "30min", "1hour"),
@@ -73,7 +71,7 @@ def render() -> None:
 
     timezone = selections["timezone"]
     microgrid_id = selections["microgrid_id"]
-    st.caption(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
+    st.title(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
 
     # Clear the previous filter result before any asynchronous synchronization or
     # data loading can stop this run.  Otherwise Streamlit can keep the old report

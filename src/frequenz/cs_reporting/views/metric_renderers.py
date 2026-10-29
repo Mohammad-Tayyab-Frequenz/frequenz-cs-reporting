@@ -428,8 +428,12 @@ def render_box_grid(
                         '<div class="kpi-card__value kpi-card__value--null">—</div>'
                     )
                 else:
-                    comparison = (delta_comparisons or {}).get(label, "less_is_good")
-                    delta_html = _delta_html(val, previous_val, comparison)
+                    # Temporarily hide percentage comparisons in KPI cards.
+                    # comparison = (delta_comparisons or {}).get(
+                    #     label, "less_is_good"
+                    # )
+                    # delta_html = _delta_html(val, previous_val, comparison)
+                    delta_html = ""
                     value_html = (
                         '<div class="kpi-card__value-row">'
                         f'<div class="kpi-card__value">'
@@ -438,13 +442,15 @@ def render_box_grid(
                         "</div>"
                     )
 
-                previous_html = (
-                    f'<div class="kpi-card__previous">'
-                    f"<span>{_format_previous_value(label, previous_val)}</span>"
-                    f"{_prior_period_help_html()}</div>"
-                    if previous_val is not None
-                    else ""
-                )
+                # Temporarily hide previous-period values in KPI cards.
+                # previous_html = (
+                #     f'<div class="kpi-card__previous">'
+                #     f"<span>{_format_previous_value(label, previous_val)}</span>"
+                #     f"{_prior_period_help_html()}</div>"
+                #     if previous_val is not None
+                #     else ""
+                # )
+                previous_html = ""
                 tooltip_html = (
                     '<span class="kpi-card__tooltip" role="button" tabindex="0" '
                     f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
