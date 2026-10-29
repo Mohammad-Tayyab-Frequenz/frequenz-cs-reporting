@@ -67,6 +67,21 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
         ),
     ),
     _FeatureCard(
+        color_class="home-card--amber",
+        icon="&#128267;",
+        title="Batterie-Reporting",
+        description=(
+            "Wirtschaftliche Auswertung des Batterieeinsatzes mit "
+            "Day-Ahead-Preisen, Leistungsflüssen und Ladezustand."
+        ),
+        features=(
+            "Analyse von Lade- und Entladevorgängen",
+            "Einsparungen und Preis-Spreads",
+            "Batteriedurchsatz und Vollzyklen",
+            "Auswertung von Leistung &amp; Ladezustand",
+        ),
+    ),
+    _FeatureCard(
         color_class="home-card--green",
         icon="&#9728;",
         title="Solar-Reporting",
@@ -188,14 +203,17 @@ def render() -> None:
     st.markdown(_stats_html(_STATS), unsafe_allow_html=True)
     st.markdown(_feature_grid_html(_FEATURE_CARDS), unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("Reporting-Dashboard öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard")
     with col2:
+        if st.button("Batterie-Reporting öffnen", use_container_width=True):
+            _navigate_to("battery_optimization")
+    with col3:
         if st.button("Solar-Reporting öffnen", use_container_width=True):
             _navigate_to("solar")
-    with col3:
+    with col4:
         if st.button("Datenexport öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard", section="data-export")
 

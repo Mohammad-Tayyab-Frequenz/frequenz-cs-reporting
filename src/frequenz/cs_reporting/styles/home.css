@@ -101,6 +101,7 @@
 }
 .home-card--blue::before   { background: linear-gradient(90deg, #1d4ed8, #3b82f6); }
 .home-card--green::before  { background: linear-gradient(90deg, #059669, #10b981); }
+.home-card--amber::before  { background: linear-gradient(90deg, #d97706, #f59e0b); }
 .home-card--purple::before { background: linear-gradient(90deg, #7c3aed, #8b5cf6); }
 
 .home-card__icon {
@@ -112,6 +113,7 @@
 }
 .home-card--blue   .home-card__icon { background: #eff6ff; }
 .home-card--green  .home-card__icon { background: #ecfdf5; }
+.home-card--amber  .home-card__icon { background: #fffbeb; }
 .home-card--purple .home-card__icon { background: #f5f3ff; }
 
 .home-card h3 {
