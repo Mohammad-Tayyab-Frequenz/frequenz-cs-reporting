@@ -71,7 +71,7 @@ dev-mkdocs = [
   "mkdocstrings-python == 2.0.9",
   # 11.0.2 requires passing `md` to Highlight, which mkdocstrings 1.0.6
   # does not yet do.
-  "pymdown-extensions == 11.0.1",
+  "pymdown-extensions == 12.3",
   "frequenz-repo-config[lib] == 0.19.0",
 ]
 dev-mypy = [
