@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -43,8 +44,10 @@ from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
+from frequenz.cs_reporting.constants import TablesResult
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
+    build_battery_optimization_results_table,
     calculate_battery_optimization_intervals,
     calculate_selection_metrics,
 )
@@ -54,7 +57,14 @@ from frequenz.cs_reporting.services.data_service import (
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
-from frequenz.cs_reporting.views import dashboard, metric_renderers, table_renderers
+from frequenz.cs_reporting.views import (
+    dashboard,
+    metric_renderers,
+)
+from frequenz.cs_reporting.views import sections as reporting_sections
+from frequenz.cs_reporting.views import (
+    table_renderers,
+)
 from frequenz.cs_reporting.views.battery_optimization import (
     _BATTERY_PLOT_FRAGMENT_RENDERERS,
     _HIDDEN_NORMALIZED_METRICS,
@@ -65,7 +75,6 @@ from frequenz.cs_reporting.views.battery_optimization import (
     _build_battery_optimization_kpi_boxes,
     _render_battery_optimization_plot_tabs,
     aggregate_battery_optimization_summary,
-    build_battery_optimization_results_table,
     build_daily_battery_optimization_figure,
     build_normalized_battery_optimization_figure,
     calculate_battery_optimization_summary,
@@ -93,13 +102,15 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _kpi_tooltip_content_html,
     _materialize_boxes,
     _prior_period_help_html,
-    _skip_missing_day_ahead_price_specs,
 )
 from frequenz.cs_reporting.views.plot_renderers import (
     _component_ids_for_plot_source,
     _render_overview_plot,
 )
-from frequenz.cs_reporting.views.table_renderers import _build_core_data_df
+from frequenz.cs_reporting.views.table_renderers import (
+    _build_core_data_df,
+    _filter_export_dates,
+)
 
 
 class _FakeMicrogridConfig:
@@ -154,6 +165,67 @@ def _decode_csv_data_url(data_url: str) -> str:
     """Decode a base64 CSV data URL for assertions."""
     _, encoded_csv = data_url.split(",", maxsplit=1)
     return b64decode(encoded_csv).decode("utf-8")
+
+
+def test_data_export_uses_focused_export_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The export page renders the same predefined datasets as Reporting."""
+    master_df = pd.DataFrame({"timestamp": [pd.Timestamp("2026-01-01")]})
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        dashboard,
+        "_filter_component_types_for_master_df",
+        lambda component_types, _master_df: component_types,
+    )
+    monkeypatch.setattr(dashboard, "_has_current_day_ahead_prices", lambda _df: True)
+    export_tables = {"power_table": pd.DataFrame()}
+    monkeypatch.setattr(
+        dashboard,
+        "_build_tables",
+        lambda *_args: export_tables,
+    )
+
+    def capture_data_export(*args: object) -> None:
+        captured["args"] = args
+
+    monkeypatch.setattr(reporting_sections, "render_data_export", capture_data_export)
+
+    mapper = ColumnMapper.from_default()
+    dashboard.render_data_export(
+        master_df,
+        timedelta(minutes=15),
+        ["pv"],
+        mapper,
+    )
+
+    assert captured["args"] == (
+        master_df,
+        mapper,
+        export_tables,
+        timedelta(minutes=15),
+    )
+
+
+def test_data_export_date_filter_is_inclusive() -> None:
+    """A custom export range applies to all rows, including both endpoints."""
+    dataframe = pd.DataFrame(
+        {
+            "Zeitpunkt": pd.to_datetime(
+                ["2026-01-01T00:00:00Z", "2026-01-02T12:00:00Z", "2026-01-03T00:00:00Z"]
+            ),
+            "value": [1, 2, 3],
+        }
+    )
+
+    filtered = _filter_export_dates(
+        dataframe,
+        date(2026, 1, 2),
+        date(2026, 1, 3),
+    )
+
+    assert list(filtered["value"]) == [2, 3]
 
 
 def test_core_data_table_contains_requested_columns_in_order() -> None:
@@ -233,7 +305,7 @@ def test_data_table_specs_render_after_overview_tabs(
             active_tab.pop()
 
     monkeypatch.setattr(
-        table_renderers.st,
+        st,
         "tabs",
         lambda labels, **_kwargs: [
             FakeTab(index) for index, _label in enumerate(labels)
@@ -264,10 +336,13 @@ def test_data_table_specs_render_after_overview_tabs(
 
     table_renderers.render_data_tabs(
         master_df=pd.DataFrame({"timestamp": [pd.Timestamp("2026-01-01")]}),
-        tables_dict={
-            "power_table": pd.DataFrame({"value": [1.0]}),
-            "pv_energy_table": pd.DataFrame({"value": [2.0]}),
-        },
+        tables_dict=cast(
+            TablesResult,
+            {
+                "power_table": pd.DataFrame({"value": [1.0]}),
+                "pv_energy_table": pd.DataFrame({"value": [2.0]}),
+            },
+        ),
         mapper=object(),  # type: ignore[arg-type]
         mcfg=None,
         component_types=(),
@@ -279,6 +354,56 @@ def test_data_table_specs_render_after_overview_tabs(
         ("power_mix", 2),
         ("pv_energy", 3),
     ]
+
+
+def test_data_tables_can_render_stacked_without_tabs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The export layout presents every available dataset in sequence."""
+    headings: list[str] = []
+    rendered: list[str] = []
+
+    monkeypatch.setattr(
+        st,
+        "tabs",
+        lambda *_args, **_kwargs: pytest.fail("stacked tables must not use tabs"),
+    )
+    monkeypatch.setattr(st, "subheader", headings.append)
+    monkeypatch.setattr(
+        table_renderers,
+        "_table_spec_has_data",
+        lambda spec, *_args: spec["table_key"] == "power_table",
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_core_data",
+        lambda *_args: rendered.append("core"),
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_master_df",
+        lambda *_args: rendered.append("master"),
+    )
+    monkeypatch.setattr(
+        table_renderers,
+        "render_table_section",
+        lambda _value, **kwargs: rendered.append(str(kwargs["key_prefix"])),
+    )
+
+    table_renderers.render_data_tabs(
+        master_df=pd.DataFrame({"timestamp": [pd.Timestamp("2026-01-01")]}),
+        tables_dict=cast(
+            TablesResult,
+            {"power_table": pd.DataFrame({"value": [1.0]})},
+        ),
+        mapper=object(),  # type: ignore[arg-type]
+        mcfg=None,
+        component_types=(),
+        stacked=True,
+    )
+
+    assert headings == ["Kerndaten", "Gesamt-Datensatz", "Leistungsmix"]
+    assert rendered == ["core", "master", "power_mix"]
 
 
 def test_data_table_prepares_both_sources_for_fragment_switching(
@@ -311,7 +436,7 @@ def test_data_table_prepares_both_sources_for_fragment_switching(
         ],
     )
     monkeypatch.setattr(
-        table_renderers.st,
+        st,
         "tabs",
         lambda _labels, **_kwargs: [FakeTab()],
     )
@@ -330,7 +455,7 @@ def test_data_table_prepares_both_sources_for_fragment_switching(
 
     table_renderers.render_data_tabs(
         master_df=pd.DataFrame(),
-        tables_dict={},
+        tables_dict=cast(TablesResult, {}),
         mapper=object(),  # type: ignore[arg-type]
         mcfg=None,
         component_types=("pv",),
@@ -545,10 +670,16 @@ def test_microgrid_config_loads_only_files_defining_it(
     )
     monkeypatch.setitem(getattr(client_factory, "_ENTERPRISE_IDS"), 777, 7)
     getattr(client_factory, "_ENTERPRISE_FILES").clear()
+
+    def empty_microgrid_index(*_args: object) -> dict[object, object]:
+        """Record that the fallback index would have been used."""
+        index_calls.append(None)
+        return {}
+
     monkeypatch.setattr(
         client_factory,
         "_microgrid_file_index_cached",
-        lambda *_a: index_calls.append(None) or {},
+        empty_microgrid_index,
     )
     # Only existence is checked; no file content is read for the lookup.
     assert getattr(client_factory, "_enterprise_config_files")(777) == (
@@ -1191,8 +1322,8 @@ def test_tooltip_copy_is_loaded_from_the_content_catalogue() -> None:
     assert "Netzbetreiber" in load_tooltips("reporting")["invoicing_warning"]
 
 
-def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
-    """Day-ahead price KPI boxes are hidden when ENTSOE prices are unavailable."""
+def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
+    """Day-ahead price KPI boxes are not limited to selected microgrids."""
     grid_section = next(
         section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
     )
@@ -1200,18 +1331,18 @@ def test_day_ahead_price_kpi_specs_are_skipped_when_metrics_missing() -> None:
         grid_section,
         component_type_set={"grid"},
         component_types_provided=True,
-        microgrid_id=231,
+        microgrid_id=123,
     )
 
-    filtered_specs = _skip_missing_day_ahead_price_specs(
-        box_specs,
-        metrics={"grid_consumption_sum": 10.0, "grid_feed_in_sum": 5.0},
-    )
-
-    assert [spec.get("key") for spec in filtered_specs] == [
+    assert [spec.get("key") for spec in box_specs] == [
         "grid_consumption_sum",
         "grid_feed_in_sum",
         "peak",
+        "grid_import_cost_sum",
+        "grid_feed_in_revenue_sum",
+        None,
+        "average_da_price_grid_import",
+        "average_da_price_grid_feed_in",
     ]
 
 
@@ -1252,8 +1383,8 @@ def test_completed_price_sync_triggers_only_one_full_rerun(
     monkeypatch.setattr(
         dashboard, "request_reporting_data_reuse", lambda: reuse_requests.append(None)
     )
-    monkeypatch.setattr(dashboard.st, "rerun", lambda: reruns.append(None))
-    monkeypatch.setattr(dashboard.st, "warning", warnings.append)
+    monkeypatch.setattr(st, "rerun", lambda: reruns.append(None))
+    monkeypatch.setattr(st, "warning", warnings.append)
     master_df = pd.DataFrame(
         {"timestamp": [pd.Timestamp("2026-10-16 00:00", tz="Europe/Berlin")]}
     )
@@ -1520,7 +1651,13 @@ def test_single_battery_plot_is_rendered_without_tabs(
     """The standalone cycles plot does not render a redundant tab control."""
     tab_calls: list[list[str]] = []
     render_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(st, "tabs", lambda labels: tab_calls.append(list(labels)) or [])
+
+    def no_tabs(labels: list[str]) -> list[object]:
+        """Record the requested labels without creating tab contexts."""
+        tab_calls.append(list(labels))
+        return []
+
+    monkeypatch.setattr(st, "tabs", no_tabs)
     monkeypatch.setitem(
         _BATTERY_PLOT_FRAGMENT_RENDERERS,
         "battery_optimization_battery_cycles",

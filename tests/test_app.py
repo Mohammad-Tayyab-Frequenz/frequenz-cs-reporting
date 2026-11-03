@@ -64,4 +64,5 @@ def test_page_discovery_uses_lightweight_manifest(
         "reporting_dashboard",
         "battery_optimization",
         "solar",
+        "data_export",
     ]
