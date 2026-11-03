@@ -19,12 +19,18 @@ from .plot_renderers import (
     render_plots_tabs,
     render_time_series,
 )
-from .table_renderers import render_data_tabs, render_master_df, render_table_section
+from .table_renderers import (
+    render_data_export,
+    render_data_tabs,
+    render_master_df,
+    render_table_section,
+)
 
 __all__ = [
     "render_table_section",
     "render_master_df",
     "render_data_tabs",
+    "render_data_export",
     "render_time_series",
     "render_energy_pie_chart",
     "render_plots_tabs",

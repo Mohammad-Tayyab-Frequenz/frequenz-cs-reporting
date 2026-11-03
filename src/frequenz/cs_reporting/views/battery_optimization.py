@@ -15,6 +15,7 @@ import streamlit as st
 from frequenz.cs_reporting.components.ui import render_plot_card
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     aggregate_battery_optimization_intervals,
+    build_battery_optimization_results_table,
     calculate_battery_optimization_intervals,
     calculate_selection_metrics,
 )
@@ -69,46 +70,6 @@ _HIDDEN_NORMALIZED_METRICS = frozenset(
     {"value_per_mwh_throughput", "value_per_mwh_discharged"}
 )
 _KPI_TOOLTIPS = load_tooltips("battery_optimization")
-_RESULTS_TABLE_SOURCE_COLUMNS = (
-    "timestamp",
-    "grid_consumption",
-    "grid_feed_in",
-    "mid_consumption",
-    "total_production",
-    "pv_asset_production",
-    "wind_asset_production",
-    "chp_asset_production",
-    "battery_power_flow",
-    "battery_charge",
-    "battery_discharge",
-    "battery_soc_pct",
-    "day_ahead_price",
-)
-_RESULTS_TABLE_CALCULATION_COLUMNS = {
-    "battery_charging_kwh": "Geladene Energie (kWh)",
-    "battery_discharging_kwh": "Entladene Energie (kWh)",
-    "battery_throughput_kwh": "Batteriedurchsatz (kWh)",
-    "discharging_value_eur": "Entladewert (€)",
-    "optimization_savings_eur": "Netto-Einsparung (€)",
-    "battery_capacity_kwh": "Batteriekapazität (kWh)",
-    "battery_cycles": "Batteriezyklen (Vollzyklen)",
-}
-_RESULTS_TABLE_RENAMES = {
-    "timestamp": "Zeitpunkt",
-    "grid_consumption": "Netzbezug (kW)",
-    "grid_feed_in": "Netzeinspeisung (kW)",
-    "mid_consumption": "Gesamtverbrauch (kW)",
-    "total_production": "Gesamterzeugung (kW)",
-    "pv_asset_production": "PV-Erzeugung (kW)",
-    "wind_asset_production": "Wind-Erzeugung (kW)",
-    "chp_asset_production": "KWK-Erzeugung (kW)",
-    "battery_power_flow": "Batterieleistungsfluss (kW)",
-    "battery_charge": "Batterieladung (kW)",
-    "battery_discharge": "Batterieentladung (kW)",
-    "battery_soc_pct": "Batterie-SOC (%)",
-    "day_ahead_price": "Day-Ahead-Preis (€/MWh)",
-    **_RESULTS_TABLE_CALCULATION_COLUMNS,
-}
 
 
 def _format_full_eur(value: float) -> str:
@@ -282,91 +243,6 @@ def calculate_normalized_battery_optimization_metrics(
         "value_per_kwh_capacity": value_per_kwh_capacity,
         "battery_cycles": battery_cycles,
     }
-
-
-def build_battery_optimization_results_table(
-    master_df: pd.DataFrame,
-    resolution: timedelta,
-    battery_capacity_kwh: float | None = None,
-) -> pd.DataFrame:
-    """Build interval-level battery optimization inputs and calculations for export."""
-    result = master_df.copy()
-    if "battery_throughput_kwh" in result.columns:
-        result_columns = [
-            *(column for column in _RESULTS_TABLE_SOURCE_COLUMNS if column in result),
-            *tuple(_RESULTS_TABLE_CALCULATION_COLUMNS),
-        ]
-        table = result.reindex(columns=result_columns).rename(
-            columns=_RESULTS_TABLE_RENAMES
-        )
-        return table.sort_values("Zeitpunkt", ascending=False, kind="stable")
-    resolution_hours = pd.to_timedelta(resolution).total_seconds() / 3600.0
-    battery_power = pd.to_numeric(
-        result.get(
-            _BATTERY_POWER_FLOW_COLUMN,
-            pd.Series(0.0, index=result.index),
-        ),
-        errors="coerce",
-    ).fillna(0.0)
-    day_ahead_price_source = (
-        result[_DAY_AHEAD_PRICE_COLUMN]
-        if _DAY_AHEAD_PRICE_COLUMN in result.columns
-        else pd.Series(float("nan"), index=result.index, dtype="float64")
-    )
-    day_ahead_price = pd.to_numeric(day_ahead_price_source, errors="coerce")
-    result["day_ahead_price_available"] = day_ahead_price.notna()
-
-    production_columns = [
-        column
-        for column in (
-            "pv_asset_production",
-            "wind_asset_production",
-            "chp_asset_production",
-        )
-        if column in result.columns
-    ]
-    if production_columns:
-        result["total_production"] = (
-            result[production_columns]
-            .apply(
-                pd.to_numeric,
-                errors="coerce",
-            )
-            .fillna(0.0)
-            .sum(axis=1)
-        )
-
-    result["battery_charging_kwh"] = battery_power.clip(lower=0.0) * resolution_hours
-    result["battery_discharging_kwh"] = (
-        -battery_power.clip(upper=0.0) * resolution_hours
-    )
-    result["battery_throughput_kwh"] = (
-        result["battery_charging_kwh"] + result["battery_discharging_kwh"]
-    )
-    result["charging_cost_eur"] = (
-        result["battery_charging_kwh"] * day_ahead_price / _KWH_PER_MWH
-    )
-    result["discharging_value_eur"] = (
-        result["battery_discharging_kwh"] * day_ahead_price / _KWH_PER_MWH
-    )
-    result["optimization_savings_eur"] = (
-        result["discharging_value_eur"] - result["charging_cost_eur"]
-    )
-    result["battery_capacity_kwh"] = battery_capacity_kwh
-    result["battery_cycles"] = (
-        result["battery_throughput_kwh"] / (2 * battery_capacity_kwh)
-        if battery_capacity_kwh is not None and battery_capacity_kwh > 0
-        else None
-    )
-
-    result_columns = [
-        *(column for column in _RESULTS_TABLE_SOURCE_COLUMNS if column in result),
-        *tuple(_RESULTS_TABLE_CALCULATION_COLUMNS),
-    ]
-    table = result.reindex(columns=result_columns).rename(
-        columns=_RESULTS_TABLE_RENAMES
-    )
-    return table.sort_values("Zeitpunkt", ascending=False, kind="stable")
 
 
 def aggregate_battery_optimization_summary(

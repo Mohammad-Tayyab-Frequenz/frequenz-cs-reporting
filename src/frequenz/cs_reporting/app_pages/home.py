@@ -215,7 +215,7 @@ def render() -> None:
             _navigate_to("solar")
     with col4:
         if st.button("Datenexport öffnen", use_container_width=True):
-            _navigate_to("reporting_dashboard", section="data-export")
+            _navigate_to("data_export")
 
     st.markdown(_footer_html(), unsafe_allow_html=True)
 

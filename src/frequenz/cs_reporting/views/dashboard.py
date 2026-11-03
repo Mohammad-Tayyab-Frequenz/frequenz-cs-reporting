@@ -442,13 +442,18 @@ def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     st.info("Day-ahead prices are loading in the background …")
 
 
+def _request_dashboard_rerun() -> None:
+    """Request a dashboard rerun through a testable wrapper."""
+    st.rerun()
+
+
 def _rerun_after_price_sync_once(future: Future[pd.Series]) -> bool:
     """Request at most one full app rerun for a completed price-sync future."""
     if st.session_state.get(_PRICE_SYNC_RERUN_STATE_KEY) is future:
         return False
     st.session_state[_PRICE_SYNC_RERUN_STATE_KEY] = future
     request_reporting_data_reuse()
-    st.rerun()
+    _request_dashboard_rerun()
     return True
 
 
@@ -545,3 +550,24 @@ def render_dashboard(
         st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
         _section_divider("Datentabellen")
         sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
+
+
+def render_data_export(
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+    component_types: Iterable[str],
+    mapper: ColumnMapper,
+    previous_master_df: pd.DataFrame | None = None,
+) -> None:
+    """Render all predefined reporting tables on the standalone export page."""
+    component_types = _filter_component_types_for_master_df(component_types, master_df)
+    if not _has_current_day_ahead_prices(master_df):
+        _render_day_ahead_price_sync_status(
+            master_df,
+            previous_master_df,
+            resolution,
+        )
+
+    with log_duration("data_export.render_tables"):
+        tables = _build_tables(master_df, resolution, component_types)
+        sections.render_data_export(master_df, mapper, tables, resolution)

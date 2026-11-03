@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Callable, Iterable
 
 import pandas as pd
@@ -13,6 +14,10 @@ from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 
 from frequenz.cs_reporting.components import tables
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.services.battery_optimization_calculations import (
+    build_battery_optimization_results_table,
+)
+from frequenz.cs_reporting.ui_resources import inject_style
 from frequenz.cs_reporting.views.component_sources import (
     PLOT_SOURCE_ANALYSIS_KEYS,
     PLOT_SOURCE_OPTIONS,
@@ -322,15 +327,143 @@ def render_core_data(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
     )
 
 
-# pylint: disable=too-many-locals
+def _export_dataset(
+    master_df: pd.DataFrame, mapper: ColumnMapper, dataset: str
+) -> pd.DataFrame:
+    """Return the selected export dataset with its display column names."""
+    if dataset == "core":
+        return _build_core_data_df(master_df, mapper)
+    return mapper.to_display(master_df).rename(columns=_MASTER_DF_DISPLAY_RENAMES)
+
+
+def _filter_export_dates(
+    df: pd.DataFrame, start_date: date, end_date: date
+) -> pd.DataFrame:
+    """Limit an export dataframe to inclusive calendar dates when possible."""
+    timestamp_column = next(
+        (column for column in ("timestamp", "Zeitpunkt") if column in df.columns),
+        None,
+    )
+    if timestamp_column is None:
+        return df
+
+    timestamps = pd.to_datetime(df[timestamp_column], errors="coerce", utc=True)
+    matching_rows = (timestamps.dt.date >= start_date) & (
+        timestamps.dt.date <= end_date
+    )
+    return df.loc[matching_rows].copy()
+
+
+def _export_date_bounds(df: pd.DataFrame) -> tuple[date, date] | None:
+    """Return the calendar-date bounds of a dataframe timestamp column."""
+    timestamp_column = next(
+        (column for column in ("timestamp", "Zeitpunkt") if column in df.columns),
+        None,
+    )
+    if timestamp_column is None:
+        return None
+    timestamps = pd.to_datetime(
+        df[timestamp_column], errors="coerce", utc=True
+    ).dropna()
+    if timestamps.empty:
+        return None
+    return timestamps.min().date(), timestamps.max().date()
+
+
+def _battery_optimization_export(
+    master_df: pd.DataFrame, resolution: Any
+) -> pd.DataFrame | None:
+    """Build the Battery Reporting calculation table when a battery is present."""
+    if "battery_power_flow" not in master_df.columns or resolution is None:
+        return None
+
+    return build_battery_optimization_results_table(master_df, resolution)
+
+
+def _available_export_datasets(
+    master_df: pd.DataFrame,
+    mapper: ColumnMapper,
+    tables_dict: TablesResult | None,
+    resolution: Any,
+) -> dict[str, pd.DataFrame]:
+    """Return every non-empty dataset available from Reporting and Battery Reporting."""
+    datasets = {
+        "Kerndaten": _build_core_data_df(master_df, mapper),
+        "Gesamt-Datensatz": mapper.to_display(master_df).rename(
+            columns=_MASTER_DF_DISPLAY_RENAMES
+        ),
+    }
+    if tables_dict is not None:
+        reporting_tables = (
+            ("Leistungsmix", "power_table"),
+            ("PV-Analyse", "pv_analysis"),
+            ("Batterie-Analyse", "batt_analysis"),
+            ("Wind-Analyse", "wind_analysis"),
+            ("KWK-Analyse", "chp_analysis"),
+            ("EV-Analyse", "ev_analysis"),
+            ("Netzeinspeisung", "feed_in_table"),
+        )
+        datasets.update(
+            {
+                label: table
+                for label, key in reporting_tables
+                if isinstance((table := tables_dict.get(key)), pd.DataFrame)
+                and not table.empty
+            }
+        )
+
+    battery_export = _battery_optimization_export(master_df, resolution)
+    if battery_export is not None and not battery_export.empty:
+        datasets["Batterie-Reporting: Berechnungsdaten"] = battery_export
+    return datasets
+
+
+def render_data_export(
+    master_df: pd.DataFrame,
+    mapper: ColumnMapper,
+    tables_dict: TablesResult | None = None,
+    resolution: Any = None,
+) -> None:
+    """Render predefined and custom CSV exports for Reporting and Battery Reporting."""
+    inject_style("data_export.css")
+    datasets = _available_export_datasets(master_df, mapper, tables_dict, resolution)
+
+    st.markdown("### Standard-Exporte")
+    export_tabs = st.tabs(list(datasets), key="data_export_standard_tabs")
+    for index, (tab, (dataset_name, dataset_df)) in enumerate(
+        zip(export_tabs, datasets.items())
+    ):
+        with tab:
+            tables.aggrid_table(
+                _round_numeric_columns(dataset_df),
+                key_prefix=f"data_export_standard_{index}",
+                download_file_name=f"{dataset_name.lower().replace(' ', '_')}.csv",
+            )
+
+    st.divider()
+    st.markdown("### Individueller Datenexport")
+    full_df = datasets["Gesamt-Datensatz"]
+    default_columns = ["Zeitpunkt"] if "Zeitpunkt" in full_df.columns else []
+    tables.aggrid_table(
+        _round_numeric_columns(full_df),
+        key_prefix="data_export_custom",
+        download_file_name="individueller_datenexport.csv",
+        column_selection=True,
+        initially_visible_columns=default_columns,
+    )
+
+
+# pylint: disable=too-many-locals,too-many-arguments
 def render_data_tabs(
     master_df: pd.DataFrame,
     tables_dict: TablesResult,
     mapper: ColumnMapper,
     mcfg: Any,
     component_types: Iterable[str],
+    *,
+    stacked: bool = False,
 ) -> None:
-    """Render tabbed data tables for overview and component analyses.
+    """Render data tables for overview and component analyses.
 
     Args:
         master_df: Processed master dataframe.
@@ -338,6 +471,7 @@ def render_data_tabs(
         mapper: Column mapper for standardizing Gesamt-Datensatz column names.
         mcfg: Microgrid configuration object containing component metadata.
         component_types: Component type identifiers present in the microgrid.
+        stacked: Render each dataset beneath the preceding one instead of in tabs.
 
     Returns:
         Streamlit components are rendered directly.
@@ -369,15 +503,48 @@ def render_data_tabs(
         st.info("Keine Datentabellen verfügbar.")
         return
 
+    def render_spec(spec: dict[str, Any]) -> None:
+        """Render a single predefined data table."""
+        value = tables_dict.get(spec["table_key"])
+        analysis_key = spec.get("analysis_key")
+        empty_info = spec.get("empty_info")
+        if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS:
+            table_key = str(spec["table_key"])
+            analysis_key = str(analysis_key)
+            source_frames = component_source_frames_by_table[table_key]
+            selected_source = next(
+                source
+                for source in PLOT_SOURCE_OPTIONS
+                if not source_frames[source].empty
+            )
+            render_component_source_table(
+                source_frames,
+                key_prefix=spec["key_prefix"],
+                default_source=selected_source,
+            )
+        else:
+            render_table_section(
+                value if isinstance(value, pd.DataFrame) else None,
+                key_prefix=spec["key_prefix"],
+                empty_info=empty_info,
+            )
+
+    if stacked:
+        if include_master:
+            st.subheader("Kerndaten")
+            render_core_data(master_df, mapper)
+            st.subheader("Gesamt-Datensatz")
+            render_master_df(master_df, mapper)
+        for spec in available_specs:
+            st.subheader(str(spec["label"]))
+            render_spec(spec)
+        return
+
     tab_labels: list[str] = []
     if include_master:
         tab_labels.extend(("Kerndaten", "Gesamt-Datensatz"))
     tab_labels.extend(spec["label"] for spec in available_specs)
-    tabs = st.tabs(
-        tab_labels,
-        key="reporting_data_tabs",
-        on_change="ignore",
-    )
+    tabs = st.tabs(tab_labels, key="reporting_data_tabs", on_change="ignore")
 
     table_tabs = tabs
     if include_master:
@@ -388,29 +555,5 @@ def render_data_tabs(
         table_tabs = tabs[2:]
 
     for tab, spec in zip(table_tabs, available_specs):
-        value = tables_dict.get(spec["table_key"])
         with tab:
-            analysis_key = spec.get("analysis_key")
-            empty_info = spec.get("empty_info")
-            if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS:
-                table_key = str(spec["table_key"])
-                analysis_key = str(analysis_key)
-                source_frames = component_source_frames_by_table[table_key]
-                selected_source = next(
-                    source
-                    for source in PLOT_SOURCE_OPTIONS
-                    if not source_frames[source].empty
-                )
-
-            if analysis_key in PLOT_SOURCE_ANALYSIS_KEYS:
-                render_component_source_table(
-                    source_frames,
-                    key_prefix=spec["key_prefix"],
-                    default_source=selected_source,
-                )
-            else:
-                render_table_section(
-                    value if isinstance(value, pd.DataFrame) else None,
-                    key_prefix=spec["key_prefix"],
-                    empty_info=empty_info,
-                )
+            render_spec(spec)

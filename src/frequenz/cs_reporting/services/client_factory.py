@@ -169,6 +169,12 @@ def _load_microgrid_config(microgrid_id: int) -> MicrogridConfig:
     Only the TOML files defining ``microgrid_id`` are loaded, so the cost does
     not grow with the size of the whole configuration directory.
 
+    Args:
+        microgrid_id: Identifier for the configuration to load.
+
+    Returns:
+        The configuration for the requested microgrid.
+
     Raises:
         KeyError: If no TOML file defines the microgrid.
     """
@@ -237,8 +243,6 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
     Returns:
         Client ready to fetch microgrid data.
 
-    Raises:
-        KeyError: If the specified microgrid ID is not found in configs.
     """
     server_url = require_env("REPORTING_API_URL")
     auth_key = require_env("FREQUENZ_API_KEY")

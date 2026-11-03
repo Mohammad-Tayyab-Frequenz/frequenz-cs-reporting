@@ -5,6 +5,7 @@
 
 import json
 from base64 import b64encode
+from collections.abc import Iterable
 
 import pandas as pd
 import streamlit as st
@@ -61,17 +62,23 @@ def _csv_download_urls(df: pd.DataFrame) -> dict[str, str]:
     Returns:
         A mapping from language code to a base64-encoded CSV data URL.
     """
-    urls = {}
-    for language, csv_format in _CSV_FORMATS.items():
-        csv_bytes = df.to_csv(
-            index=False,
-            sep=csv_format["separator"],
-            decimal=csv_format["decimal"],
-        ).encode("utf-8")
+    urls: dict[str, str] = {}
+    for language in _CSV_FORMATS:
+        csv_bytes = csv_export_bytes(df, language)
         urls[language] = "data:text/csv;charset=utf-8;base64," + b64encode(
             csv_bytes
         ).decode("ascii")
     return urls
+
+
+def csv_export_bytes(df: pd.DataFrame, language: str) -> bytes:
+    """Serialize a dataframe in the CSV format selected for an export."""
+    csv_format = _CSV_FORMATS[language]
+    return df.to_csv(
+        index=False,
+        sep=csv_format["separator"],
+        decimal=csv_format["decimal"],
+    ).encode("utf-8")
 
 
 # pylint: disable=too-many-arguments, too-many-locals
@@ -87,6 +94,9 @@ def aggrid_table(
     min_col_width: int = 160,
     download_file_name: str | None = None,
     component_source: str | None = None,
+    csv_format: str = "de",
+    column_selection: bool = False,
+    initially_visible_columns: Iterable[str] | None = None,
 ) -> str | None:
     """Render a dataframe using AgGrid with sensible defaults.
 
@@ -103,6 +113,12 @@ def aggrid_table(
             button is rendered beside the filter-reset button.
         component_source: Selected component source. When provided, its selector
             is rendered before the reset and download buttons.
+        csv_format: Locale used to format numeric values in the grid.
+        column_selection: Whether to offer a client-side column chooser in the
+            table toolbar.  It does not trigger a Streamlit rerun.
+        initially_visible_columns: Columns shown initially when
+            ``column_selection`` is enabled.  All other columns remain loaded
+            in the browser and can be shown from the column chooser.
 
     Returns:
         The selected component source when its selector is enabled, otherwise
@@ -153,18 +169,23 @@ def aggrid_table(
             column_name,
             valueFormatter=_LOCALE_NUMBER_FORMATTER,
         )
+    for timestamp_column in ("timestamp", "Zeitpunkt"):
+        if timestamp_column in df.columns:
+            gb.configure_column(timestamp_column, pinned="left")
 
     grid_options = gb.build()
-    grid_options["context"] = {"csvFormat": "de"}
+    if column_selection:
+        visible_columns = set(initially_visible_columns or ())
+        for column in grid_options["columnDefs"]:
+            column["hide"] = column["field"] not in visible_columns
+    grid_options["context"] = {"csvFormat": csv_format}
     if component_source:
         grid_options["context"]["componentSource"] = component_source
-    download_urls = None
-    if download_file_name:
-        download_urls = _csv_download_urls(df)
     grid_options["onGridReady"] = JsCode(f"""
         function(params) {{
             const buttonId = {json.dumps(f"{key_prefix}_reset_table_filters")};
             const toolbarId = {json.dumps(f"{key_prefix}_table_toolbar")};
+            const columnSelectionEnabled = {json.dumps(column_selection)};
             const toolbarHeight = {_GRID_TOOLBAR_HEIGHT};
             const gridRoot = document.querySelector(".ag-root-wrapper");
             const gridParent = gridRoot ? gridRoot.parentElement : null;
@@ -223,6 +244,7 @@ def aggrid_table(
                 height: `${{toolbarHeight}}px`,
                 justifyContent: "flex-start",
                 padding: "4px 0 6px 0",
+                position: "relative",
             }});
 
             const componentSource = gridContext.componentSource;
@@ -258,6 +280,81 @@ def aggrid_table(
                     params.api.dispatchEvent({{type: "componentSourceChanged"}});
                 }});
                 toolbar.appendChild(sourceSelector);
+            }}
+
+            if (columnSelectionEnabled) {{
+                const columnButton = document.createElement("button");
+                columnButton.type = "button";
+                columnButton.textContent = "Spalten auswählen";
+                columnButton.title = "Datenfelder für Tabelle und CSV auswählen";
+                columnButton.setAttribute("aria-label", "Spalten auswählen");
+                Object.assign(columnButton.style, {{
+                    backgroundColor: "#f1f3f7",
+                    border: "1px solid #d9e1ec",
+                    borderRadius: "6px",
+                    color: "#343845",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    minHeight: "26px",
+                    padding: "4px 8px",
+                }});
+
+                const columnPanel = document.createElement("div");
+                columnPanel.hidden = true;
+                Object.assign(columnPanel.style, {{
+                    backgroundColor: "#ffffff",
+                    border: "1px solid #d9e1ec",
+                    borderRadius: "8px",
+                    boxShadow: "0 8px 20px rgba(15, 23, 42, 0.15)",
+                    display: "grid",
+                    gap: "6px",
+                    left: "0",
+                    maxHeight: "260px",
+                    minWidth: "260px",
+                    overflowY: "auto",
+                    padding: "10px",
+                    position: "absolute",
+                    top: "32px",
+                    zIndex: "10",
+                }});
+                const columnPanelHeading = document.createElement("strong");
+                columnPanelHeading.textContent = "Datenfelder für Vorschau und CSV";
+                columnPanel.appendChild(columnPanelHeading);
+                const columnPanelHint = document.createElement("span");
+                columnPanelHint.textContent =
+                    "Aktivieren Sie die Daten, die angezeigt und heruntergeladen werden sollen.";
+                Object.assign(columnPanelHint.style, {{
+                    color: "#64748b",
+                    fontSize: "11px",
+                    lineHeight: "1.35",
+                }});
+                columnPanel.appendChild(columnPanelHint);
+                params.api.getColumns().forEach(function(column) {{
+                    const label = document.createElement("label");
+                    Object.assign(label.style, {{
+                        alignItems: "center",
+                        cursor: "pointer",
+                        display: "flex",
+                        fontSize: "12px",
+                        gap: "6px",
+                    }});
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.checked = column.isVisible();
+                    checkbox.addEventListener("change", function() {{
+                        params.api.setColumnsVisible([column.getColId()], checkbox.checked);
+                    }});
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(column.getColDef().headerName));
+                    columnPanel.appendChild(label);
+                }});
+                columnButton.addEventListener("click", function() {{
+                    columnPanel.hidden = !columnPanel.hidden;
+                }});
+                toolbar.appendChild(columnButton);
+                toolbar.appendChild(columnPanel);
             }}
 
             const button = document.createElement("button");
@@ -303,14 +400,14 @@ def aggrid_table(
             }});
 
             toolbar.appendChild(button);
-            const downloadUrls = {json.dumps(download_urls)};
-            if (downloadUrls) {{
+            const downloadFileName = {json.dumps(download_file_name)};
+            if (downloadFileName) {{
                 const formatSelector = document.createElement("select");
                 formatSelector.title = "CSV-Format auswählen";
                 formatSelector.setAttribute("aria-label", "CSV-Format auswählen");
                 const formatOptions = [
-                    ["de", "Deutsch"],
-                    ["en", "English"],
+                    ["de", "Semikolon · Dezimalkomma"],
+                    ["en", "Komma · Dezimalpunkt"],
                 ];
                 for (const [value, label] of formatOptions) {{
                     const option = document.createElement("option");
@@ -333,7 +430,7 @@ def aggrid_table(
                 }});
 
                 const downloadButton = document.createElement("a");
-                downloadButton.download = {json.dumps(download_file_name)};
+                downloadButton.download = downloadFileName;
                 downloadButton.textContent = "CSV herunterladen";
                 downloadButton.title = "Tabelle als CSV herunterladen";
                 downloadButton.setAttribute("aria-label", "Tabelle als CSV herunterladen");
@@ -367,9 +464,19 @@ def aggrid_table(
                 }});
                 const updateDownloadFormat = function() {{
                     updateGridContext({{csvFormat: formatSelector.value}});
-                    downloadButton.href = downloadUrls[formatSelector.value];
                     params.api.refreshCells({{force: true}});
                 }};
+                downloadButton.addEventListener("click", function(event) {{
+                    event.preventDefault();
+                    params.api.exportDataAsCsv({{
+                        columnKeys: params.api.getAllDisplayedColumns().map(
+                            (column) => column.getColId()
+                        ),
+                        columnSeparator: formatSelector.value === "de" ? ";" : ",",
+                        exportedRows: "filteredAndSorted",
+                        fileName: downloadButton.download,
+                    }});
+                }});
                 formatSelector.addEventListener("change", updateDownloadFormat);
                 updateDownloadFormat();
                 toolbar.appendChild(formatSelector);

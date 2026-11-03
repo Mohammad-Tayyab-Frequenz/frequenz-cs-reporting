@@ -42,6 +42,11 @@ from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
     build_master_df,
     render_dashboard,
+)
+from frequenz.cs_reporting.views.dashboard import (
+    render_data_export as render_data_export_view,
+)
+from frequenz.cs_reporting.views.dashboard import (
     split_periods,
 )
 
@@ -182,11 +187,14 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-def render() -> None:
-    """Render the Frequenz Reporting Dashboard page.
+def _render_reporting_page(*, export_only: bool) -> None:
+    """Load reporting data and render either the dashboard or export page.
 
     Collects sidebar inputs, fetches microgrid data, prepares it for analysis,
-    and renders the dashboard views.
+    and renders the selected reporting view.
+
+    Args:
+        export_only: Whether to render only the standalone data export view.
 
     Returns:
         Streamlit components are rendered directly.
@@ -247,7 +255,10 @@ def render() -> None:
             heading = f"MID{microgrid_id}"
             if microgrid_name:
                 heading = f"{heading} - {microgrid_name}"
-            st.title(heading)
+            if export_only:
+                st.title(f"{heading}")
+            else:
+                st.title(heading)
             snapshot = take_reporting_data_snapshot(data_key)
             if snapshot is not None:
                 df = snapshot.active_power.copy()
@@ -358,21 +369,42 @@ def render() -> None:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    with log_duration("reporting.render_dashboard"):
-        render_dashboard(
-            current_master_df,
-            resolution=resolution,
-            component_types=component_types,
-            mapper=mapper,
-            microgrid_id=microgrid_id,
-            mcfg=mcfg,
-            previous_master_df=previous_master_df,
-        )
+    if export_only:
+        with log_duration("reporting.render_data_export"):
+            render_data_export_view(
+                current_master_df,
+                resolution=resolution,
+                component_types=component_types,
+                mapper=mapper,
+                previous_master_df=previous_master_df,
+            )
+    else:
+        with log_duration("reporting.render_dashboard"):
+            render_dashboard(
+                current_master_df,
+                resolution=resolution,
+                component_types=component_types,
+                mapper=mapper,
+                microgrid_id=microgrid_id,
+                mcfg=mcfg,
+                previous_master_df=previous_master_df,
+            )
     if active_power_sync is not None and not active_power_sync.done():
         # Rerun once the refresh finishes so the cached-but-stale data shown
         # above is replaced without requiring a second filter click.
         _poll_active_power_sync(active_power_sync)
-    _scroll_to_section_if_requested()
+    if not export_only:
+        _scroll_to_section_if_requested()
+
+
+def render() -> None:
+    """Render the Frequenz Reporting Dashboard page."""
+    _render_reporting_page(export_only=False)
+
+
+def render_data_export() -> None:
+    """Render the standalone data export page."""
+    _render_reporting_page(export_only=True)
 
 
 PAGE = PageSpec(
