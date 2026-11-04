@@ -65,6 +65,20 @@ _CORE_DATA_DISPLAY_FALLBACKS = {
     "day_ahead_price": "Day Ahead Preis",
 }
 
+_DSO_PRICE_DATA_COLUMNS = (
+    "timestamp",
+    "dso_export_power",
+    "dso_import_power",
+    "day_ahead_price",
+)
+
+_DSO_PRICE_DATA_RENAMES = {
+    "timestamp": "Zeitpunkt",
+    "dso_export_power": "DSO Netzeinspeisung (kW)",
+    "dso_import_power": "DSO Netzbezug (kW)",
+    "day_ahead_price": "Day Ahead Preis",
+}
+
 
 def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of `df` with number columns rounded to three decimals."""
@@ -333,6 +347,14 @@ def render_core_data(master_df: pd.DataFrame, mapper: ColumnMapper) -> None:
     )
 
 
+def _build_dso_price_data_df(master_df: pd.DataFrame) -> pd.DataFrame:
+    """Return the compact DSO feed-in, import, and price export dataset."""
+    available_columns = [
+        column for column in _DSO_PRICE_DATA_COLUMNS if column in master_df.columns
+    ]
+    return master_df.loc[:, available_columns].rename(columns=_DSO_PRICE_DATA_RENAMES)
+
+
 def _export_dataset(
     master_df: pd.DataFrame, mapper: ColumnMapper, dataset: str
 ) -> pd.DataFrame:
@@ -398,6 +420,7 @@ def _available_export_datasets(
         "Gesamt-Datensatz": mapper.to_display(master_df).rename(
             columns=_MASTER_DF_DISPLAY_RENAMES
         ),
+        "DSO & Day-Ahead-Preis": _build_dso_price_data_df(master_df),
     }
     if tables_dict is not None:
         reporting_tables = (

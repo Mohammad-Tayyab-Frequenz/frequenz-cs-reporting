@@ -333,9 +333,19 @@ def calculate_selection_metrics(intervals: pd.DataFrame) -> dict[str, float | No
     metrics = _add_normalized_metrics(totals).iloc[0]
     charging_kwh = _finite(metrics["battery_charging_kwh"])
     discharging_kwh = _finite(metrics["battery_discharging_kwh"])
+    # This is only a meaningful round-trip estimate when the energy charged in
+    # the selected period covers the energy discharged in that period.  A
+    # selected period can start with an already charged battery; counting that
+    # pre-period energy in the numerator used to produce impossible values
+    # above 100 percent.
     efficiency_pct = (
         discharging_kwh / charging_kwh * 100
-        if charging_kwh is not None and charging_kwh > 0 and discharging_kwh is not None
+        if (
+            charging_kwh is not None
+            and charging_kwh > 0
+            and discharging_kwh is not None
+            and discharging_kwh <= charging_kwh
+        )
         else None
     )
     return {

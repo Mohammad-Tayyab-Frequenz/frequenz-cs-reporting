@@ -48,8 +48,12 @@ davon, ob sie aus dem Netz oder aus Eigenerzeugung stammt.
 """
 
 battery_efficiency_pct = """
-Verhältnis von entladener zu geladener Energie im ausgewählten Zeitraum.
+Geschätzter Wirkungsgrad aus Lade- und Entladeenergie im ausgewählten Zeitraum.
 Berechnung: entladene Energie / geladene Energie * 100.
+
+Die Kennzahl wird nur angezeigt, wenn die geladene Energie die entladene
+Energie abdeckt. Ist sie nicht verfügbar, wurde zu Beginn des Zeitraums bereits
+gespeicherte Energie entladen; daraus lässt sich kein Wirkungsgrad ableiten.
 """
 
 battery_discharging_kwh = """
