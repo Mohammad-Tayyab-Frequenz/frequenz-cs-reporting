@@ -1181,6 +1181,41 @@ def test_aggregate_metrics_uses_day_ahead_price_when_prices_exist(
     assert metrics["average_da_price_grid_feed_in"] == 10.0
 
 
+def test_aggregate_metrics_adds_projected_dso_values_when_prices_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DSO energy is valued with the same day-ahead-price calculation as reporting data."""
+    monkeypatch.setattr(
+        dashboard,
+        "aggregate_metrics",
+        lambda *_args, **_kwargs: {
+            "grid_consumption_sum": 10.0,
+            "grid_feed_in_sum": 5.0,
+            "grid_import_cost_sum": 2.0,
+            "grid_feed_in_revenue_sum": 0.5,
+        },
+    )
+
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
+                "day_ahead_price": [100.0, 200.0],
+                "dso_import_power": [400.0, 800.0],
+                "dso_export_power": [40.0, 80.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert metrics["dso_import_energy_sum"] == 300.0
+    assert metrics["dso_export_energy_sum"] == 30.0
+    assert metrics["dso_import_cost_sum"] == 50.0
+    assert metrics["dso_export_revenue_sum"] == 5.0
+    assert metrics["average_da_price_dso_import"] == pytest.approx(50 / 3)
+    assert metrics["average_da_price_dso_export"] == pytest.approx(50 / 3)
+
+
 def test_split_periods_returns_selected_and_previous_ranges() -> None:
     """Fetched data is split into equal-length previous and selected periods."""
     master_df = pd.DataFrame(
@@ -1358,7 +1393,9 @@ def test_tooltip_copy_is_loaded_from_the_content_catalogue() -> None:
 def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
     """Day-ahead price KPI boxes are not limited to selected microgrids."""
     grid_section = next(
-        section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "Netzkennzahlen - Reporting Daten"
     )
     box_specs = _filter_section_box_specs(
         grid_section,
@@ -1374,9 +1411,6 @@ def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
         "grid_feed_in_sum",
         "grid_feed_in_revenue_sum",
         "average_da_price_grid_feed_in",
-        "peak",
-        "dso_import_energy_sum",
-        "dso_export_energy_sum",
     ]
 
 
@@ -1459,10 +1493,13 @@ def test_completed_price_sync_triggers_only_one_full_rerun(
 
 
 def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
-    """The optional DSO card appears when its aggregate is available."""
+    """The optional grid-operator section contains DSO aggregates."""
     grid_section = next(
-        section for section in SECTION_SPECS if section["title"] == "Netzkennzahlen"
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "Netzkennzahlen - Netzbetreiber"
     )
+    assert grid_section["full_width"] is True
     box_specs = _filter_section_box_specs(
         grid_section,
         component_type_set={"grid"},
@@ -1481,6 +1518,7 @@ def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
     )
 
     filtered_keys = [spec.get("key") for spec in filtered_specs]
+    assert "peak" in filtered_keys
     assert "dso_import_energy_sum" in filtered_keys
     assert "dso_export_energy_sum" in filtered_keys
 

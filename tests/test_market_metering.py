@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import grpc
 import pandas as pd
 import pytest
 
@@ -125,6 +126,58 @@ async def test_market_metering_sums_locations_and_resamples_energy(
     assert result["timestamp"].tolist() == [pd.Timestamp(start)]
     assert result["dso_import_energy"].tolist() == [14.0]
     assert result["dso_export_energy"].tolist() == [13.0]
+
+
+@pytest.mark.asyncio
+async def test_market_metering_skips_unknown_malo_and_keeps_available_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unavailable MaLo does not prevent data for the remaining MaLos."""
+    start = datetime(2026, 8, 21, tzinfo=UTC)
+    calls: list[tuple[str, ...]] = []
+
+    async def stream_records(
+        _client: object,
+        market_locations: list[Any],
+        _start: datetime,
+        _end: datetime,
+        _timeout: float,
+    ) -> list[dict[str, Any]]:
+        location_ids = tuple(
+            location.market_location_id.value for location in market_locations
+        )
+        calls.append(location_ids)
+        if len(location_ids) > 1 or location_ids == ("unavailable",):
+            raise grpc.aio.AioRpcError(grpc.StatusCode.NOT_FOUND)
+        return [
+            {
+                "timestamp": start,
+                "dso_energy": 2.5,
+                "direction": "import",
+                "revision": 1,
+                "market_location_id": "available",
+            }
+        ]
+
+    class FakeClient:
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(market_metering, "_stream_records", stream_records)
+    monkeypatch.setattr(
+        market_metering, "get_market_metering_client", lambda _timeout: FakeClient()
+    )
+
+    result = await market_metering.fetch_market_metering_data(
+        116,
+        start,
+        start + timedelta(minutes=15),
+        timedelta(minutes=15),
+        market_location_ids=("unavailable", "available"),
+    )
+
+    assert calls == [("unavailable", "available"), ("unavailable",), ("available",)]
+    assert result["dso_import_energy"].tolist() == [2.5]
 
 
 @pytest.mark.asyncio
