@@ -539,6 +539,7 @@ def render_dashboard(
     microgrid_id: int,
     mcfg: Any,
     previous_master_df: pd.DataFrame | None = None,
+    skipped_dso_market_location_ids: tuple[str, ...] = (),
 ) -> None:
     """Render the complete microgrid reporting dashboard.
 
@@ -558,6 +559,7 @@ def render_dashboard(
         mcfg: Microgrid configuration object containing component metadata.
         previous_master_df: Optional master dataframe for the immediately
             preceding period, used for KPI comparison cards.
+        skipped_dso_market_location_ids: MaLo IDs skipped during DSO retrieval.
 
     Returns:
         Renders Streamlit components directly to the app interface.
@@ -589,6 +591,7 @@ def render_dashboard(
             component_types,
             microgrid_id,
             previous_metrics=previous_metrics,
+            skipped_dso_market_location_ids=skipped_dso_market_location_ids,
         )
 
     with log_duration("dashboard.render_plots"):

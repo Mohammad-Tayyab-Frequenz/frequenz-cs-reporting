@@ -87,6 +87,7 @@ class SyncMetadata:
     total_stored_records: int = 0
     sync_duration_seconds: float = 0.0
     last_error: str | None = None
+    skipped_market_location_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> SyncMetadata:
@@ -228,6 +229,7 @@ class ParquetRangeCache:
             raw_parts: list[tuple[pd.DataFrame, datetime, datetime]] = []
             successful_ranges: list[_Range] = []
             unavailable_errors: list[Exception] = []
+            skipped_market_location_ids: set[str] = set()
             incoming_axis: tuple[str, str | None] | None = None
             for range_start, range_end in ranges:
                 try:
@@ -254,6 +256,12 @@ class ParquetRangeCache:
                         )
                     )
                     continue
+                skipped_market_location_ids.update(
+                    str(location_id)
+                    for location_id in raw_frame.attrs.get(
+                        "skipped_market_location_ids", ()
+                    )
+                )
                 if not raw_frame.empty and incoming_axis is None:
                     incoming_axis = _raw_frame_axis(raw_frame)
                 raw_parts.append((raw_frame, range_start, range_end))
@@ -304,6 +312,7 @@ class ParquetRangeCache:
                 if unavailable_errors
                 else None
             )
+            metadata.skipped_market_location_ids = sorted(skipped_market_location_ids)
             self._write_metadata(key, metadata)
             return merged, metadata
         except Exception as exc:

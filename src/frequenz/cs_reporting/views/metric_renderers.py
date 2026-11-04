@@ -232,6 +232,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Netzkennzahlen - Netzbetreiber",
+        "full_width": True,
         "required_any_metric_keys": {
             "peak",
             "dso_import_energy_sum",
@@ -545,6 +546,7 @@ def render_summary_boxes(
     component_types: Iterable[str] | None = None,
     microgrid_id: int | None = None,
     previous_metrics: dict[str, Any] | None = None,
+    skipped_dso_market_location_ids: tuple[str, ...] = (),
 ) -> None:
     """Render overview metrics grouped into styled subsections.
 
@@ -556,6 +558,8 @@ def render_summary_boxes(
             KPI cards.
         previous_metrics: Optional metrics for the immediately preceding period,
             used to render previous values and percentage deltas.
+        skipped_dso_market_location_ids: MaLo IDs omitted because the Market
+            Metering API does not recognize them.
 
     Returns:
         Streamlit components are rendered directly.
@@ -601,10 +605,20 @@ def render_summary_boxes(
         icon = _SECTION_ICONS.get(title, "●")
         icon_bg = accent + "22"  # ~13% opacity hex approximation
         warning = section.get("warning")
+        warning_icon = "⚠"
+        if (
+            title == "Netzkennzahlen - Netzbetreiber"
+            and skipped_dso_market_location_ids
+        ):
+            warning = (
+                "DSO-Daten wurden für folgende MaLo-IDs nicht geladen: "
+                f"{', '.join(skipped_dso_market_location_ids)}"
+            )
+            warning_icon = "i"
         warning_html = (
             f'<span class="kpi-section-warning" role="button" tabindex="0" '
             f'aria-label="{warning}">'
-            '<span class="kpi-section-warning__icon">⚠</span>'
+            f'<span class="kpi-section-warning__icon">{warning_icon}</span>'
             f'<span class="kpi-section-warning__tooltip">{warning}</span>'
             "</span>"
             if warning
@@ -612,8 +626,11 @@ def render_summary_boxes(
         )
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         groups = [spec.get("group") for spec in box_specs]
+        section_class = "kpi-section kpi-section--full-width" if section.get(
+            "full_width"
+        ) else "kpi-section"
         section_blocks.append(
-            '<section class="kpi-section">'
+            f'<section class="{section_class}">'
             '<div class="kpi-section-header">'
             f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
             f'<p class="kpi-section-title">{title}</p>'

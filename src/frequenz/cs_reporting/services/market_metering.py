@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+import grpc
 import pandas as pd
 from frequenz.client.marketmetering import MarketMeteringApiClient
 from frequenz.client.marketmetering.types import (
@@ -28,6 +30,7 @@ from frequenz.cs_reporting.utils.time import validate_range
 
 _NATIVE_RESOLUTION = timedelta(minutes=15)
 DSO_ENERGY_COLUMNS = ("dso_import_energy", "dso_export_energy")
+_LOGGER = logging.getLogger(__name__)
 
 
 def _empty_energy_frame() -> pd.DataFrame:
@@ -86,6 +89,50 @@ async def _stream_records(
     return records
 
 
+async def _stream_available_records(
+    client: MarketMeteringApiClient,
+    market_locations: list[MarketLocationRef],
+    start_time: datetime,
+    end_time: datetime,
+    timeout: float,
+    microgrid_id: int,
+) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """Fetch all locations, isolating unknown MaLos when a batch is rejected."""
+    try:
+        return (
+            await _stream_records(client, market_locations, start_time, end_time, timeout),
+            (),
+        )
+    except grpc.aio.AioRpcError as exc:
+        if exc.code() is not grpc.StatusCode.NOT_FOUND:
+            raise
+
+    _LOGGER.warning(
+        "Market Metering rejected a MaLo for microgrid %s; retrying locations "
+        "individually.",
+        microgrid_id,
+    )
+    records: list[dict[str, Any]] = []
+    skipped_market_location_ids: list[str] = []
+    for market_location in market_locations:
+        try:
+            records.extend(
+                await _stream_records(
+                    client, [market_location], start_time, end_time, timeout
+                )
+            )
+        except grpc.aio.AioRpcError as exc:
+            if exc.code() is not grpc.StatusCode.NOT_FOUND:
+                raise
+            _LOGGER.warning(
+                "Skipping unavailable MaLo %s for microgrid %s.",
+                market_location.market_location_id.value,
+                microgrid_id,
+            )
+            skipped_market_location_ids.append(market_location.market_location_id.value)
+    return records, tuple(skipped_market_location_ids)
+
+
 def _aggregate_records(
     records: list[dict[str, Any]], resolution: timedelta
 ) -> pd.DataFrame:
@@ -138,16 +185,19 @@ async def fetch_market_metering_data(
 
     client = get_market_metering_client(timeout)
     try:
-        records = await _stream_records(
+        records, skipped_market_location_ids = await _stream_available_records(
             client,
             _market_location_refs(market_location_ids),
             start_date,
             end_date,
             timeout,
+            microgrid_id,
         )
     finally:
         await client.disconnect()
-    return _aggregate_records(records, resolution)
+    result = _aggregate_records(records, resolution)
+    result.attrs["skipped_market_location_ids"] = skipped_market_location_ids
+    return result
 
 
 def merge_dso_energy(

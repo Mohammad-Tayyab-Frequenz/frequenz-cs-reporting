@@ -406,6 +406,9 @@ def _render_reporting_page(*, export_only: bool) -> None:
                 previous_master_df=previous_master_df,
             )
     else:
+        dso_sync_metadata = get_dataset_sync_metadata(
+            "dso_energy_flows", microgrid_id, resolution
+        )
         with log_duration("reporting.render_dashboard"):
             render_dashboard(
                 current_master_df,
@@ -415,6 +418,9 @@ def _render_reporting_page(*, export_only: bool) -> None:
                 microgrid_id=microgrid_id,
                 mcfg=mcfg,
                 previous_master_df=previous_master_df,
+                skipped_dso_market_location_ids=tuple(
+                    dso_sync_metadata.skipped_market_location_ids
+                ),
             )
     if active_power_sync is not None and not active_power_sync.done():
         # Rerun once the refresh finishes so the cached-but-stale data shown
