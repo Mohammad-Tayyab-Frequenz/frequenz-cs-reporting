@@ -420,7 +420,6 @@ def _available_export_datasets(
         "Gesamt-Datensatz": mapper.to_display(master_df).rename(
             columns=_MASTER_DF_DISPLAY_RENAMES
         ),
-        "DSO & Day-Ahead-Preis": _build_dso_price_data_df(master_df),
     }
     if tables_dict is not None:
         reporting_tables = (
@@ -457,6 +456,14 @@ def render_data_export(
     inject_style("data_export.css")
     datasets = _available_export_datasets(master_df, mapper, tables_dict, resolution)
 
+    st.markdown("### DSO & Day-Ahead-Preis")
+    tables.aggrid_table(
+        _round_numeric_columns(_build_dso_price_data_df(master_df)),
+        key_prefix="data_export_dso_price",
+        download_file_name="dso_day_ahead_preis.csv",
+    )
+
+    st.divider()
     st.markdown("### Standard-Exporte")
     export_tabs = st.tabs(list(datasets), key="data_export_standard_tabs")
     for index, (tab, (dataset_name, dataset_df)) in enumerate(
