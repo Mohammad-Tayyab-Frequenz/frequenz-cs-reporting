@@ -306,13 +306,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
                     f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
                 )
-            battery_formula = (
-                mcfg.ctype["battery"].formula if "battery" in component_types else None
-            )
-            has_battery_soc_formula = (
-                battery_formula is not None and "BATTERY_SOC_PCT" in battery_formula
-            )
-            if snapshot is None and has_battery_soc_formula:
+            if snapshot is None and "battery" in component_types:
                 try:
                     with log_duration("reporting.load_battery_soc"):
                         fetched_soc_df = get_microgrid_soc_data(
