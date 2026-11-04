@@ -87,10 +87,16 @@ def _delta_html(
     """Build a percentage-delta badge for numeric KPI values."""
     if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
         return ""
-    if previous == 0:
+    current_value = float(current)
+    previous_value = float(previous)
+    if (
+        not isfinite(current_value)
+        or not isfinite(previous_value)
+        or previous_value == 0
+    ):
         return ""
 
-    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
+    delta = ((current_value - previous_value) / abs(previous_value)) * 100
     if delta == 0 or comparison == "neutral":
         delta_class = "kpi-card__delta--neutral"
     elif (delta > 0) == (comparison == "more_is_good"):
@@ -188,29 +194,41 @@ SECTION_SPECS: list[dict[str, Any]] = [
         "title": "Netzkennzahlen",
         "warning": _INVOICING_WARNING,
         "boxes": [
-            {"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"},
-            {"label": "Netzeinspeisung (kWh)", "key": "grid_feed_in_sum"},
+            {
+                "label": "Netzbezug (kWh)",
+                "key": "grid_consumption_sum",
+                "group": "grid-import",
+            },
+            {
+                "label": "Prognostizierte Netzbezugskosten (€)",
+                "key": "grid_import_cost_sum",
+                "group": "grid-import",
+            },
+            {
+                "label": "Prognostizierter Preis (ct/kWh)",
+                "key": "average_da_price_grid_import",
+                "group": "grid-import",
+            },
+            {
+                "label": "Netzeinspeisung (kWh)",
+                "key": "grid_feed_in_sum",
+                "group": "grid-feed-in",
+            },
+            {
+                "label": "Prognostizierte Einspeiseerloese (€)",
+                "key": "grid_feed_in_revenue_sum",
+                "group": "grid-feed-in",
+            },
+            {
+                "label": "Prognostizierter Preis (ct/kWh)",
+                "key": "average_da_price_grid_feed_in",
+                "group": "grid-feed-in",
+            },
             {"label_fn": _peak_label, "key": "peak"},
             {"label": "DSO Netzbezug (kWh)", "key": "dso_import_energy_sum"},
             {
                 "label": "DSO Netzeinspeisung (kWh)",
                 "key": "dso_export_energy_sum",
-            },
-            {
-                "label": "Prognostizierte Netzbezugskosten (€)",
-                "key": "grid_import_cost_sum",
-            },
-            {
-                "label": "Prognostizierte Einspeiseerloese (€)",
-                "key": "grid_feed_in_revenue_sum",
-            },
-            {
-                "label": "Prognostizierter Preis (ct/kWh)",
-                "key": "average_da_price_grid_import",
-            },
-            {
-                "label": "Prognostizierter Preis (ct/kWh)",
-                "key": "average_da_price_grid_feed_in",
             },
         ],
     },
@@ -340,7 +358,7 @@ def _filter_available_optional_metric_specs(
     ]
 
 
-# pylint: disable = too-many-locals
+# pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
 def _card_html(
     label: str,
     val: object,
@@ -354,20 +372,23 @@ def _card_html(
     if val is None:
         value_html = '<div class="kpi-card__value kpi-card__value--null">—</div>'
     else:
-        comparison = (delta_comparisons or {}).get(label, "less_is_good")
+        # Temporarily hide percentage comparisons in KPI cards.
+        # comparison = (delta_comparisons or {}).get(label, "less_is_good")
         value_html = (
             '<div class="kpi-card__value-row">'
             f'<div class="kpi-card__value">{_format_current_value(label, val)}</div>'
-            f"{_delta_html(val, previous_val, comparison)}"
+            # f"{_delta_html(val, previous_val, comparison)}"
             "</div>"
         )
-    previous_html = (
-        f'<div class="kpi-card__previous">'
-        f"<span>{_format_previous_value(label, previous_val)}</span>"
-        f"{_prior_period_help_html()}</div>"
-        if previous_val is not None
-        else ""
-    )
+    # Temporarily hide previous-period values in KPI cards.
+    # previous_html = (
+    #     f'<div class="kpi-card__previous">'
+    #     f"<span>{_format_previous_value(label, previous_val)}</span>"
+    #     f"{_prior_period_help_html()}</div>"
+    #     if previous_val is not None
+    #     else ""
+    # )
+    previous_html = ""
     tooltip_html = (
         '<span class="kpi-card__tooltip" role="button" tabindex="0" '
         f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
@@ -398,9 +419,10 @@ def _box_grid_html(
     accent: str,
     delta_comparisons: dict[str, str] | None,
     value_colors: Mapping[str, str] | None = None,
+    groups: Sequence[str | None] | None = None,
 ) -> str:
     """Build a responsive CSS grid of KPI cards."""
-    cards = "".join(
+    cards = [
         _card_html(
             item[0],
             item[1],
@@ -411,10 +433,24 @@ def _box_grid_html(
             value_colors,
         )
         for item in boxes
+    ]
+    if groups is None:
+        return f'<div class="kpi-grid">{"".join(cards)}</div>'
+    if len(groups) != len(cards):
+        raise ValueError("KPI card groups must match the number of cards")
+
+    grouped_cards: dict[str, list[str]] = {}
+    for index, (card, group) in enumerate(zip(cards, groups)):
+        # Ungrouped cards remain individual grid items.
+        grouped_cards.setdefault(group or f"card-{index}", []).append(card)
+    stacks = "".join(
+        f'<div class="kpi-card-stack">{"".join(stack)}</div>'
+        for stack in grouped_cards.values()
     )
-    return f'<div class="kpi-grid">{cards}</div>'
+    return f'<div class="kpi-grid kpi-grid--grouped">{stacks}</div>'
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def render_box_grid(
     boxes: Sequence[
         tuple[str, object]
@@ -530,13 +566,14 @@ def render_summary_boxes(
             else ""
         )
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
+        groups = [spec.get("group") for spec in box_specs]
         section_blocks.append(
             '<section class="kpi-section">'
             '<div class="kpi-section-header">'
             f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
             f'<p class="kpi-section-title">{title}</p>'
             f"{warning_html}</div>"
-            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS)}"
+            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS, groups=groups)}"
             "</section>"
         )
 

@@ -39,6 +39,13 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 250px));
     gap: 10px;
 }
+.kpi-grid--grouped {
+    align-items: start;
+}
+.kpi-card-stack {
+    display: grid;
+    gap: 10px;
+}
 
 /* ── Section header ── */
 .kpi-section-header {

@@ -121,10 +121,18 @@ async def fetch_market_metering_data(
     end_date: datetime,
     resolution: timedelta,
     timeout: float = 300.0,
+    market_location_ids: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
-    """Fetch aggregated DSO import and export energy for a microgrid."""
+    """Fetch aggregated DSO import and export energy for a microgrid.
+
+    Args:
+        market_location_ids: MaLo IDs to query.  Supplying these is preferred
+            when called from a synchronous wrapper, as configuration resolution
+            may itself need to run asynchronous code.
+    """
     start_date, end_date = validate_range(start_date, end_date)
-    market_location_ids = get_market_location_ids(microgrid_id)
+    if market_location_ids is None:
+        market_location_ids = get_market_location_ids(microgrid_id)
     if not market_location_ids:
         return _empty_energy_frame()
 

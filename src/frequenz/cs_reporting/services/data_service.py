@@ -29,6 +29,7 @@ from frequenz.cs_reporting.services.battery_capacity import (
 from frequenz.cs_reporting.services.cache_config import CacheConfig, get_cache_config
 from frequenz.cs_reporting.services.client_factory import (
     get_component_types,
+    get_market_location_ids,
     get_microgrid_client,
     get_microgrid_config,
     get_reporting_client,
@@ -301,6 +302,7 @@ def get_market_metering_data(
     try:
         asyncio.get_running_loop()
     except RuntimeError:
+        market_location_ids = get_market_location_ids(microgrid_id)
         config = get_cache_config()
         effective_timeout = timeout or max(float(config.request_timeout_seconds), 300.0)
         cache = ParquetRangeCache(
@@ -320,6 +322,7 @@ def get_market_metering_data(
                         fetch_end,
                         resolution,
                         timeout=effective_timeout,
+                        market_location_ids=market_location_ids,
                     )
                 ),
             )
