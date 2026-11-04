@@ -51,6 +51,10 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_feed_in_revenue_sum",
     "average_da_price_grid_import",
     "average_da_price_grid_feed_in",
+    "dso_import_cost_sum",
+    "dso_export_revenue_sum",
+    "average_da_price_dso_import",
+    "average_da_price_dso_export",
 }
 _DAY_AHEAD_PRICE_WARNING = (
     "Day-ahead prices are not available in the local cache. "
@@ -161,6 +165,31 @@ def _aggregate_metrics(
     metrics["average_da_price_grid_feed_in"] = _average_price_ct_per_kwh(
         metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
     )
+    interval_hours = resolution.total_seconds() / 3600
+    for direction in ("import", "export"):
+        power_column = f"dso_{direction}_power"
+        if power_column not in master_df.columns:
+            continue
+        dso_energy = pd.to_numeric(master_df[power_column], errors="coerce") * (
+            interval_hours
+        )
+        projected_value = (
+            dso_energy
+            * pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
+            / 1000
+        ).sum(min_count=1)
+        if pd.notna(projected_value):
+            value_key = (
+                "dso_import_cost_sum"
+                if direction == "import"
+                else "dso_export_revenue_sum"
+            )
+            metrics[value_key] = float(projected_value)
+            metrics[f"average_da_price_dso_{direction}"] = _average_price_ct_per_kwh(
+                metrics,
+                value_key,
+                f"dso_{direction}_energy_sum",
+            )
     return metrics
 
 

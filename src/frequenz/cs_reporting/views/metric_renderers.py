@@ -186,12 +186,16 @@ _INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
 _OPTIONAL_METRIC_KEYS = {
     "dso_import_energy_sum",
     "dso_export_energy_sum",
+    "dso_import_cost_sum",
+    "dso_export_revenue_sum",
+    "average_da_price_dso_import",
+    "average_da_price_dso_export",
 }
 
 
 SECTION_SPECS: list[dict[str, Any]] = [
     {
-        "title": "Netzkennzahlen",
+        "title": "Netzkennzahlen - Reporting Daten",
         "warning": _INVOICING_WARNING,
         "boxes": [
             {
@@ -224,11 +228,46 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "average_da_price_grid_feed_in",
                 "group": "grid-feed-in",
             },
+        ],
+    },
+    {
+        "title": "Netzkennzahlen - Netzbetreiber",
+        "required_any_metric_keys": {
+            "peak",
+            "dso_import_energy_sum",
+            "dso_export_energy_sum",
+        },
+        "boxes": [
             {"label_fn": _peak_label, "key": "peak"},
-            {"label": "DSO Netzbezug (kWh)", "key": "dso_import_energy_sum"},
             {
-                "label": "DSO Netzeinspeisung (kWh)",
+                "label": "Netzbezug (kWh)",
+                "key": "dso_import_energy_sum",
+                "group": "dso-import",
+            },
+            {
+                "label": "Prognostizierte Netzbezugskosten (€)",
+                "key": "dso_import_cost_sum",
+                "group": "dso-import",
+            },
+            {
+                "label": "Prognostizierter Preis (ct/kWh)",
+                "key": "average_da_price_dso_import",
+                "group": "dso-import",
+            },
+            {
+                "label": "Netzeinspeisung (kWh)",
                 "key": "dso_export_energy_sum",
+                "group": "dso-export",
+            },
+            {
+                "label": "Prognostizierte Einspeiseerloese (€)",
+                "key": "dso_export_revenue_sum",
+                "group": "dso-export",
+            },
+            {
+                "label": "Prognostizierter Preis (ct/kWh)",
+                "key": "average_da_price_dso_export",
+                "group": "dso-export",
             },
         ],
     },
@@ -328,7 +367,7 @@ def _filter_section_box_specs(
     ):
         return []
 
-    box_specs = section["boxes"]
+    box_specs: list[dict[str, Any]] = section["boxes"]
     if component_types_provided:
         box_specs = [
             spec
@@ -541,6 +580,12 @@ def render_summary_boxes(
 
     section_blocks: list[str] = []
     for section in SECTION_SPECS:
+        required_any_metric_keys = section.get("required_any_metric_keys")
+        if (
+            required_any_metric_keys
+            and not required_any_metric_keys.intersection(metrics)
+        ):
+            continue
         box_specs = _filter_section_box_specs(
             section,
             component_type_set,
