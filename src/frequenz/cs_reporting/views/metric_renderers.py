@@ -232,26 +232,24 @@ SECTION_SPECS: list[dict[str, Any]] = [
     },
     {
         "title": "Netzkennzahlen - Netzbetreiber",
-        "full_width": True,
         "required_any_metric_keys": {
             "peak",
             "dso_import_energy_sum",
             "dso_export_energy_sum",
         },
         "boxes": [
-            {"label_fn": _peak_label, "key": "peak"},
             {
                 "label": "Netzbezug (kWh)",
                 "key": "dso_import_energy_sum",
                 "group": "dso-import",
             },
             {
-                "label": "Prognostizierte Netzbezugskosten (€)",
+                "label": "Netzbezugskosten (€)",
                 "key": "dso_import_cost_sum",
                 "group": "dso-import",
             },
             {
-                "label": "Prognostizierter Preis (ct/kWh)",
+                "label": "Preis (ct/kWh)",
                 "key": "average_da_price_dso_import",
                 "group": "dso-import",
             },
@@ -261,15 +259,16 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "group": "dso-export",
             },
             {
-                "label": "Prognostizierte Einspeiseerloese (€)",
+                "label": "Einspeiseerloese (€)",
                 "key": "dso_export_revenue_sum",
                 "group": "dso-export",
             },
             {
-                "label": "Prognostizierter Preis (ct/kWh)",
+                "label": "Preis (ct/kWh)",
                 "key": "average_da_price_dso_export",
                 "group": "dso-export",
             },
+            {"label_fn": _peak_label, "key": "peak"},
         ],
     },
     {
@@ -460,6 +459,7 @@ def _box_grid_html(
     delta_comparisons: dict[str, str] | None,
     value_colors: Mapping[str, str] | None = None,
     groups: Sequence[str | None] | None = None,
+    grid_class: str = "",
 ) -> str:
     """Build a responsive CSS grid of KPI cards."""
     cards = [
@@ -475,7 +475,7 @@ def _box_grid_html(
         for item in boxes
     ]
     if groups is None:
-        return f'<div class="kpi-grid">{"".join(cards)}</div>'
+        return f'<div class="kpi-grid {grid_class}">{"".join(cards)}</div>'
     if len(groups) != len(cards):
         raise ValueError("KPI card groups must match the number of cards")
 
@@ -487,7 +487,7 @@ def _box_grid_html(
         f'<div class="kpi-card-stack">{"".join(stack)}</div>'
         for stack in grouped_cards.values()
     )
-    return f'<div class="kpi-grid kpi-grid--grouped">{stacks}</div>'
+    return f'<div class="kpi-grid kpi-grid--grouped {grid_class}">{stacks}</div>'
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -614,7 +614,7 @@ def render_summary_boxes(
                 "DSO-Daten wurden für folgende MaLo-IDs nicht geladen: "
                 f"{', '.join(skipped_dso_market_location_ids)}"
             )
-            warning_icon = "i"
+            warning_icon = "⚠"
         warning_html = (
             f'<span class="kpi-section-warning" role="button" tabindex="0" '
             f'aria-label="{warning}">'
@@ -626,16 +626,18 @@ def render_summary_boxes(
         )
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         groups = [spec.get("group") for spec in box_specs]
-        section_class = "kpi-section kpi-section--full-width" if section.get(
-            "full_width"
-        ) else "kpi-section"
+        grid_class = (
+            "kpi-grid--operator"
+            if title == "Netzkennzahlen - Netzbetreiber"
+            else ""
+        )
         section_blocks.append(
-            f'<section class="{section_class}">'
+            '<section class="kpi-section">'
             '<div class="kpi-section-header">'
             f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
             f'<p class="kpi-section-title">{title}</p>'
             f"{warning_html}</div>"
-            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS, groups=groups)}"
+            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS, groups=groups, grid_class=grid_class)}"
             "</section>"
         )
 
