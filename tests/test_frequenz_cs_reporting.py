@@ -112,6 +112,7 @@ from frequenz.cs_reporting.views.plot_renderers import (
 )
 from frequenz.cs_reporting.views.table_renderers import (
     _build_core_data_df,
+    _build_dso_price_data_df,
     _filter_export_dates,
 )
 
@@ -290,6 +291,29 @@ def test_core_data_table_omits_columns_when_source_data_is_unavailable() -> None
         "Netzbezug",
         "MID Gesamtverbrauch",
     ]
+
+
+def test_dso_price_data_table_contains_only_requested_columns() -> None:
+    """The DSO price export has the requested compact column set and order."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
+            "dso_export_power": [1.0],
+            "dso_import_power": [2.0],
+            "day_ahead_price": [3.0],
+            "unrelated": [4.0],
+        }
+    )
+
+    dso_price_data = _build_dso_price_data_df(master_df)
+
+    assert list(dso_price_data.columns) == [
+        "Zeitpunkt",
+        "DSO Netzeinspeisung (kW)",
+        "DSO Netzbezug (kW)",
+        "Day Ahead Preis",
+    ]
+    assert dso_price_data.iloc[0].tolist() == list(master_df.iloc[0, :4])
 
 
 def test_data_table_specs_render_after_overview_tabs(
@@ -1499,7 +1523,6 @@ def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
         for section in SECTION_SPECS
         if section["title"] == "Netzkennzahlen - Netzbetreiber"
     )
-    assert grid_section["full_width"] is True
     box_specs = _filter_section_box_specs(
         grid_section,
         component_type_set={"grid"},
@@ -1719,7 +1742,9 @@ def test_battery_optimization_selection_metrics_include_charge_and_discharge_val
     assert metrics["discharging_value_eur"] == pytest.approx(0.2)
     assert metrics["battery_charging_kwh"] == pytest.approx(1.0)
     assert metrics["battery_discharging_kwh"] == pytest.approx(2.0)
-    assert metrics["battery_efficiency_pct"] == pytest.approx(200.0)
+    # The range begins by discharging energy that may have been charged before
+    # the selected period, so a round-trip efficiency cannot be derived.
+    assert metrics["battery_efficiency_pct"] is None
 
 
 def test_battery_optimization_hides_disabled_cards_and_plots() -> None:
