@@ -148,7 +148,13 @@ async def test_market_metering_skips_unknown_malo_and_keeps_available_data(
         )
         calls.append(location_ids)
         if len(location_ids) > 1 or location_ids == ("unavailable",):
-            raise grpc.aio.AioRpcError(grpc.StatusCode.NOT_FOUND)
+            raise grpc.aio.AioRpcError(
+                grpc.StatusCode.NOT_FOUND,
+                grpc.aio.Metadata(),
+                grpc.aio.Metadata(),
+                None,
+                None,
+            )
         return [
             {
                 "timestamp": start,
@@ -160,6 +166,8 @@ async def test_market_metering_skips_unknown_malo_and_keeps_available_data(
         ]
 
     class FakeClient:
+        """Minimal market-metering client used by this test."""
+
         async def disconnect(self) -> None:
             pass
 

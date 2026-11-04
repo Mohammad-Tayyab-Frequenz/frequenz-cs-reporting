@@ -93,9 +93,9 @@ from frequenz.cs_reporting.views.dashboard import (
 from frequenz.cs_reporting.views.metric_renderers import (
     _DELTA_COMPARISONS,
     SECTION_SPECS,
+    _box_grid_html,
     _build_consumption_breakdown,
     _card_html,
-    _box_grid_html,
     _delta_html,
     _filter_available_optional_metric_specs,
     _filter_section_box_specs,

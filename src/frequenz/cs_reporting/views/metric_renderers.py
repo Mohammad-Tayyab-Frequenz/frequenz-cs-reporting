@@ -401,10 +401,10 @@ def _filter_available_optional_metric_specs(
 def _card_html(
     label: str,
     val: object,
-    previous_val: object,
+    _previous_val: object,
     tooltip: object,
     accent: str,
-    delta_comparisons: dict[str, str] | None,
+    _delta_comparisons: dict[str, str] | None,
     value_colors: Mapping[str, str] | None,
 ) -> str:
     """Build the HTML of a single KPI card."""
@@ -585,9 +585,8 @@ def render_summary_boxes(
     section_blocks: list[str] = []
     for section in SECTION_SPECS:
         required_any_metric_keys = section.get("required_any_metric_keys")
-        if (
-            required_any_metric_keys
-            and not required_any_metric_keys.intersection(metrics)
+        if required_any_metric_keys and not required_any_metric_keys.intersection(
+            metrics
         ):
             continue
         box_specs = _filter_section_box_specs(
@@ -627,9 +626,14 @@ def render_summary_boxes(
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         groups = [spec.get("group") for spec in box_specs]
         grid_class = (
-            "kpi-grid--operator"
-            if title == "Netzkennzahlen - Netzbetreiber"
-            else ""
+            "kpi-grid--operator" if title == "Netzkennzahlen - Netzbetreiber" else ""
+        )
+        box_grid_html = _box_grid_html(
+            boxes,
+            accent,
+            _DELTA_COMPARISONS,
+            groups=groups,
+            grid_class=grid_class,
         )
         section_blocks.append(
             '<section class="kpi-section">'
@@ -637,7 +641,7 @@ def render_summary_boxes(
             f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
             f'<p class="kpi-section-title">{title}</p>'
             f"{warning_html}</div>"
-            f"{_box_grid_html(boxes, accent, _DELTA_COMPARISONS, groups=groups, grid_class=grid_class)}"
+            f"{box_grid_html}"
             "</section>"
         )
 

@@ -89,6 +89,7 @@ async def _stream_records(
     return records
 
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def _stream_available_records(
     client: MarketMeteringApiClient,
     market_locations: list[MarketLocationRef],
@@ -100,7 +101,9 @@ async def _stream_available_records(
     """Fetch all locations, isolating unknown MaLos when a batch is rejected."""
     try:
         return (
-            await _stream_records(client, market_locations, start_time, end_time, timeout),
+            await _stream_records(
+                client, market_locations, start_time, end_time, timeout
+            ),
             (),
         )
     except grpc.aio.AioRpcError as exc:
@@ -162,6 +165,7 @@ def _aggregate_records(
     return directional.reset_index()
 
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def fetch_market_metering_data(
     microgrid_id: int,
     start_date: datetime,
@@ -173,9 +177,18 @@ async def fetch_market_metering_data(
     """Fetch aggregated DSO import and export energy for a microgrid.
 
     Args:
+        microgrid_id: Identifier of the microgrid to query.
+        start_date: Inclusive start of the requested time range.
+        end_date: Exclusive end of the requested time range.
+        resolution: Interval at which to aggregate the energy data.
+        timeout: Timeout, in seconds, for market-metering requests.
         market_location_ids: MaLo IDs to query.  Supplying these is preferred
             when called from a synchronous wrapper, as configuration resolution
             may itself need to run asynchronous code.
+
+    Returns:
+        A dataframe with aggregated DSO import and export energy, indexed by
+        timestamp.
     """
     start_date, end_date = validate_range(start_date, end_date)
     if market_location_ids is None:
