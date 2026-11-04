@@ -127,6 +127,31 @@ async def test_market_metering_sums_locations_and_resamples_energy(
     assert result["dso_export_energy"].tolist() == [13.0]
 
 
+@pytest.mark.asyncio
+async def test_market_metering_uses_supplied_location_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit MaLo IDs avoid resolving synchronous config in an event loop."""
+    start = datetime(2026, 8, 21, tzinfo=UTC)
+
+    def unexpected_config_lookup(_microgrid_id: int) -> tuple[str, ...]:
+        raise AssertionError("configuration lookup must not happen during fetch")
+
+    monkeypatch.setattr(
+        market_metering, "get_market_location_ids", unexpected_config_lookup
+    )
+
+    result = await market_metering.fetch_market_metering_data(
+        251,
+        start,
+        start + timedelta(minutes=15),
+        timedelta(minutes=15),
+        market_location_ids=(),
+    )
+
+    assert result.empty
+
+
 def test_dso_energy_is_merged_by_instant_and_aggregated_as_kpi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

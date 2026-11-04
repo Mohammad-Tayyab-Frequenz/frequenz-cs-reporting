@@ -94,6 +94,8 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _DELTA_COMPARISONS,
     SECTION_SPECS,
     _build_consumption_breakdown,
+    _card_html,
+    _box_grid_html,
     _delta_html,
     _filter_available_optional_metric_specs,
     _filter_section_box_specs,
@@ -978,36 +980,51 @@ def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
     assert _delta_html(100.0, float("nan")) == ""
 
 
-def test_battery_kpi_section_is_hidden_without_battery_component() -> None:
-    """Battery KPI specs are removed when the MID has no battery component."""
-    battery_section = next(
-        section for section in SECTION_SPECS if section["title"] == "Batteriekennzahlen"
+def test_battery_kpi_section_is_temporarily_hidden() -> None:
+    """Battery KPI cards remain disabled until they are explicitly restored."""
+    assert not any(
+        section["title"] == "Batteriekennzahlen" for section in SECTION_SPECS
+    )
+
+
+def test_total_production_kpi_is_hidden_for_one_production_source() -> None:
+    """A single production source is not duplicated by Gesamterzeugung."""
+    production_section = next(
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "(Eigen-)Erzeugungskennzahlen"
     )
 
     box_specs = _filter_section_box_specs(
-        battery_section,
+        production_section,
         component_type_set={"grid", "pv"},
         component_types_provided=True,
         microgrid_id=123,
     )
 
-    assert box_specs == []
+    assert [spec.get("key") for spec in box_specs] == ["pv_production_sum"]
 
 
-def test_battery_kpi_section_is_shown_with_battery_component() -> None:
-    """Battery KPI specs are kept when the MID has a battery component."""
-    battery_section = next(
-        section for section in SECTION_SPECS if section["title"] == "Batteriekennzahlen"
+def test_total_production_kpi_is_shown_for_multiple_production_sources() -> None:
+    """Gesamterzeugung is useful when multiple production sources contribute."""
+    production_section = next(
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "(Eigen-)Erzeugungskennzahlen"
     )
 
     box_specs = _filter_section_box_specs(
-        battery_section,
-        component_type_set={"battery", "grid", "pv"},
+        production_section,
+        component_type_set={"grid", "pv", "wind"},
         component_types_provided=True,
         microgrid_id=123,
     )
 
-    assert box_specs
+    assert [spec.get("key") for spec in box_specs] == [
+        "total_production_sum",
+        "pv_production_sum",
+        "wind_production_sum",
+    ]
 
 
 def test_consumption_breakdown_shows_sources_serving_consumption() -> None:
@@ -1232,25 +1249,36 @@ def test_kpi_delta_colours_follow_metric_comparison_semantics() -> None:
     assert "kpi-card__delta--negative" in _delta_html(90.0, 100.0, "more_is_good")
 
 
+def test_kpi_cards_temporarily_hide_previous_period_and_percentage_delta() -> None:
+    """The retained comparison data is intentionally not displayed in KPI cards."""
+    markup = _card_html(
+        "Netzbezug (kWh)",
+        110.0,
+        100.0,
+        None,
+        "#3b82f6",
+        _DELTA_COMPARISONS,
+        None,
+    )
+
+    assert "Vorperiode:" not in markup
+    assert "kpi-card__previous" not in markup
+    assert "kpi-card__delta" not in markup
+
+
 def test_kpi_value_colour_can_be_set_for_one_metric(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A metric-specific value colour is attached only to its KPI card."""
     rendered_markup: list[str] = []
 
-    class FakeColumn:
-        """Capture KPI markup rendered into a Streamlit column."""
-
-        def markdown(self, markup: str, *, unsafe_allow_html: bool) -> None:
-            assert unsafe_allow_html is True
-            rendered_markup.append(markup)
-
     monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
-    monkeypatch.setattr(
-        st,
-        "columns",
-        lambda count, gap: [FakeColumn() for _ in range(count)],
-    )
+
+    def capture_markup(markup: str, *, unsafe_allow_html: bool) -> None:
+        assert unsafe_allow_html is True
+        rendered_markup.append(markup)
+
+    monkeypatch.setattr(st, "markdown", capture_markup)
 
     metric_renderers.render_box_grid(
         [("Netto-Einsparung (€)", 42.0)],
@@ -1341,14 +1369,41 @@ def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
 
     assert [spec.get("key") for spec in box_specs] == [
         "grid_consumption_sum",
-        "grid_feed_in_sum",
-        "peak",
         "grid_import_cost_sum",
-        "grid_feed_in_revenue_sum",
-        None,
         "average_da_price_grid_import",
+        "grid_feed_in_sum",
+        "grid_feed_in_revenue_sum",
         "average_da_price_grid_feed_in",
+        "peak",
+        "dso_import_energy_sum",
+        "dso_export_energy_sum",
     ]
+
+
+def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None:
+    """Import and feed-in KPI groups are rendered as independent vertical stacks."""
+    markup = _box_grid_html(
+        [
+            ("Netzbezug (kWh)", 1.0),
+            ("Prognostizierte Netzbezugskosten (€)", 2.0),
+            ("Prognostizierter Preis (ct/kWh)", 3.0),
+            ("Netzeinspeisung (kWh)", 4.0),
+            ("Prognostizierte Einspeiseerloese (€)", 5.0),
+            ("Prognostizierter Preis (ct/kWh)", 6.0),
+        ],
+        "#3b82f6",
+        None,
+        groups=["import", "import", "import", "feed-in", "feed-in", "feed-in"],
+    )
+
+    assert markup.count('class="kpi-card-stack"') == 2
+    import_start = markup.index("Netzbezug")
+    assert import_start < markup.index("Prognostizierte Netzbezugskosten")
+    assert markup.index("Prognostizierte Netzbezugskosten") < markup.index(
+        "Prognostizierter Preis"
+    )
+    feed_in_start = markup.index("Netzeinspeisung")
+    assert feed_in_start < markup.index("Prognostizierte Einspeiseerloese")
 
 
 def test_stale_day_ahead_price_is_not_filled_across_missing_intervals(
