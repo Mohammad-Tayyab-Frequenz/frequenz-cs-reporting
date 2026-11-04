@@ -585,7 +585,7 @@ def render_dashboard(
         )
 
     with log_duration("dashboard.render_kpis"):
-        _section_divider("Übersicht", "KPIs")
+        # _section_divider("Übersicht", "KPIs")
         sections.render_summary_boxes(
             tables["metrics"],
             component_types,

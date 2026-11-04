@@ -34,6 +34,25 @@
     border: 1px solid var(--color-border);
     border-radius: 12px;
 }
+.kpi-summary-layout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 14px;
+    margin-top: 12px;
+}
+.kpi-summary-layout__primary,
+.kpi-summary-layout__operator {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+    min-width: 0;
+}
+@media (max-width: 880px) {
+    .kpi-summary-layout {
+        grid-template-columns: 1fr;
+    }
+}
 .kpi-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 250px));

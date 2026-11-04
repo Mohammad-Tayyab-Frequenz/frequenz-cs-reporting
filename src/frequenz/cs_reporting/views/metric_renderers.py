@@ -540,6 +540,31 @@ def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | N
     return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
 
 
+def _summary_sections_html(section_blocks: list[tuple[str, str]]) -> str:
+    """Arrange network KPI sections beside each other and all others below.
+
+    The reporting-data section anchors the primary column.  The grid-operator
+    section occupies the adjacent column, while every other KPI section follows
+    below the reporting-data section in the primary column.
+    """
+    reporting_title = "Netzkennzahlen - Reporting Daten"
+    operator_title = "Netzkennzahlen - Netzbetreiber"
+    section_by_title = dict(section_blocks)
+    reporting_section = section_by_title.pop(reporting_title, None)
+    operator_section = section_by_title.pop(operator_title, None)
+
+    if reporting_section is None or operator_section is None:
+        return f'<div class="kpi-sections">{"".join(block for _, block in section_blocks)}</div>'
+
+    primary_sections = "".join((reporting_section, *section_by_title.values()))
+    return (
+        '<div class="kpi-sections kpi-summary-layout">'
+        f'<div class="kpi-summary-layout__primary">{primary_sections}</div>'
+        f'<div class="kpi-summary-layout__operator">{operator_section}</div>'
+        "</div>"
+    )
+
+
 # pylint: disable=too-many-locals
 def render_summary_boxes(
     metrics: dict[str, Any],
@@ -572,17 +597,17 @@ def render_summary_boxes(
     component_types_provided = component_types is not None
     component_type_set = set(component_types or [])
 
-    st.markdown(
-        """
-        <div class="metrics-heading">
-            <h2>Leistungskennzahlen</h2>
-            <div class="metrics-heading__line"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # st.markdown(
+    #     """
+    #     <div class="metrics-heading">
+    #         <h2>Leistungskennzahlen</h2>
+    #         <div class="metrics-heading__line"></div>
+    #     </div>
+    #     """,
+    #     unsafe_allow_html=True,
+    # )
 
-    section_blocks: list[str] = []
+    section_blocks: list[tuple[str, str]] = []
     for section in SECTION_SPECS:
         required_any_metric_keys = section.get("required_any_metric_keys")
         if required_any_metric_keys and not required_any_metric_keys.intersection(
@@ -636,17 +661,20 @@ def render_summary_boxes(
             grid_class=grid_class,
         )
         section_blocks.append(
-            '<section class="kpi-section">'
-            '<div class="kpi-section-header">'
-            f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
-            f'<p class="kpi-section-title">{title}</p>'
-            f"{warning_html}</div>"
-            f"{box_grid_html}"
-            "</section>"
+            (
+                title,
+                '<section class="kpi-section">'
+                '<div class="kpi-section-header">'
+                f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
+                f'<p class="kpi-section-title">{title}</p>'
+                f"{warning_html}</div>"
+                f"{box_grid_html}"
+                "</section>",
+            )
         )
 
     st.markdown(
-        f'<div class="kpi-sections">{"".join(section_blocks)}</div>',
+        _summary_sections_html(section_blocks),
         unsafe_allow_html=True,
     )
 
