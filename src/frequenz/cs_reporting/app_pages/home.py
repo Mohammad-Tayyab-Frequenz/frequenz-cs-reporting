@@ -54,7 +54,7 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
     _FeatureCard(
         color_class="home-card--blue",
         icon="&#9889;",
-        title="Reporting-Dashboard",
+        title="Reporting",
         description=(
             "Leistungsflüsse auf Portfolioebene, Verbrauchsbilanzen "
             "und detaillierte KPI-Analysen über alle Microgrid-Komponenten."
@@ -205,7 +205,7 @@ def render() -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("Reporting-Dashboard öffnen", use_container_width=True):
+        if st.button("Reporting öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard")
     with col2:
         if st.button("Batterie-Reporting öffnen", use_container_width=True):

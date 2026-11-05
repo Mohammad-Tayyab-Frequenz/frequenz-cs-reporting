@@ -324,8 +324,8 @@ def build_daily_battery_optimization_figure(
 
     x_values = period_summary["period_label"]
     bar_specs = (
-        ("discharging_value_eur", "Wert Entladung", "rgba(146,219,68,1)"),
-        ("charging_cost_eur", "Wert Beladung", "rgba(236,0,140,1)"),
+        ("discharging_value_eur", "Wert Beladung", "rgba(236,0,140,1)"),
+        ("charging_cost_eur", "Wert Entladung", "rgba(146,219,68,1)"),
     )
     for column, name, color in bar_specs:
         values = period_summary[column]
