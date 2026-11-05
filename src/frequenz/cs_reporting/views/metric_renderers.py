@@ -60,8 +60,8 @@ _PRIOR_PERIOD_TOOLTIP = load_tooltips("common")["prior_period"]
 
 _DELTA_COMPARISONS = {
     "Netzbezug (kWh)": "neutral",
-    "DSO Netzbezug (kWh)": "neutral",
-    "DSO Netzeinspeisung (kWh)": "neutral",
+    "Netzbetreiber Netzbezug (kWh)": "neutral",
+    "Netzbetreiber Netzeinspeisung (kWh)": "neutral",
     "Netzeinspeisung (kWh)": "neutral",
     "Gesamtverbrauch Strom (kWh)": "neutral",
     "Gesamterzeugung (kWh)": "more_is_good",
@@ -716,7 +716,7 @@ def render_summary_boxes(
             and skipped_dso_market_location_ids
         ):
             warning = (
-                "DSO-Daten wurden für folgende MaLo-IDs nicht geladen: "
+                "Netzbetreiber-Daten wurden für folgende MaLo-IDs nicht geladen: "
                 f"{', '.join(skipped_dso_market_location_ids)}"
             )
             warning_icon = "⚠"

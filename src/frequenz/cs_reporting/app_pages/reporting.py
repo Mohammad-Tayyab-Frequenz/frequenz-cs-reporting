@@ -332,7 +332,8 @@ def _render_reporting_page(*, export_only: bool) -> None:
                         )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
-                        "DSO-Energiedaten konnten nicht geladen werden: " f"{exc}"
+                        "Netzbetreiber-Messdaten konnten nicht geladen werden: "
+                        f"{exc}"
                     )
                 else:
                     dso_energy_df = (

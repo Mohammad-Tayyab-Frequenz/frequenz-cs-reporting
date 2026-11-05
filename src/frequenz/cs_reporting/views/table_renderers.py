@@ -26,8 +26,8 @@ from frequenz.cs_reporting.views.component_sources import (
 )
 
 _MASTER_DF_DISPLAY_RENAMES = {
-    "dso_import_power": "DSO Netzbezug (kW)",
-    "dso_export_power": "DSO Netzeinspeisung (kW)",
+    "dso_import_power": "Netzbetreiber Netzbezug (kW)",
+    "dso_export_power": "Netzbetreiber Netzeinspeisung (kW)",
     "production_self_use": "Eigenverbrauch",
     "production_self_usage": "Eigenverbrauch Share",
 }
@@ -56,8 +56,8 @@ _CORE_DATA_CANONICAL_NAMES = {
 }
 
 _CORE_DATA_DISPLAY_FALLBACKS = {
-    "dso_import_power": "DSO Netzbezug (kW)",
-    "dso_export_power": "DSO Netzeinspeisung (kW)",
+    "dso_import_power": "Netzbetreiber Netzbezug (kW)",
+    "dso_export_power": "Netzbetreiber Netzeinspeisung (kW)",
     "production_to_battery": "Erzeugung zu Batterie",
     "grid_to_battery": "Netz zu Batterie",
     "battery_to_grid": "Batterie zu Netz",
@@ -74,8 +74,8 @@ _DSO_PRICE_DATA_COLUMNS = (
 
 _DSO_PRICE_DATA_RENAMES = {
     "timestamp": "Zeitpunkt",
-    "dso_export_power": "DSO Netzeinspeisung (kW)",
-    "dso_import_power": "DSO Netzbezug (kW)",
+    "dso_export_power": "Netzbetreiber Netzeinspeisung (kW)",
+    "dso_import_power": "Netzbetreiber Netzbezug (kW)",
     "day_ahead_price": "Day Ahead Preis",
 }
 
@@ -460,7 +460,7 @@ def render_data_export(
     tables.aggrid_table(
         _round_numeric_columns(_build_dso_price_data_df(master_df)),
         key_prefix="data_export_dso_price",
-        download_file_name="dso_day_ahead_preis.csv",
+        download_file_name="netzbetreiber_day_ahead_preis.csv",
     )
 
     st.divider()

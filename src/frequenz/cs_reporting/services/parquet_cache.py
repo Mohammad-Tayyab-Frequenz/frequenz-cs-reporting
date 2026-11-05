@@ -252,7 +252,7 @@ class ParquetRangeCache:
                     data_label = (
                         "day-ahead prices"
                         if key.name.startswith("day_ahead_prices_")
-                        else "DSO energy"
+                        else "Netzbetreiber-Messdaten"
                     )
                     unavailable_errors.append(
                         ValueError(

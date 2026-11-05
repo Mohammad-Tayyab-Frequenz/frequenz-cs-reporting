@@ -268,8 +268,8 @@ def test_core_data_table_contains_requested_columns_in_order() -> None:
     assert list(core_data.columns) == [
         "Zeitpunkt",
         "Netzbezug",
-        "DSO Netzbezug (kW)",
-        "DSO Netzeinspeisung (kW)",
+        "Netzbetreiber Netzbezug (kW)",
+        "Netzbetreiber Netzeinspeisung (kW)",
         "MID Gesamtverbrauch",
         "Netz Einspeisung",
         "PV-Erzeugung",
@@ -319,8 +319,8 @@ def test_dso_price_data_table_contains_only_requested_columns() -> None:
 
     assert list(dso_price_data.columns) == [
         "Zeitpunkt",
-        "DSO Netzeinspeisung (kW)",
-        "DSO Netzbezug (kW)",
+        "Netzbetreiber Netzeinspeisung (kW)",
+        "Netzbetreiber Netzbezug (kW)",
         "Day Ahead Preis",
     ]
     assert dso_price_data.iloc[0].tolist() == list(master_df.iloc[0, :4])
@@ -1829,15 +1829,15 @@ def test_incomplete_dso_warning_replaces_operator_kpi_cards(
 
     metric_renderers.render_summary_boxes(
         {"grid_consumption_sum": 10.0, "grid_feed_in_sum": 5.0},
-        dso_data_warning="DSO-Daten sind unvollständig.",
+        dso_data_warning="Netzbetreiber-Daten sind unvollständig.",
     )
 
     markup = "".join(rendered_markup)
     operator_start = markup.index("Netzkennzahlen - Netzbetreiber")
-    warning_start = markup.index("DSO-Daten sind unvollständig.")
+    warning_start = markup.index("Netzbetreiber-Daten sind unvollständig.")
     assert operator_start < warning_start
     assert 'class="kpi-section-data-warning"' in markup
-    assert "DSO Netzbezug" not in markup
+    assert "Netzbetreiber Netzbezug" not in markup
 
 
 def test_overview_plot_renders_without_day_ahead_price(
