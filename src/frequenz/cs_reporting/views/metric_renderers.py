@@ -477,13 +477,16 @@ def _box_grid_html(
     if len(groups) != len(cards):
         raise ValueError("KPI card groups must match the number of cards")
 
-    grouped_cards: dict[str, list[str]] = {}
+    grouped_cards: dict[str, tuple[list[str], bool]] = {}
     for index, (card, group) in enumerate(zip(cards, groups)):
         # Ungrouped cards remain individual grid items.
-        grouped_cards.setdefault(group or f"card-{index}", []).append(card)
+        key = group or f"card-{index}"
+        grouped_cards.setdefault(key, ([], group is None))[0].append(card)
     stacks = "".join(
-        f'<div class="kpi-card-stack">{"".join(stack)}</div>'
-        for stack in grouped_cards.values()
+        f'<div class="kpi-card-stack'
+        f'{" kpi-card-stack--standalone" if standalone else " kpi-card-stack--group"}">'
+        f'{"".join(stack)}</div>'
+        for stack, standalone in grouped_cards.values()
     )
     return f'<div class="kpi-grid kpi-grid--grouped {grid_class}">{stacks}</div>'
 

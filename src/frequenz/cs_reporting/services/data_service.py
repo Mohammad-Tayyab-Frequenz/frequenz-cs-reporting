@@ -28,6 +28,7 @@ from frequenz.cs_reporting.services.battery_capacity import (
 )
 from frequenz.cs_reporting.services.cache_config import CacheConfig, get_cache_config
 from frequenz.cs_reporting.services.client_factory import (
+    get_assets_client,
     get_component_types,
     get_market_location_ids,
     get_microgrid_client,
@@ -51,6 +52,7 @@ _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
 _BATTERY_SOC_SYNC_RETRY_INTERVAL = 15 * 60
+_BATTERY_SOC_DATASET = "battery_soc_with_bounds_v1"
 _ACTIVE_POWER_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="active-power-sync",
@@ -172,18 +174,22 @@ async def fetch_microgrid_soc_data(
         Dataframe of battery SOC values. Empty when no SOC data is available.
     """
     start_iso, end_iso = validate_range(start_date, end_date)
-    client = get_microgrid_client(microgrid_id)
+    assets_client = get_assets_client()
+    client = get_microgrid_client(microgrid_id, assets_client=assets_client)
 
-    coro = client.soc(
-        microgrid_id=microgrid_id,
-        start=start_iso,
-        end=end_iso,
-        resampling_period=resolution,
-        keep_components=False,
-    )
-    with _quiet_expected_component_data_warnings():
-        with log_duration("data.battery_soc.api_request"):
-            df = await asyncio.wait_for(coro, timeout)
+    try:
+        coro = client.soc(
+            microgrid_id=microgrid_id,
+            start=start_iso,
+            end=end_iso,
+            resampling_period=resolution,
+            keep_components=False,
+        )
+        with _quiet_expected_component_data_warnings():
+            with log_duration("data.battery_soc.api_request"):
+                df = await asyncio.wait_for(coro, timeout)
+    finally:
+        await assets_client.disconnect()
 
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame()
@@ -489,7 +495,7 @@ def get_microgrid_soc_data(
         )
         with log_duration("data.battery_soc.cache_get"):
             return cache.get(
-                _dataset_key("battery_soc", microgrid_id, resolution),
+                _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
                 start_date,
                 end_date,
                 lambda fetch_start, fetch_end: asyncio.run(
@@ -523,7 +529,7 @@ def get_cached_microgrid_soc_data(
     )
     with log_duration("data.battery_soc.cache_read"):
         return cache.read(
-            _dataset_key("battery_soc", microgrid_id, resolution),
+            _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
             start_date,
             end_date,
         )

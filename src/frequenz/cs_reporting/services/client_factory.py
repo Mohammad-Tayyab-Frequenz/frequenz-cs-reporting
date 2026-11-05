@@ -247,7 +247,20 @@ def _enterprise_config_files(microgrid_id: int) -> tuple[str, ...] | None:
     return found
 
 
-def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
+def get_assets_client() -> AssetsApiClient:
+    """Create an authenticated Assets API client for the current event loop."""
+    return AssetsApiClient(
+        require_env("ASSETS_API_URL"),
+        auth_key=require_env("FREQUENZ_API_KEY"),
+        sign_secret=require_env("FREQUENZ_API_SECRET"),
+    )
+
+
+def get_microgrid_client(
+    microgrid_id: int,
+    *,
+    assets_client: AssetsApiClient | None = None,
+) -> component_data.MicrogridData:
     """Create a MicrogridData client using cached configs.
 
     The client is not cached to avoid binding an async HTTP client to the wrong
@@ -256,6 +269,8 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
 
     Args:
         microgrid_id: Identifier for the target microgrid.
+        assets_client: Optional client used to enrich battery SOC data with
+            rated lower and upper bounds from asset metadata.
 
     Returns:
         Client ready to fetch microgrid data.
@@ -271,6 +286,7 @@ def get_microgrid_client(microgrid_id: int) -> component_data.MicrogridData:
         auth_key=auth_key,
         sign_secret=sign_secret,
         microgrid_configs=configs,
+        assets_client=assets_client,
     )
 
 
@@ -359,16 +375,9 @@ def _get_microgrid_names(
     variables refreshes it.  The call is bounded by a timeout; on failure the
     last successful result is reused so the sidebar never blocks for minutes.
     """
-    auth_key = require_env("FREQUENZ_API_KEY")
-    sign_secret = require_env("FREQUENZ_API_SECRET")
-    assets_api_url = require_env("ASSETS_API_URL")
 
     async def load() -> MicrogridCatalog:
-        assets_client = AssetsApiClient(
-            assets_api_url,
-            auth_key=auth_key,
-            sign_secret=sign_secret,
-        )
+        assets_client = get_assets_client()
         try:
             microgrids = await asyncio.wait_for(
                 assets_client.list_microgrids(), _ASSETS_API_TIMEOUT_SECONDS
@@ -414,16 +423,9 @@ def get_meter_display_names(microgrid_id: int) -> dict[str, str]:
     Returns:
         Mapping of component ID strings to display names.
     """
-    auth_key = require_env("FREQUENZ_API_KEY")
-    sign_secret = require_env("FREQUENZ_API_SECRET")
-    assets_api_url = require_env("ASSETS_API_URL")
 
     async def load() -> dict[str, str]:
-        assets_client = AssetsApiClient(
-            assets_api_url,
-            auth_key=auth_key,
-            sign_secret=sign_secret,
-        )
+        assets_client = get_assets_client()
         try:
             components = await assets_client.list_microgrid_electrical_components(
                 MicrogridId(microgrid_id)
