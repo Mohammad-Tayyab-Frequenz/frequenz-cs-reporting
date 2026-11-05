@@ -24,11 +24,15 @@ from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
 from frequenz.cs_reporting.app_pages import (
     battery_optimization as battery_optimization_page,
 )
+from frequenz.cs_reporting.app_pages import solar as solar_page
 from frequenz.cs_reporting.app_pages.battery_optimization import (
     _completed_price_range_end,
     _mid_caption,
 )
-from frequenz.cs_reporting.app_pages.solar import capture_workflow_figures
+from frequenz.cs_reporting.app_pages.solar import (
+    _solar_mid_heading,
+    capture_workflow_figures,
+)
 from frequenz.cs_reporting.components import inputs
 from frequenz.cs_reporting.components.sidebar_inputs import (
     _default_reporting_date_range,
@@ -44,7 +48,7 @@ from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
-from frequenz.cs_reporting.constants import TablesResult
+from frequenz.cs_reporting.constants import COLOR_DICT, TablesResult
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     build_battery_optimization_results_table,
@@ -58,6 +62,7 @@ from frequenz.cs_reporting.services.data_service import (
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import (
+    battery_optimization as battery_optimization_view,
     dashboard,
     metric_renderers,
 )
@@ -85,8 +90,10 @@ from frequenz.cs_reporting.views.dashboard import (
     _PRICE_SYNC_RERUN_STATE_KEY,
     _aggregate_metrics,
     _filter_component_types_for_master_df,
+    _has_complete_dso_data,
     _has_current_day_ahead_prices,
     _merge_cached_day_ahead_prices,
+    _omit_incomplete_dso_data,
     _render_day_ahead_price_sync_status,
     split_periods,
 )
@@ -94,7 +101,6 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _DELTA_COMPARISONS,
     SECTION_SPECS,
     _box_grid_html,
-    _build_consumption_breakdown,
     _card_html,
     _delta_html,
     _filter_available_optional_metric_specs,
@@ -105,9 +111,13 @@ from frequenz.cs_reporting.views.metric_renderers import (
     _kpi_tooltip_content_html,
     _materialize_boxes,
     _prior_period_help_html,
+    _section_data_warning_html,
+    _summary_sections_html,
 )
 from frequenz.cs_reporting.views.plot_renderers import (
+    _build_consumption_breakdown,
     _component_ids_for_plot_source,
+    _render_consumption_mix,
     _render_overview_plot,
 )
 from frequenz.cs_reporting.views.table_renderers import (
@@ -838,6 +848,109 @@ def test_battery_optimization_mid_caption_includes_name_and_number() -> None:
     assert _mid_caption(244, None) == ("MID244 - Nicht verfügbar")
 
 
+def test_solar_reporting_heading_includes_mid_name_and_number() -> None:
+    """The solar page heading identifies the selected MID."""
+    assert _solar_mid_heading(243, "Solarlandbau Priegendorf") == (
+        "MID243 - Solarlandbau Priegendorf"
+    )
+    assert _solar_mid_heading(244, None) == "MID244 - Nicht verfügbar"
+
+
+def test_solar_reporting_renders_selected_mid_at_top(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The selected MID heading is rendered even before the workflow is started."""
+    titles: list[str] = []
+    monkeypatch.setattr(
+        solar_page,
+        "collect_solar_sidebar_inputs",
+        lambda **_kwargs: (SimpleNamespace(microgrid_id=243), False),
+    )
+    monkeypatch.setattr(solar_page, "get_microgrid_names", lambda: {243: "Test"})
+    monkeypatch.setattr(st, "title", titles.append)
+    monkeypatch.setattr(st, "divider", lambda: None)
+    monkeypatch.setattr(st, "info", lambda _message: None)
+
+    solar_page.render()
+
+    assert titles == ["MID243 - Test", "Solar Reporting"]
+
+
+def test_battery_reporting_uses_standard_chart_and_table_section_headings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Battery charts and tables use the standard reporting section names."""
+    subheadings: list[str] = []
+    section_headings: list[str] = []
+    kpi_sections: list[
+        tuple[str, list[tuple[str, object, object, object]], str | None]
+    ] = []
+    boxes = [(f"Metric {index}", 1.0, None, None) for index in range(8)]
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "calculate_battery_optimization_intervals",
+        lambda *_args: pd.DataFrame({"value": [1.0]}),
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "calculate_selection_metrics",
+        lambda _interval_data: {},
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "_build_battery_optimization_kpi_boxes",
+        lambda _metrics: boxes,
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "render_box_section",
+        lambda title, section_boxes, **_kwargs: kpi_sections.append(
+            (
+                title,
+                list(section_boxes),
+                cast(str | None, _kwargs.get("grid_class")),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "_render_battery_optimization_plot_tabs",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "build_battery_optimization_results_table",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "render_table_section",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(st, "subheader", subheadings.append)
+    monkeypatch.setattr(st, "divider", lambda: None)
+    monkeypatch.setattr(
+        battery_optimization_view,
+        "_section_divider",
+        section_headings.append,
+    )
+
+    battery_optimization_view.render_battery_optimization(
+        pd.DataFrame(), timedelta(minutes=15)
+    )
+
+    assert subheadings == ["Batterie Reporting"]
+    assert section_headings == [
+        "Diagramme",
+        "Diagramme",
+        "Datentabellen",
+    ]
+    assert kpi_sections == [
+        ("Speichermehrwert", boxes[:4], "kpi-grid--featured-first"),
+        ("Betriebskennzahlen", boxes[4:8], "kpi-grid--two-by-two"),
+    ]
+
+
 def test_battery_optimization_loads_prices_for_the_complete_selected_range(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1026,7 +1139,10 @@ def test_total_production_kpi_is_hidden_for_one_production_source() -> None:
         microgrid_id=123,
     )
 
-    assert [spec.get("key") for spec in box_specs] == ["pv_production_sum"]
+    assert [spec.get("key") for spec in box_specs] == [
+        "pv_production_sum",
+        "prod_self_consumption_sum",
+    ]
 
 
 def test_total_production_kpi_is_shown_for_multiple_production_sources() -> None:
@@ -1048,11 +1164,28 @@ def test_total_production_kpi_is_shown_for_multiple_production_sources() -> None
         "total_production_sum",
         "pv_production_sum",
         "wind_production_sum",
+        "prod_self_consumption_sum",
     ]
 
 
+def test_eigenverbrauch_kpi_is_only_in_production_section() -> None:
+    """Eigenverbrauch belongs to generation rather than consumption KPIs."""
+    sections_by_title = {section["title"]: section for section in SECTION_SPECS}
+
+    production_keys = {
+        spec.get("key")
+        for spec in sections_by_title["(Eigen-)Erzeugungskennzahlen"]["boxes"]
+    }
+    consumption_keys = {
+        spec.get("key") for spec in sections_by_title["Verbrauchskennzahlen"]["boxes"]
+    }
+
+    assert "prod_self_consumption_sum" in production_keys
+    assert "prod_self_consumption_sum" not in consumption_keys
+
+
 def test_consumption_breakdown_shows_sources_serving_consumption() -> None:
-    """The Stromverbrauch bar is split by sources that serve local consumption."""
+    """The Stromverbrauch mix is split by sources that serve consumption."""
     breakdown = _build_consumption_breakdown(
         {
             "mid_consumption_sum": 100.0,
@@ -1070,6 +1203,48 @@ def test_consumption_breakdown_shows_sources_serving_consumption() -> None:
         "Netz zu Verbrauch (kWh)": 60.0,
         "Erzeugung zu Verbrauch (kWh)": 30.0,
         "Batterie zu Verbrauch (kWh)": 10.0,
+    }
+
+
+def test_consumption_plot_is_rendered_as_energy_mix_tab_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The former summary consumption plot can be rendered inside Energie-Mix."""
+    rendered: list[tuple[str, go.Figure]] = []
+    monkeypatch.setattr(
+        "frequenz.cs_reporting.views.plot_renderers.render_plot_card",
+        lambda title, figure: rendered.append((title, figure)),
+    )
+
+    _render_consumption_mix(
+        {
+            "mid_consumption_sum": 100.0,
+            "grid_consumption_sum": 70.0,
+            "grid_to_battery_sum": 10.0,
+            "prod_self_consumption_sum": 30.0,
+            "battery_to_consumption_sum": 10.0,
+        }
+    )
+
+    assert len(rendered) == 1
+    title, figure = rendered[0]
+    assert title == "Stromverbrauch Mix"
+    assert len(figure.data) == 1
+    assert isinstance(figure.data[0], go.Pie)
+    assert set(figure.data[0].labels) == {
+        "Netz zu Verbrauch (kWh)",
+        "Erzeugung zu Verbrauch (kWh)",
+        "Batterie zu Verbrauch (kWh)",
+    }
+    colors_by_label = dict(zip(figure.data[0].labels, figure.data[0].marker.colors))
+    assert colors_by_label["Netz zu Verbrauch (kWh)"] == "rgba(100,116,139,1)"
+    assert colors_by_label["Erzeugung zu Verbrauch (kWh)"] == COLOR_DICT["PV"]
+    assert colors_by_label["Batterie zu Verbrauch (kWh)"] == "rgba(236,0,140,1)"
+    assert figure.layout.legend.orientation == "v"
+    assert figure.layout.legend.x == pytest.approx(1.02)
+    assert figure.layout.legend.title.text == "Stromverbrauch Mix"
+    assert "<b>Gesamtverbrauch:</b> 100 kWh" in {
+        annotation.text for annotation in figure.layout.annotations
     }
 
 
@@ -1238,6 +1413,53 @@ def test_aggregate_metrics_adds_projected_dso_values_when_prices_exist(
     assert metrics["dso_export_revenue_sum"] == 5.0
     assert metrics["average_da_price_dso_import"] == pytest.approx(50 / 3)
     assert metrics["average_da_price_dso_export"] == pytest.approx(50 / 3)
+
+
+def test_aggregate_metrics_omits_incomplete_dso_period() -> None:
+    """Partial DSO series must not be presented as complete-period totals."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
+            "dso_import_power": [400.0, None],
+            "dso_export_power": [40.0, 80.0],
+        }
+    )
+
+    metrics = _aggregate_metrics(master_df, timedelta(minutes=15))
+
+    assert not _has_complete_dso_data(master_df)
+    assert not any(key.startswith("dso_") for key in metrics)
+
+
+def test_dso_period_is_complete_only_with_both_directions_for_every_interval() -> None:
+    """DSO availability requires import and export values on every report row."""
+    complete_df = pd.DataFrame(
+        {
+            "dso_import_power": [400.0, 800.0],
+            "dso_export_power": [0.0, 80.0],
+        }
+    )
+
+    assert _has_complete_dso_data(complete_df)
+    assert not _has_complete_dso_data(complete_df.drop(columns="dso_export_power"))
+
+
+def test_incomplete_dso_columns_are_removed_from_downstream_views() -> None:
+    """Partial DSO values cannot leak into plots, tables, or data exports."""
+    master_df = pd.DataFrame(
+        {
+            "grid_consumption": [1.0, 2.0],
+            "dso_import_power": [400.0, None],
+            "dso_export_power": [40.0, 80.0],
+        }
+    )
+
+    sanitized_df, was_incomplete = _omit_incomplete_dso_data(master_df)
+
+    assert was_incomplete
+    assert "grid_consumption" in sanitized_df
+    assert not set(("dso_import_power", "dso_export_power")) & set(sanitized_df)
+    assert "dso_import_power" in master_df
 
 
 def test_split_periods_returns_selected_and_previous_ranges() -> None:
@@ -1412,6 +1634,34 @@ def test_tooltip_copy_is_loaded_from_the_content_catalogue() -> None:
     )
     assert load_tooltips("common")["prior_period"].startswith("Vorperiode")
     assert "Netzbetreiber" in load_tooltips("reporting")["invoicing_warning"]
+    dso_warning = load_tooltips("reporting")["incomplete_dso_data_warning"]
+    assert dso_warning.startswith("Messdaten des Netzbetreibers unvollständig")
+    assert "Verzögerung bereit (24 h)" in dso_warning
+
+
+def test_section_data_warning_renders_catalogue_heading_and_reasons() -> None:
+    """Structured warning copy keeps its heading and reasons in the KPI panel."""
+    warning_html = _section_data_warning_html(
+        "Messdaten unvollständig\n\nErklärung.\n\n"
+        "Mögliche Gründe:\n- Erster Grund.\n– Zweiter Grund."
+    )
+
+    assert "<strong" in warning_html
+    assert ">Messdaten unvollständig</strong>" in warning_html
+    assert ">Erklärung.</div>" in warning_html
+    assert "<li>Erster Grund.</li>" in warning_html
+    assert "<li>Zweiter Grund.</li>" in warning_html
+
+
+def test_complete_catalogue_dso_warning_is_rendered() -> None:
+    """Every reason from the DSO warning catalogue entry is visible."""
+    warning = load_tooltips("reporting")["incomplete_dso_data_warning"]
+
+    warning_html = _section_data_warning_html(warning)
+
+    assert "<li>" in warning_html
+    assert "Verzögerung bereit (24 h)" in warning_html
+    assert "Netzbetreiberdaten liegen erst ab Februar vor." in warning_html
 
 
 def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
@@ -1446,7 +1696,7 @@ def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None
             ("Prognostizierte Netzbezugskosten (€)", 2.0),
             ("Prognostizierter Preis (ct/kWh)", 3.0),
             ("Netzeinspeisung (kWh)", 4.0),
-            ("Prognostizierte Einspeiseerloese (€)", 5.0),
+            ("Prognostizierte Einspeiseerlöse (€)", 5.0),
             ("Prognostizierter Preis (ct/kWh)", 6.0),
         ],
         "#3b82f6",
@@ -1461,7 +1711,27 @@ def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None
         "Prognostizierter Preis"
     )
     feed_in_start = markup.index("Netzeinspeisung")
-    assert feed_in_start < markup.index("Prognostizierte Einspeiseerloese")
+    assert feed_in_start < markup.index("Prognostizierte Einspeiseerlöse")
+
+
+def test_summary_sections_place_other_kpis_below_reporting_data() -> None:
+    """The grid-operator section stays beside the reporting-data column."""
+    markup = _summary_sections_html(
+        [
+            ("Netzkennzahlen - Reporting Daten", "<section>reporting</section>"),
+            ("Netzkennzahlen - Netzbetreiber", "<section>operator</section>"),
+            ("(Eigen-)Erzeugungskennzahlen", "<section>production</section>"),
+            ("Verbrauchskennzahlen", "<section>consumption</section>"),
+        ]
+    )
+
+    assert 'class="kpi-sections kpi-summary-layout"' in markup
+    primary_start = markup.index('class="kpi-summary-layout__primary"')
+    operator_start = markup.index('class="kpi-summary-layout__operator"')
+    assert primary_start < markup.index("reporting") < operator_start
+    assert markup.index("production") < operator_start
+    assert markup.index("consumption") < operator_start
+    assert operator_start < markup.index("operator")
 
 
 def test_stale_day_ahead_price_is_not_filled_across_missing_intervals(
@@ -1544,6 +1814,30 @@ def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
     assert "peak" in filtered_keys
     assert "dso_import_energy_sum" in filtered_keys
     assert "dso_export_energy_sum" in filtered_keys
+
+
+def test_incomplete_dso_warning_replaces_operator_kpi_cards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The grid-operator section remains visible with a warning instead of KPIs."""
+    rendered_markup: list[str] = []
+    monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
+    monkeypatch.setattr(
+        st, "markdown", lambda body, **_kwargs: rendered_markup.append(body)
+    )
+    monkeypatch.setattr(st, "plotly_chart", lambda *_args, **_kwargs: None)
+
+    metric_renderers.render_summary_boxes(
+        {"grid_consumption_sum": 10.0, "grid_feed_in_sum": 5.0},
+        dso_data_warning="DSO-Daten sind unvollständig.",
+    )
+
+    markup = "".join(rendered_markup)
+    operator_start = markup.index("Netzkennzahlen - Netzbetreiber")
+    warning_start = markup.index("DSO-Daten sind unvollständig.")
+    assert operator_start < warning_start
+    assert 'class="kpi-section-data-warning"' in markup
+    assert "DSO Netzbezug" not in markup
 
 
 def test_overview_plot_renders_without_day_ahead_price(
