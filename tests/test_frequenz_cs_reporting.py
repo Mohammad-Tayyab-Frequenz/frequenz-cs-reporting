@@ -1241,7 +1241,7 @@ def test_consumption_plot_is_rendered_as_energy_mix_tab_content(
     assert colors_by_label["Erzeugung zu Verbrauch (kWh)"] == COLOR_DICT["PV"]
     assert colors_by_label["Batterie zu Verbrauch (kWh)"] == "rgba(236,0,140,1)"
     assert figure.layout.legend.orientation == "v"
-    assert figure.layout.legend.x == pytest.approx(1.02)
+    assert figure.layout.legend.x == pytest.approx(0.8)
     assert figure.layout.legend.title.text == "Stromverbrauch Mix"
     assert "<b>Gesamtverbrauch:</b> 100 kWh" in {
         annotation.text for annotation in figure.layout.annotations

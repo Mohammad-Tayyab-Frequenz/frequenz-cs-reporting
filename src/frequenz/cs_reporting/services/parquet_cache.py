@@ -138,7 +138,7 @@ class ParquetRangeCache:
             if not storage_valid:
                 covered = []
             elif _is_dense_time_series(key):
-                covered = _frame_covered_ranges(stored, key.resolution_seconds)
+                covered = _frame_covered_ranges(stored, key)
             required = _subtract_range(requested, covered)
             now = datetime.now(tz=UTC)
             due = _sync_due(metadata.last_successful_sync, now, self._sync_interval)
@@ -249,9 +249,14 @@ class ParquetRangeCache:
                     )
                     continue
                 if raw_frame.empty and _is_dense_time_series(key):
+                    data_label = (
+                        "day-ahead prices"
+                        if key.name.startswith("day_ahead_prices_")
+                        else "DSO energy"
+                    )
                     unavailable_errors.append(
                         ValueError(
-                            "No day-ahead prices returned for "
+                            f"No {data_label} returned for "
                             f"{range_start.isoformat()} to {range_end.isoformat()}"
                         )
                     )
@@ -268,6 +273,17 @@ class ParquetRangeCache:
                 successful_ranges.append((range_start, range_end))
 
             if not raw_parts:
+                if unavailable_errors and not stored.empty:
+                    metadata.status = "partial"
+                    metadata.sync_duration_seconds = round(
+                        time.monotonic() - started, 3
+                    )
+                    metadata.last_error = (
+                        f"{type(unavailable_errors[0]).__name__}: "
+                        f"{unavailable_errors[0]}"
+                    )
+                    self._write_metadata(key, metadata)
+                    return stored, metadata
                 raise unavailable_errors[0]
 
             with log_duration(_cache_timing_operation(key, "normalize")):
@@ -290,7 +306,7 @@ class ParquetRangeCache:
                     metadata.index_name,
                 )
                 if _is_dense_time_series(key):
-                    new_covered = _frame_covered_ranges(merged, key.resolution_seconds)
+                    new_covered = _frame_covered_ranges(merged, key)
                 else:
                     new_covered = _merge_ranges([*covered, *successful_ranges])
 
@@ -573,20 +589,22 @@ def _merge_ranges(ranges: list[_Range]) -> list[_Range]:
 
 def _is_dense_time_series(key: DatasetKey) -> bool:
     """Return whether stored timestamps must continuously cover the metadata."""
-    return key.name.startswith("day_ahead_prices_")
+    return key.name.startswith("day_ahead_prices_") or key.name == "dso_energy_flows"
 
 
-def _frame_covered_ranges(frame: pd.DataFrame, resolution_seconds: int) -> list[_Range]:
+def _frame_covered_ranges(frame: pd.DataFrame, key: DatasetKey) -> list[_Range]:
     """Derive contiguous coverage from populated time-series records."""
     if frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
         return []
-    populated = frame.dropna(how="all")
+    populated = frame.dropna(
+        how="any" if key.name == "dso_energy_flows" else "all"
+    )
     if populated.empty:
         return []
     timestamps = pd.DatetimeIndex(
         pd.to_datetime(populated.index, utc=True).unique()
     ).sort_values()
-    resolution = pd.Timedelta(resolution_seconds, unit="s")
+    resolution = pd.Timedelta(key.resolution_seconds, unit="s")
     ranges: list[_Range] = []
     range_start = timestamps[0]
     previous = timestamps[0]
@@ -711,7 +729,12 @@ def _merge_frames(stored: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
         combined = pd.concat([stored, incoming], axis=0, sort=False)
     if combined.empty:
         return combined
-    return combined[~combined.index.duplicated(keep="last")].sort_index()
+    if not combined.index.has_duplicates:
+        return combined.sort_index()
+    # ``last()`` keeps the newest non-null value independently for each column.
+    # A partial API response can therefore update one metric without erasing a
+    # previously cached companion metric at the same timestamp.
+    return combined.groupby(level=0, sort=True).last()
 
 
 def _raw_frame_axis(frame: pd.DataFrame) -> tuple[str, str | None]:
