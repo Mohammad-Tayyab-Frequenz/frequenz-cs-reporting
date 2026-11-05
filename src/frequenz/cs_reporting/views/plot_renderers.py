@@ -21,7 +21,12 @@ from frequenz.lib.notebooks.reporting.plotter import (
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 
 from frequenz.cs_reporting.components.ui import render_plot_card
-from frequenz.cs_reporting.constants import COLOR_DICT, COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.constants import (
+    COLOR_DICT,
+    COMPONENT_CONFIGS,
+    KPI_SECTION_ACCENTS,
+    TablesResult,
+)
 from frequenz.cs_reporting.views.component_sources import (
     PLOT_SOURCE_ANALYSIS_KEYS,
     component_analysis_for_source,
@@ -208,8 +213,12 @@ def _render_consumption_mix(metrics: dict[str, float | str | None]) -> None:
         .replace("X", ".")
     )
     segment_colors = {
-        "Netz zu Verbrauch (kWh)": "rgba(100,116,139,1)",
-        "Erzeugung zu Verbrauch (kWh)": COLOR_DICT["PV"],
+        "Netz zu Verbrauch (kWh)": KPI_SECTION_ACCENTS[
+            "Netzkennzahlen - Reporting Daten"
+        ],
+        "Erzeugung zu Verbrauch (kWh)": KPI_SECTION_ACCENTS[
+            "(Eigen-)Erzeugungskennzahlen"
+        ],
         "Batterie zu Verbrauch (kWh)": COLOR_DICT["Batterie Entladung"],
     }
     segments = {

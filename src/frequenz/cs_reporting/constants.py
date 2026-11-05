@@ -27,6 +27,17 @@ COLOR_DICT = {
     "Batterie Entladung": "rgba(236,0,140,1)",
 }
 
+# Accent colors shared by KPI sections and related visualizations.
+KPI_SECTION_ACCENTS = {
+    "Netzkennzahlen": "#3b82f6",
+    "Netzkennzahlen - Reporting Daten": "#3b82f6",
+    "Netzkennzahlen - Netzbetreiber": "#3b82f6",
+    "(Eigen-)Erzeugungskennzahlen": "#10b981",
+    "Verbrauchskennzahlen": "#f59e0b",
+    "Batteriekennzahlen": "#64748b",
+    "Bilanzkennzahlen": "#8b5cf6",
+}
+
 # Column name constants (German display names)
 COLUMN_NAMES = {
     "TIMESTAMP": "Zeitpunkt",

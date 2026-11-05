@@ -48,7 +48,11 @@ from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
     _plotly_component_height,
 )
-from frequenz.cs_reporting.constants import COLOR_DICT, TablesResult
+from frequenz.cs_reporting.constants import (
+    COLOR_DICT,
+    KPI_SECTION_ACCENTS,
+    TablesResult,
+)
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     build_battery_optimization_results_table,
@@ -1237,8 +1241,14 @@ def test_consumption_plot_is_rendered_as_energy_mix_tab_content(
         "Batterie zu Verbrauch (kWh)",
     }
     colors_by_label = dict(zip(figure.data[0].labels, figure.data[0].marker.colors))
-    assert colors_by_label["Netz zu Verbrauch (kWh)"] == "rgba(100,116,139,1)"
-    assert colors_by_label["Erzeugung zu Verbrauch (kWh)"] == COLOR_DICT["PV"]
+    assert (
+        colors_by_label["Netz zu Verbrauch (kWh)"]
+        == KPI_SECTION_ACCENTS["Netzkennzahlen - Reporting Daten"]
+    )
+    assert (
+        colors_by_label["Erzeugung zu Verbrauch (kWh)"]
+        == KPI_SECTION_ACCENTS["(Eigen-)Erzeugungskennzahlen"]
+    )
     assert colors_by_label["Batterie zu Verbrauch (kWh)"] == "rgba(236,0,140,1)"
     assert figure.layout.legend.orientation == "v"
     assert figure.layout.legend.x == pytest.approx(0.8)

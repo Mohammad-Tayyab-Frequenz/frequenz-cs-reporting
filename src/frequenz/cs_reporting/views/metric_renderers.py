@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 import streamlit as st
 
+from frequenz.cs_reporting.constants import KPI_SECTION_ACCENTS
 from frequenz.cs_reporting.ui_resources import inject_style, load_tooltips
 
 
@@ -153,14 +154,6 @@ def _prior_period_help_html() -> str:
         f'<span class="kpi-card__help-tooltip">{tooltip}</span></span>'
     )
 
-
-_SECTION_ACCENTS: dict[str, str] = {
-    "Netzkennzahlen": "#3b82f6",  # blue  – grid
-    "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
-    "Verbrauchskennzahlen": "#f59e0b",  # amber – consumption
-    "Batteriekennzahlen": "#64748b",  # gray – neutral battery flows
-    "Bilanzkennzahlen": "#8b5cf6",  # purple – balance ratios
-}
 
 _SECTION_ICONS: dict[str, str] = {
     "Netzkennzahlen": "⚡",
@@ -684,7 +677,7 @@ def render_summary_boxes(
             and not required_any_metric_keys.intersection(metrics)
         ):
             continue
-        accent = _SECTION_ACCENTS.get(title, "#3b82f6")
+        accent = KPI_SECTION_ACCENTS.get(title, "#3b82f6")
         icon = _SECTION_ICONS.get(title, "●")
         icon_bg = accent + "22"  # ~13% opacity hex approximation
         if is_dso_warning_section:
