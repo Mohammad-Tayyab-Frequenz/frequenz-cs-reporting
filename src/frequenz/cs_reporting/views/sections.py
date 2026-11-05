@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from frequenz.cs_reporting.constants import COLOR_DICT as color_dict
 
-from .metric_renderers import render_box_grid, render_summary_boxes
+from .metric_renderers import render_box_grid, render_box_section, render_summary_boxes
 from .plot_renderers import (
     render_energy_pie_chart,
     render_plots_tabs,
@@ -37,4 +37,5 @@ __all__ = [
     "color_dict",
     "render_summary_boxes",
     "render_box_grid",
+    "render_box_section",
 ]

@@ -53,7 +53,7 @@ PAGE_MANIFEST: dict[str, PageSpec] = {
     ),
     "solar": PageSpec(
         key="solar",
-        title="Solar-Monitoring",
+        title="Solar-Reporting",
         icon="",
         order=2,
         render=_lazy_render("solar", "solar"),

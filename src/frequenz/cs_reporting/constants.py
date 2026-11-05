@@ -23,6 +23,8 @@ COLOR_DICT = {
     "MID Gesamtverbrauch": "rgba(71,82,99,1)",
     "Batterie Leistungsfluss": "rgba(41,140,120,1)",
     "Netzbezug": "rgba(32,42,55,1)",
+    "Batterie Beladung": "rgba(146,219,68,1)",
+    "Batterie Entladung": "rgba(236,0,140,1)",
 }
 
 # Column name constants (German display names)

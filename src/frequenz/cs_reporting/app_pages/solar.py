@@ -19,7 +19,10 @@ from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import run_w
 
 from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.services.client_factory import get_microgrid_config
+from frequenz.cs_reporting.services.client_factory import (
+    get_microgrid_config,
+    get_microgrid_names,
+)
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.solar_results import render_workflow_results
@@ -30,6 +33,12 @@ DEFAULT_START_DATE = datetime.date(
 DEFAULT_RESAMPLE_PERIOD = "3600"
 DEFAULT_BASELINE_MODELS: list[str] = []
 _WORKFLOW_DISPLAY_LOCK = Lock()
+
+
+def _solar_mid_heading(microgrid_id: int, microgrid_name: str | None) -> str:
+    """Return the selected MID number and name for the page heading."""
+    name = microgrid_name or "Nicht verfügbar"
+    return f"MID{microgrid_id} - {name}"
 
 
 @contextmanager
@@ -68,9 +77,6 @@ def capture_workflow_figures() -> Iterator[list[go.Figure]]:
 
 def render() -> None:
     """Render the Solar Maintenance & Monitoring page."""
-    st.title("Solar-Wartung & Monitoring")
-    st.divider()
-
     with log_duration("solar.sidebar_inputs"):
         inputs_data, submit_button = collect_solar_sidebar_inputs(
             default_start_date=DEFAULT_START_DATE,
@@ -85,7 +91,17 @@ def render() -> None:
         )
 
     if inputs_data is None:
+        st.title("Solar Reporting")
         return
+
+    microgrid_id = inputs_data.microgrid_id
+    try:
+        microgrid_name = get_microgrid_names().get(microgrid_id)
+    except RuntimeError:
+        microgrid_name = None
+    st.title(_solar_mid_heading(microgrid_id, microgrid_name))
+    st.title("Solar Reporting")
+    st.divider()
 
     if not submit_button:
         st.info(

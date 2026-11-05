@@ -178,6 +178,93 @@ def render_energy_pie_chart(
     render_plot_card("Energie-Mix", fig)
 
 
+def _build_consumption_breakdown(
+    metrics: dict[str, float | str | None],
+) -> dict[str, float | None]:
+    """Prepare the sources serving consumption for the energy-mix plot."""
+    grid_consumption = metrics.get("grid_consumption_sum") or 0.0
+    grid_to_battery = metrics.get("grid_to_battery_sum") or 0.0
+    values = {
+        "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
+        "Netz zu Verbrauch (kWh)": max(
+            float(grid_consumption) - float(grid_to_battery), 0.0
+        ),
+        "Erzeugung zu Verbrauch (kWh)": metrics.get("prod_self_consumption_sum"),
+        "Batterie zu Verbrauch (kWh)": metrics.get("battery_to_consumption_sum"),
+    }
+    return {
+        key: float(value) if isinstance(value, (int, float)) else 0.0
+        for key, value in values.items()
+    }
+
+
+def _render_consumption_mix(metrics: dict[str, float | str | None]) -> None:
+    """Render the consumption-source pie chart in the Energie-Mix tab."""
+    breakdown = _build_consumption_breakdown(metrics)
+    total_consumption = breakdown["Stromverbrauch (kWh)"] or 0.0
+    formatted_total = (
+        f"{total_consumption:,.0f}".replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
+    segment_colors = {
+        "Netz zu Verbrauch (kWh)": "rgba(100,116,139,1)",
+        "Erzeugung zu Verbrauch (kWh)": COLOR_DICT["PV"],
+        "Batterie zu Verbrauch (kWh)": COLOR_DICT["Batterie Entladung"],
+    }
+    segments = {
+        label: value
+        for label, value in breakdown.items()
+        if label != "Stromverbrauch (kWh)" and value is not None and value > 0.0
+    }
+    fig = go.Figure()
+    if segments:
+        fig.add_trace(
+            go.Pie(
+                labels=list(segments),
+                values=list(segments.values()),
+                marker={
+                    "colors": [segment_colors[label] for label in segments],
+                },
+                textinfo="label+percent",
+                hovertemplate=(
+                    "<b>%{label}</b><br>Anteil: %{percent}<br>"
+                    "Energie: %{value:,.0f} kWh<extra></extra>"
+                ),
+            )
+        )
+    else:
+        fig.add_annotation(
+            text="Keine Daten zur Anzeige",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+    fig.update_layout(
+        height=420,
+        margin={"l": 20, "r": 240, "t": 60, "b": 20},
+        legend={
+            "orientation": "v",
+            "y": 0.9,
+            "yanchor": "middle",
+            "x": 0.8,
+            "xanchor": "left",
+            "title": {"text": "Stromverbrauch Mix"},
+        },
+        separators=",.",
+    )
+    fig.add_annotation(
+        text=f"<b>Gesamtverbrauch:</b> {formatted_total} kWh",
+        x=0.5,
+        xref="paper",
+        y=1.08,
+        yref="paper",
+        showarrow=False,
+        font={"size": 14, "color": "#374151"},
+    )
+    render_plot_card("Stromverbrauch Mix", fig)
+
+
 # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
 @st.fragment
 def _render_component_tab(
@@ -417,17 +504,12 @@ def _get_active_tabs(
                 lambda: _render_battery_soc_plot(overview_df),
             )
 
-    power_table = tables.get("power_table")
-    required = {"Energy Source", "Energy [kWh]"}
-    if (
-        isinstance(power_table, pd.DataFrame)
-        and not power_table.empty
-        and required.issubset(power_table.columns)
-    ):
+    metrics = tables.get("metrics")
+    if isinstance(metrics, dict) and "mid_consumption_sum" in metrics:
         tabs.append(
             (
                 "Energie-Mix",
-                lambda: render_energy_pie_chart(power_table, color_dict=palette),
+                lambda: _render_consumption_mix(metrics),
             )
         )
 

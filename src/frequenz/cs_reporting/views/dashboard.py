@@ -34,7 +34,11 @@ from frequenz.cs_reporting.services.market_metering import merge_dso_energy
 from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
-from frequenz.cs_reporting.ui_resources import inject_style, render_template
+from frequenz.cs_reporting.ui_resources import (
+    inject_style,
+    load_tooltips,
+    render_template,
+)
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
@@ -64,6 +68,8 @@ _INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
     "Day-ahead prices are not available for the complete selected period. "
     "Available cached prices are shown."
 )
+_DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
+_INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
 
 
 def _inject_dashboard_css() -> None:
@@ -134,6 +140,28 @@ def _has_current_day_ahead_prices(master_df: pd.DataFrame) -> bool:
     return not latest_rows.empty and bool(latest_rows.notna().any())
 
 
+def _has_complete_dso_data(master_df: pd.DataFrame) -> bool:
+    """Return whether both DSO directions cover every displayed interval."""
+    if master_df.empty or not set(_DSO_POWER_COLUMNS).issubset(master_df.columns):
+        return False
+    return bool(
+        master_df.loc[:, list(_DSO_POWER_COLUMNS)]
+        .apply(pd.to_numeric, errors="coerce")
+        .notna()
+        .all(axis=None)
+    )
+
+
+def _omit_incomplete_dso_data(master_df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+    """Remove partial DSO series so downstream views cannot expose partial totals."""
+    present_columns = [
+        column for column in _DSO_POWER_COLUMNS if column in master_df.columns
+    ]
+    if not present_columns or _has_complete_dso_data(master_df):
+        return master_df, False
+    return master_df.drop(columns=present_columns), True
+
+
 def _aggregate_metrics(
     master_df: pd.DataFrame, resolution: timedelta
 ) -> dict[str, float | str | None]:
@@ -144,9 +172,10 @@ def _aggregate_metrics(
         resolution,
         price_column=_DAY_AHEAD_PRICE_COLUMN if has_day_ahead_prices else None,
     )
+    has_complete_dso_data = _has_complete_dso_data(master_df)
     for direction in ("import", "export"):
         power_column = f"dso_{direction}_power"
-        if power_column not in master_df.columns:
+        if not has_complete_dso_data or power_column not in master_df.columns:
             continue
         dso_energy_sum = (
             pd.to_numeric(master_df[power_column], errors="coerce")
@@ -168,7 +197,7 @@ def _aggregate_metrics(
     interval_hours = resolution.total_seconds() / 3600
     for direction in ("import", "export"):
         power_column = f"dso_{direction}_power"
-        if power_column not in master_df.columns:
+        if not has_complete_dso_data or power_column not in master_df.columns:
             continue
         dso_energy = pd.to_numeric(master_df[power_column], errors="coerce") * (
             interval_hours
@@ -568,6 +597,10 @@ def render_dashboard(
         This function orchestrates the dashboard layout and delegates rendering
         to specialized section modules (summary_boxes, plots_tabs, data_tabs).
     """
+    has_complete_dso_data = _has_complete_dso_data(master_df)
+    master_df, _ = _omit_incomplete_dso_data(master_df)
+    if previous_master_df is not None:
+        previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     if not _has_current_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(
@@ -586,12 +619,16 @@ def render_dashboard(
 
     with log_duration("dashboard.render_kpis"):
         # _section_divider("Übersicht", "KPIs")
+        st.subheader("Reporting")
         sections.render_summary_boxes(
             tables["metrics"],
             component_types,
             microgrid_id,
             previous_metrics=previous_metrics,
             skipped_dso_market_location_ids=skipped_dso_market_location_ids,
+            dso_data_warning=(
+                _INCOMPLETE_DSO_DATA_WARNING if not has_complete_dso_data else None
+            ),
         )
 
     with log_duration("dashboard.render_plots"):
@@ -612,6 +649,12 @@ def render_data_export(
     previous_master_df: pd.DataFrame | None = None,
 ) -> None:
     """Render all predefined reporting tables on the standalone export page."""
+    has_complete_dso_data = _has_complete_dso_data(master_df)
+    master_df, _ = _omit_incomplete_dso_data(master_df)
+    if not has_complete_dso_data:
+        st.warning(_INCOMPLETE_DSO_DATA_WARNING)
+    if previous_master_df is not None:
+        previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     if not _has_current_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(

@@ -13,11 +13,25 @@ Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen.
 
 [reporting]
 invoicing_warning = """
-Der Netzbezug aus Microgrid-Messdaten und die dargestellten Preise basieren auf
-eigenen Messwerten beziehungsweise Prognosen. DSO-Netzbezug und
-DSO-Netzeinspeisung werden separat aus den Marktmessdaten des
-Verteilnetzbetreibers geladen. Für Abrechnungen sind ausschließlich die
-Netzbetreiber-Abrechnungsdaten maßgeblich.
+Diese Werte basieren auf Messdaten der vor Ort verbauten Zähler und
+Wechselrichter (Microgrid-Messung). Kosten, Erlöse und Preise sind
+Prognosen auf Basis dieser Messwerte. Sie können von den abrechnungsrelevanten
+Daten des Netzbetreibers abweichen und dienen nur der Information
+und Steuerung, nicht der Abrechnung.
+"""
+incomplete_dso_data_warning = """
+Messdaten des Netzbetreibers unvollständig
+
+Für den gewählten Zeitraum liegen keine oder nur teilweise Messdaten des
+Netzbetreibers vor.
+
+Mögliche Gründe:
+- Der Netzbetreiber stellt seine Daten in der Regel erst mit etwa einem Tag
+  Verzögerung bereit (24 h). Setzen Sie das Enddatum daher mindestens einen Tag
+  zurück.
+- Für Teile des gewählten Zeitraums wurden vom Netzbetreiber noch keine Daten
+  übermittelt. Beispiel: Sie haben Januar bis Juni ausgewählt, aber
+  Netzbetreiberdaten liegen erst ab Februar vor.
 """
 
 [battery_optimization]

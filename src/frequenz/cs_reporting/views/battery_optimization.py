@@ -20,7 +20,8 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
     calculate_selection_metrics,
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
-from frequenz.cs_reporting.views.metric_renderers import render_box_grid
+from frequenz.cs_reporting.views.dashboard import _section_divider
+from frequenz.cs_reporting.views.metric_renderers import render_box_section
 from frequenz.cs_reporting.views.table_renderers import render_table_section
 
 _BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
@@ -556,13 +557,16 @@ def render_battery_optimization(
 
     normalized_metrics = calculate_selection_metrics(interval_data)
     kpi_boxes = _build_battery_optimization_kpi_boxes(normalized_metrics)
-    render_box_grid(
+    st.subheader("Batterie Reporting")
+    render_box_section(
+        "Speichermehrwert",
         kpi_boxes[:_KPI_CARDS_PER_ROW],
-        per_row=_KPI_CARDS_PER_ROW,
         accent="#14b8a6",
+        icon="🔋",
         value_colors={"Netto-Einsparung (€)": "#16a34a"},
+        grid_class="kpi-grid--featured-first",
     )
-    st.divider()
+    _section_divider("Diagramme")
     _render_battery_optimization_plot_tabs(
         interval_data,
         battery_capacity_kwh,
@@ -570,22 +574,23 @@ def render_battery_optimization(
         include_optimization=True,
     )
 
-    st.divider()
-    st.subheader("Betriebskennzahlen")
-    render_box_grid(
-        kpi_boxes[_KPI_CARDS_PER_ROW:],
-        per_row=_OPERATING_KPI_CARDS_PER_ROW,
+    render_box_section(
+        "Betriebskennzahlen",
+        kpi_boxes[
+            _KPI_CARDS_PER_ROW : _KPI_CARDS_PER_ROW + _OPERATING_KPI_CARDS_PER_ROW
+        ],
         accent="#14b8a6",
+        icon="⚙",
+        grid_class="kpi-grid--two-by-two",
     )
-    st.divider()
+    _section_divider("Diagramme")
     _render_battery_optimization_plot_tabs(
         interval_data,
         battery_capacity_kwh,
         _SECONDARY_PLOT_METRICS,
     )
 
-    st.divider()
-    st.subheader("Gesamt-Berechnungsdaten")
+    _section_divider("Datentabellen")
     render_table_section(
         build_battery_optimization_results_table(
             interval_data,

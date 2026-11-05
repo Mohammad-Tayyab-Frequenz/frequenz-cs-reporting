@@ -13,7 +13,6 @@ from typing import Any, Iterable
 
 import streamlit as st
 
-from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
 from frequenz.cs_reporting.ui_resources import inject_style, load_tooltips
 
 
@@ -219,7 +218,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "group": "grid-feed-in",
             },
             {
-                "label": "Prognostizierte Einspeiseerloese (€)",
+                "label": "Prognostizierte Einspeiseerlöse (€)",
                 "key": "grid_feed_in_revenue_sum",
                 "group": "grid-feed-in",
             },
@@ -233,7 +232,6 @@ SECTION_SPECS: list[dict[str, Any]] = [
     {
         "title": "Netzkennzahlen - Netzbetreiber",
         "required_any_metric_keys": {
-            "peak",
             "dso_import_energy_sum",
             "dso_export_energy_sum",
         },
@@ -259,7 +257,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "group": "dso-export",
             },
             {
-                "label": "Einspeiseerloese (€)",
+                "label": "Einspeiseerlöse (€)",
                 "key": "dso_export_revenue_sum",
                 "group": "dso-export",
             },
@@ -290,13 +288,13 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "wind_production_sum",
                 "component_type": "wind",
             },
+            {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
         ],
     },
     {
         "title": "Verbrauchskennzahlen",
         "boxes": [
             {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
-            {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
         ],
     },
     # Battery KPI cards are temporarily hidden.
@@ -525,19 +523,41 @@ def render_box_grid(
     )
 
 
-def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | None]:
-    """Prepare data for the percentage bar plot."""
-    grid_consumption = metrics.get("grid_consumption_sum") or 0.0
-    grid_to_battery = metrics.get("grid_to_battery_sum") or 0.0
-    values = {
-        "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
-        "Netz zu Verbrauch (kWh)": max(
-            float(grid_consumption) - float(grid_to_battery), 0.0
-        ),
-        "Erzeugung zu Verbrauch (kWh)": metrics.get("prod_self_consumption_sum"),
-        "Batterie zu Verbrauch (kWh)": metrics.get("battery_to_consumption_sum"),
-    }
-    return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+def render_box_section(
+    title: str,
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
+    accent: str = "#3b82f6",
+    icon: str = "●",
+    delta_comparisons: dict[str, str] | None = None,
+    value_colors: Mapping[str, str] | None = None,
+    grid_class: str = "",
+) -> None:
+    """Render KPI cards inside a standard Reporting-style section panel."""
+    _ensure_kpi_css()
+    icon_bg = accent + "22"
+    box_grid_html = _box_grid_html(
+        boxes,
+        accent,
+        delta_comparisons,
+        value_colors,
+        grid_class=grid_class,
+    )
+    st.markdown(
+        '<div class="kpi-sections">'
+        '<section class="kpi-section">'
+        '<div class="kpi-section-header">'
+        f'<div class="kpi-section-icon" style="background:{icon_bg};">'
+        f"{escape(icon)}</div>"
+        f'<p class="kpi-section-title">{escape(title)}</p></div>'
+        f"{box_grid_html}"
+        "</section></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _summary_sections_html(section_blocks: list[tuple[str, str]]) -> str:
@@ -565,6 +585,44 @@ def _summary_sections_html(section_blocks: list[tuple[str, str]]) -> str:
     )
 
 
+def _section_data_warning_html(warning: str) -> str:
+    """Render a catalogue warning with a prominent heading and preserved lines."""
+    heading, separator, body = warning.strip().partition("\n\n")
+    safe_heading = escape(" ".join(heading.split()))
+    body_blocks: list[str] = []
+    if separator:
+        for block in body.split("\n\n"):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if lines and lines[0] == "Mögliche Gründe:":
+                reasons: list[str] = []
+                for line in lines[1:]:
+                    if line.startswith(("–", "-")):
+                        reasons.append(line[1:].strip())
+                    elif reasons:
+                        reasons[-1] += f" {line}"
+                reason_items = "".join(
+                    f"<li>{escape(reason)}</li>" for reason in reasons
+                )
+                body_blocks.append(
+                    '<div class="kpi-section-data-warning__body">'
+                    f"{escape(lines[0])}</div>"
+                    f'<ul class="kpi-section-data-warning__reasons">{reason_items}</ul>'
+                )
+            elif lines:
+                body_blocks.append(
+                    '<div class="kpi-section-data-warning__body">'
+                    f'{escape(" ".join(lines))}</div>'
+                )
+    body_html = "".join(body_blocks)
+    return (
+        '<div class="kpi-section-data-warning" role="status">'
+        '<span class="kpi-section-data-warning__icon" aria-hidden="true">⚠</span>'
+        '<div class="kpi-section-data-warning__content">'
+        f'<strong class="kpi-section-data-warning__title">{safe_heading}</strong>'
+        f"{body_html}</div></div>"
+    )
+
+
 # pylint: disable=too-many-locals
 def render_summary_boxes(
     metrics: dict[str, Any],
@@ -572,6 +630,7 @@ def render_summary_boxes(
     microgrid_id: int | None = None,
     previous_metrics: dict[str, Any] | None = None,
     skipped_dso_market_location_ids: tuple[str, ...] = (),
+    dso_data_warning: str | None = None,
 ) -> None:
     """Render overview metrics grouped into styled subsections.
 
@@ -585,11 +644,13 @@ def render_summary_boxes(
             used to render previous values and percentage deltas.
         skipped_dso_market_location_ids: MaLo IDs omitted because the Market
             Metering API does not recognize them.
+        dso_data_warning: Warning shown instead of grid-operator KPI cards when
+            DSO data does not cover the complete selected period.
 
     Returns:
         Streamlit components are rendered directly.
     """
-    if not metrics:
+    if not metrics and not dso_data_warning:
         st.info("Keine Übersichtskennzahlen verfügbar.")
         return
 
@@ -609,10 +670,34 @@ def render_summary_boxes(
 
     section_blocks: list[tuple[str, str]] = []
     for section in SECTION_SPECS:
+        title = section["title"]
+        is_dso_warning_section = (
+            title == "Netzkennzahlen - Netzbetreiber" and dso_data_warning is not None
+        )
         required_any_metric_keys = section.get("required_any_metric_keys")
-        if required_any_metric_keys and not required_any_metric_keys.intersection(
-            metrics
+        if (
+            not is_dso_warning_section
+            and required_any_metric_keys
+            and not required_any_metric_keys.intersection(metrics)
         ):
+            continue
+        accent = _SECTION_ACCENTS.get(title, "#3b82f6")
+        icon = _SECTION_ICONS.get(title, "●")
+        icon_bg = accent + "22"  # ~13% opacity hex approximation
+        if is_dso_warning_section:
+            assert dso_data_warning is not None
+            section_blocks.append(
+                (
+                    title,
+                    '<section class="kpi-section">'
+                    '<div class="kpi-section-header">'
+                    f'<div class="kpi-section-icon" style="background:{icon_bg};">'
+                    f"{icon}</div>"
+                    f'<p class="kpi-section-title">{title}</p></div>'
+                    f"{_section_data_warning_html(dso_data_warning)}"
+                    "</section>",
+                )
+            )
             continue
         box_specs = _filter_section_box_specs(
             section,
@@ -624,10 +709,6 @@ def render_summary_boxes(
         if not box_specs:
             continue
 
-        title = section["title"]
-        accent = _SECTION_ACCENTS.get(title, "#3b82f6")
-        icon = _SECTION_ICONS.get(title, "●")
-        icon_bg = accent + "22"  # ~13% opacity hex approximation
         warning = section.get("warning")
         warning_icon = "⚠"
         if (
@@ -677,10 +758,3 @@ def render_summary_boxes(
         _summary_sections_html(section_blocks),
         unsafe_allow_html=True,
     )
-
-    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-    consumption_dict = _build_consumption_breakdown(metrics)
-    consumption_bar_plot = plot_percentage_bar(
-        consumption_dict, total_key="Stromverbrauch (kWh)"
-    )
-    st.plotly_chart(consumption_bar_plot, width="stretch")

@@ -456,7 +456,7 @@ def render_data_export(
     inject_style("data_export.css")
     datasets = _available_export_datasets(master_df, mapper, tables_dict, resolution)
 
-    st.markdown("### DSO & Day-Ahead-Preis")
+    st.markdown("### Netzbetreiber Daten & DA Preise")
     tables.aggrid_table(
         _round_numeric_columns(_build_dso_price_data_df(master_df)),
         key_prefix="data_export_dso_price",
