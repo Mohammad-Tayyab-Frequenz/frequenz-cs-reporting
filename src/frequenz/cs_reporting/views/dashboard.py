@@ -65,8 +65,9 @@ _DAY_AHEAD_PRICE_WARNING = (
     "Please check the scheduled data synchronization."
 )
 _INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
-    "Day-ahead prices are not available for the complete selected period. "
-    "Available cached prices are shown."
+    "Day-ahead prices are missing for intervals with grid import or feed-in. "
+    "Affected cost, revenue, and average-price KPIs are shown as unavailable "
+    "(—); missing prices are not treated as zero."
 )
 _DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
 _INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
@@ -116,6 +117,77 @@ def _average_price_ct_per_kwh(
     if value is None or energy is None or energy == 0.0:
         return None
     return (value * 100) / energy
+
+
+def _has_complete_prices_for_power(master_df: pd.DataFrame, power_column: str) -> bool:
+    """Return whether every positive-energy interval has a day-ahead price."""
+    if power_column not in master_df.columns:
+        return True
+    power = pd.to_numeric(master_df[power_column], errors="coerce").clip(lower=0)
+    relevant = power.fillna(0).gt(0)
+    if not relevant.any():
+        return True
+    if _DAY_AHEAD_PRICE_COLUMN not in master_df.columns:
+        return False
+    prices = pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
+    return bool(prices.loc[relevant].notna().all())
+
+
+def _has_complete_relevant_day_ahead_prices(master_df: pd.DataFrame) -> bool:
+    """Return whether prices cover all intervals that carry grid energy."""
+    power_columns = [
+        column
+        for column in (
+            "grid_consumption",
+            "grid_feed_in",
+            "dso_import_power",
+            "dso_export_power",
+        )
+        if column in master_df.columns
+    ]
+    return all(
+        _has_complete_prices_for_power(master_df, column) for column in power_columns
+    )
+
+
+# pylint: disable=too-many-arguments
+def _set_projected_value_metrics(
+    metrics: dict[str, float | str | None],
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+    *,
+    power_column: str,
+    energy_key: str,
+    value_key: str,
+    average_price_key: str,
+) -> None:
+    """Set projected value metrics without valuing missing prices at zero."""
+    if power_column not in master_df.columns:
+        return
+    interval_hours = resolution.total_seconds() / 3600
+    energy = (
+        pd.to_numeric(master_df[power_column], errors="coerce").clip(lower=0)
+        * interval_hours
+    )
+    relevant = energy.fillna(0).gt(0)
+    total_energy = float(energy.loc[relevant].sum())
+    metrics[energy_key] = total_energy
+    if not relevant.any():
+        metrics[value_key] = 0.0
+        metrics[average_price_key] = None
+        return
+    if _DAY_AHEAD_PRICE_COLUMN not in master_df.columns:
+        metrics[value_key] = None
+        metrics[average_price_key] = None
+        return
+    prices = pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
+    if prices.loc[relevant].isna().any():
+        metrics[value_key] = None
+        metrics[average_price_key] = None
+        return
+    projected_value = float((energy.loc[relevant] * prices.loc[relevant] / 1000).sum())
+    metrics[value_key] = projected_value
+    metrics[average_price_key] = (projected_value * 100) / total_energy
 
 
 def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:
@@ -194,31 +266,40 @@ def _aggregate_metrics(
     metrics["average_da_price_grid_feed_in"] = _average_price_ct_per_kwh(
         metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
     )
-    interval_hours = resolution.total_seconds() / 3600
+    _set_projected_value_metrics(
+        metrics,
+        master_df,
+        resolution,
+        power_column="grid_consumption",
+        energy_key="grid_consumption_sum",
+        value_key="grid_import_cost_sum",
+        average_price_key="average_da_price_grid_import",
+    )
+    _set_projected_value_metrics(
+        metrics,
+        master_df,
+        resolution,
+        power_column="grid_feed_in",
+        energy_key="grid_feed_in_sum",
+        value_key="grid_feed_in_revenue_sum",
+        average_price_key="average_da_price_grid_feed_in",
+    )
     for direction in ("import", "export"):
         power_column = f"dso_{direction}_power"
         if not has_complete_dso_data or power_column not in master_df.columns:
             continue
-        dso_energy = pd.to_numeric(master_df[power_column], errors="coerce") * (
-            interval_hours
+        value_key = (
+            "dso_import_cost_sum" if direction == "import" else "dso_export_revenue_sum"
         )
-        projected_value = (
-            dso_energy
-            * pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
-            / 1000
-        ).sum(min_count=1)
-        if pd.notna(projected_value):
-            value_key = (
-                "dso_import_cost_sum"
-                if direction == "import"
-                else "dso_export_revenue_sum"
-            )
-            metrics[value_key] = float(projected_value)
-            metrics[f"average_da_price_dso_{direction}"] = _average_price_ct_per_kwh(
-                metrics,
-                value_key,
-                f"dso_{direction}_energy_sum",
-            )
+        _set_projected_value_metrics(
+            metrics,
+            master_df,
+            resolution,
+            power_column=power_column,
+            energy_key=f"dso_{direction}_energy_sum",
+            value_key=value_key,
+            average_price_key=f"average_da_price_dso_{direction}",
+        )
     return metrics
 
 
@@ -602,7 +683,9 @@ def render_dashboard(
     if previous_master_df is not None:
         previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
     component_types = _filter_component_types_for_master_df(component_types, master_df)
-    if not _has_current_day_ahead_prices(master_df):
+    if not _has_current_day_ahead_prices(
+        master_df
+    ) or not _has_complete_relevant_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(
             master_df,
             previous_master_df,
@@ -656,7 +739,9 @@ def render_data_export(
     if previous_master_df is not None:
         previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
     component_types = _filter_component_types_for_master_df(component_types, master_df)
-    if not _has_current_day_ahead_prices(master_df):
+    if not _has_current_day_ahead_prices(
+        master_df
+    ) or not _has_complete_relevant_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(
             master_df,
             previous_master_df,

@@ -1380,6 +1380,46 @@ def test_aggregate_metrics_uses_day_ahead_price_when_prices_exist(
     assert metrics["average_da_price_grid_feed_in"] == 10.0
 
 
+def test_aggregate_metrics_does_not_value_missing_feed_in_price_as_zero() -> None:
+    """A missing price invalidates only the direction carrying energy then."""
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
+                "day_ahead_price": [100.0, None],
+                "grid_consumption": [4.0, 0.0],
+                "grid_feed_in": [0.0, 4.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert metrics["grid_import_cost_sum"] == pytest.approx(0.1)
+    assert metrics["average_da_price_grid_import"] == pytest.approx(10.0)
+    assert metrics["grid_feed_in_revenue_sum"] is None
+    assert metrics["average_da_price_grid_feed_in"] is None
+
+
+def test_aggregate_metrics_ignores_missing_prices_during_zero_energy() -> None:
+    """Price gaps do not invalidate a direction with no energy in that interval."""
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
+                "day_ahead_price": [100.0, None],
+                "grid_consumption": [4.0, 0.0],
+                "grid_feed_in": [4.0, 0.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert metrics["grid_import_cost_sum"] == pytest.approx(0.1)
+    assert metrics["grid_feed_in_revenue_sum"] == pytest.approx(0.1)
+    assert metrics["average_da_price_grid_import"] == pytest.approx(10.0)
+    assert metrics["average_da_price_grid_feed_in"] == pytest.approx(10.0)
+
+
 def test_aggregate_metrics_adds_projected_dso_values_when_prices_exist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1413,6 +1453,26 @@ def test_aggregate_metrics_adds_projected_dso_values_when_prices_exist(
     assert metrics["dso_export_revenue_sum"] == 5.0
     assert metrics["average_da_price_dso_import"] == pytest.approx(50 / 3)
     assert metrics["average_da_price_dso_export"] == pytest.approx(50 / 3)
+
+
+def test_aggregate_metrics_invalidates_only_unpriced_dso_direction() -> None:
+    """Missing prices cannot silently become zero-value DSO exports."""
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
+                "day_ahead_price": [100.0, None],
+                "dso_import_power": [4.0, 0.0],
+                "dso_export_power": [0.0, 4.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert metrics["dso_import_cost_sum"] == pytest.approx(0.1)
+    assert metrics["average_da_price_dso_import"] == pytest.approx(10.0)
+    assert metrics["dso_export_revenue_sum"] is None
+    assert metrics["average_da_price_dso_export"] is None
 
 
 def test_aggregate_metrics_omits_incomplete_dso_period() -> None:
