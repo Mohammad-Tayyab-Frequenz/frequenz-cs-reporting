@@ -3,6 +3,7 @@
 
 """Tests for persistent Parquet synchronization."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,56 @@ from frequenz.cs_reporting.services.parquet_cache import (
     ParquetRangeCache,
     SyncMetadata,
 )
+
+
+def test_soc_fetch_passes_assets_client_and_disconnects_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SOC fetches use asset metadata for bounds without leaking the client."""
+    disconnected: list[None] = []
+    expected = pd.DataFrame(
+        {
+            "battery": [50.0],
+            "battery_soc_lower_bound_pct": [5.0],
+            "battery_soc_upper_bound_pct": [98.0],
+        },
+        index=pd.DatetimeIndex([datetime(2026, 1, 1, tzinfo=UTC)]),
+    )
+
+    class FakeAssetsClient:
+        """Record when the short-lived Assets API client is disconnected."""
+
+        async def disconnect(self) -> None:
+            disconnected.append(None)
+
+    class FakeMicrogridClient:
+        """Return SOC data already enriched with rated bounds."""
+
+        async def soc(self, **_kwargs: object) -> pd.DataFrame:
+            return expected
+
+    fake_assets_client = FakeAssetsClient()
+    monkeypatch.setattr(data_service, "get_assets_client", lambda: fake_assets_client)
+
+    def get_client(
+        _microgrid_id: int, *, assets_client: object | None = None
+    ) -> FakeMicrogridClient:
+        assert assets_client is fake_assets_client
+        return FakeMicrogridClient()
+
+    monkeypatch.setattr(data_service, "get_microgrid_client", get_client)
+
+    actual = asyncio.run(
+        data_service.fetch_microgrid_soc_data(
+            231,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 2, tzinfo=UTC),
+            timedelta(minutes=15),
+        )
+    )
+
+    pd.testing.assert_frame_equal(actual, expected)
+    assert disconnected == [None]
 
 
 def _frame(start: datetime, end: datetime, value: float = 1.0) -> pd.DataFrame:

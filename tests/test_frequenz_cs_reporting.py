@@ -1704,7 +1704,7 @@ def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None
         groups=["import", "import", "import", "feed-in", "feed-in", "feed-in"],
     )
 
-    assert markup.count('class="kpi-card-stack"') == 2
+    assert markup.count("kpi-card-stack--group") == 2
     import_start = markup.index("Netzbezug")
     assert import_start < markup.index("Prognostizierte Netzbezugskosten")
     assert markup.index("Prognostizierte Netzbezugskosten") < markup.index(
@@ -1712,6 +1712,36 @@ def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None
     )
     feed_in_start = markup.index("Netzeinspeisung")
     assert feed_in_start < markup.index("Prognostizierte Einspeiseerlöse")
+
+
+def test_operator_kpis_use_two_flow_columns_and_separate_peak_column() -> None:
+    """Operator imports, exports, and peak form three separate columns."""
+    operator_section = next(
+        section
+        for section in SECTION_SPECS
+        if section["title"] == "Netzkennzahlen - Netzbetreiber"
+    )
+    labels = [spec.get("label") for spec in operator_section["boxes"]]
+
+    assert labels[:6] == [
+        "Netzbezug (kWh)",
+        "Prognostizierte Netzbezugskosten (€)",
+        "Prognostizierter Preis (ct/kWh)",
+        "Netzeinspeisung (kWh)",
+        "Prognostizierte Einspeiseerlöse (€)",
+        "Prognostizierter Preis (ct/kWh)",
+    ]
+
+    markup = _box_grid_html(
+        [(label or "Lastspitze", index) for index, label in enumerate(labels)],
+        "#3b82f6",
+        None,
+        groups=[spec.get("group") for spec in operator_section["boxes"]],
+        grid_class="kpi-grid--operator",
+    )
+
+    assert markup.count("kpi-card-stack--group") == 2
+    assert markup.count("kpi-card-stack--standalone") == 1
 
 
 def test_summary_sections_place_other_kpis_below_reporting_data() -> None:
