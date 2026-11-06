@@ -93,6 +93,9 @@ def build_workflow_request(
             A dictionary representing the complete workflow request payload,
             including timestamps, localization options, component IDs, site
             metadata, service endpoints, and model configuration.
+
+    Raises:
+        ValueError: If the microgrid configuration is invalid or incomplete.
     """
     start_dt = datetime.datetime.combine(
         start_date, datetime.time.min, tzinfo=datetime.UTC
@@ -105,6 +108,15 @@ def build_workflow_request(
 
     weather_api = os.environ.get("WEATHER_API_URL")
     reporting_api = os.environ.get("REPORTING_API_URL")
+    component_ids = config.component_type_ids(
+        component_type="pv", component_category=component_category
+    )
+    if not component_ids:
+        raise ValueError(
+            f"Microgrid {microgrid_id} has no PV components in category "
+            f"'{component_category}'. Select another component category or update "
+            "the microgrid configuration."
+        )
 
     return {
         "time_zone": time_zone,
@@ -115,11 +127,7 @@ def build_workflow_request(
         "weather_service_address": weather_api,
         "reporting_service_address": reporting_api,
         "microgrid_ids": [microgrid_id],
-        "component_ids": [
-            config.component_type_ids(
-                component_type="pv", component_category=component_category
-            )
-        ],
+        "component_ids": [component_ids],
         "client_site_info": [_build_client_site_info(config)],
         "baseline_models": baseline_models,
         "large_resample_period_seconds": int(resample_period),

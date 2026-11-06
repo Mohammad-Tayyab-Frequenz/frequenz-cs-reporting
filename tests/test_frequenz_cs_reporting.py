@@ -18,8 +18,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 import streamlit as st
+from frequenz.gridpool.config import MicrogridConfig
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
+from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import (
+    NoDataAvailableError,
+)
 
 from frequenz.cs_reporting.app_pages import (
     battery_optimization as battery_optimization_page,
@@ -65,6 +69,7 @@ from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
     _day_ahead_sync_range,
 )
+from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import (
@@ -788,6 +793,7 @@ def test_microgrid_config_dir_honors_environment(
     assert getattr(client_factory, "_config_root")() == str(configured_dir)
 
 
+# pylint: disable=too-many-locals
 def test_microgrid_config_loads_only_files_defining_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1052,6 +1058,78 @@ def test_solar_reporting_renders_selected_mid_at_top(
     solar_page.render()
 
     assert titles == ["MID243 - Test", "Solar Reporting"]
+
+
+def test_solar_workflow_request_rejects_empty_component_category() -> None:
+    """An empty PV category is reported before the workflow calls the API."""
+
+    class EmptyConfig:
+        """Microgrid configuration without PV inverter components."""
+
+        @staticmethod
+        def component_type_ids(
+            component_type: str, component_category: str | None = None
+        ) -> list[int]:
+            del component_type, component_category
+            return []
+
+    with pytest.raises(ValueError, match="no PV components.*'inverter'"):
+        build_workflow_request(
+            microgrid_id=243,
+            config=cast(MicrogridConfig, EmptyConfig()),
+            start_date=date(2026, 1, 1),
+            time_zone="UTC",
+            component_category="inverter",
+            language="Deutsch",
+            resample_period="3600",
+            rolling_view_duration=30,
+            baseline_models=[],
+        )
+
+
+def test_solar_reporting_handles_no_data_without_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The expected no-data result is rendered as an actionable warning."""
+    warnings: list[str] = []
+    inputs = SimpleNamespace(
+        microgrid_id=243,
+        start_date=date(2026, 1, 1),
+        time_zone="UTC",
+        component_category="inverter",
+        language="Deutsch",
+        resample_period="3600",
+        rolling_view_duration=30,
+        baseline_models=[],
+    )
+    request = {
+        "component_ids": [[3, 4]],
+        "start_timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+        "end_timestamp": datetime(2026, 11, 6, tzinfo=UTC),
+    }
+
+    async def no_data_workflow(**_kwargs: object) -> None:
+        raise NoDataAvailableError("No reporting data available")
+
+    monkeypatch.setattr(
+        solar_page, "collect_solar_sidebar_inputs", lambda **_kwargs: (inputs, True)
+    )
+    monkeypatch.setattr(solar_page, "get_microgrid_names", lambda: {243: "Test"})
+    monkeypatch.setattr(solar_page, "get_microgrid_config", lambda _mid: object())
+    monkeypatch.setattr(solar_page, "build_workflow_request", lambda **_kwargs: request)
+    monkeypatch.setattr(solar_page, "run_workflow", no_data_workflow)
+    monkeypatch.setattr(solar_page, "capture_workflow_figures", lambda: nullcontext([]))
+    monkeypatch.setattr(st, "spinner", lambda _message: nullcontext())
+    monkeypatch.setattr(st, "warning", warnings.append)
+    monkeypatch.setattr(st, "title", lambda _title: None)
+    monkeypatch.setattr(st, "divider", lambda: None)
+
+    solar_page.render()
+
+    assert len(warnings) == 1
+    assert "MID 243" in warnings[0]
+    assert "Komponenten [3, 4]" in warnings[0]
+    assert "AC_POWER_ACTIVE" in warnings[0]
 
 
 def test_battery_reporting_uses_standard_chart_and_table_section_headings(
