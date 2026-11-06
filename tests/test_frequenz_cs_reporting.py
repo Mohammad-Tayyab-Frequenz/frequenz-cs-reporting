@@ -53,6 +53,7 @@ from frequenz.cs_reporting.constants import (
     KPI_SECTION_ACCENTS,
     TablesResult,
 )
+from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     build_battery_optimization_results_table,
@@ -745,6 +746,45 @@ def test_invalid_microgrid_session_selection_is_reconciled(
         "microgrid_id": 244,
         "resolution": "15min",
     }
+
+
+def test_microgrid_config_dir_prefers_packaged_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The packaged assets directory is the first default checked."""
+    packaged_dir = tmp_path / "frequenz_config_microgrid" / "assets"
+    packaged_dir.mkdir(parents=True)
+    (tmp_path / "toml_directory").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MICROGRID_CONFIG_DIR", raising=False)
+
+    assert microgrid_config_dir() == Path("frequenz_config_microgrid/assets")
+    assert getattr(client_factory, "_config_root")() == (
+        "frequenz_config_microgrid/assets"
+    )
+
+
+def test_microgrid_config_dir_falls_back_to_legacy_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The legacy directory is used when packaged assets are unavailable."""
+    (tmp_path / "toml_directory").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MICROGRID_CONFIG_DIR", raising=False)
+
+    assert microgrid_config_dir() == Path("toml_directory")
+    assert getattr(client_factory, "_config_root")() == "toml_directory"
+
+
+def test_microgrid_config_dir_honors_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicitly configured directory overrides default discovery."""
+    configured_dir = tmp_path / "custom"
+    monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(configured_dir))
+
+    assert microgrid_config_dir() == configured_dir
+    assert getattr(client_factory, "_config_root")() == str(configured_dir)
 
 
 def test_microgrid_config_loads_only_files_defining_it(

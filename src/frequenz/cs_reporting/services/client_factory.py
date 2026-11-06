@@ -24,6 +24,7 @@ from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import AssetsConfig, MicrogridConfig, load_configs
 
+from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.utils.env import require_env
 from frequenz.cs_reporting.utils.timing import log_duration
 
@@ -169,7 +170,7 @@ def warm_up_config_directory() -> bool:
 
 def _config_root() -> str:
     """Return the configured TOML directory."""
-    return os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
+    return str(microgrid_config_dir())
 
 
 def _microgrid_config_source() -> MicrogridConfigSource:
