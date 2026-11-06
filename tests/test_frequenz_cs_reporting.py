@@ -29,6 +29,7 @@ from frequenz.cs_reporting.app_pages.battery_optimization import (
     _completed_price_range_end,
     _mid_caption,
 )
+from frequenz.cs_reporting.app_pages.reporting import _format_data_loading_error
 from frequenz.cs_reporting.app_pages.solar import (
     _solar_mid_heading,
     capture_workflow_figures,
@@ -803,14 +804,36 @@ def test_microgrid_config_loads_only_files_defining_it(
     (tmp_path / "legacy.toml").write_text(
         '# legacy\n86.meta.name = "legacy"\n', encoding="utf-8"
     )
-    load_calls: list[list[str]] = []
+    load_calls: list[tuple[list[str], object, list[int]]] = []
+    disconnect_calls: list[None] = []
 
-    async def load_configs(*, default_files: list[str]) -> object:
-        load_calls.append([Path(file).name for file in default_files])
+    class FakeAssetsClient:
+        """Minimal Assets API client used to verify its lifecycle."""
+
+        async def disconnect(self) -> None:
+            """Record that the client was disconnected."""
+            disconnect_calls.append(None)
+
+    assets_client = FakeAssetsClient()
+
+    async def load_configs(
+        *,
+        default_files: list[str],
+        assets_client: object,
+        microgrid_ids: list[int],
+    ) -> object:
+        load_calls.append(
+            (
+                [Path(file).name for file in default_files],
+                assets_client,
+                microgrid_ids,
+            )
+        )
         return SimpleNamespace(microgrids={243: SimpleNamespace(name="wanted")})
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(client_factory, "load_configs", load_configs)
+    monkeypatch.setattr(client_factory, "get_assets_client", lambda: assets_client)
     cached_config = getattr(client_factory, "_load_microgrid_config_cached")
     cached_index = getattr(client_factory, "_microgrid_file_index_cached")
     cached_source = getattr(client_factory, "_microgrid_config_source_cached")
@@ -829,7 +852,8 @@ def test_microgrid_config_loads_only_files_defining_it(
     assert index[555] == (str(tmp_path.resolve() / "dotted.toml"),)
     assert index.get(86) == (str(tmp_path.resolve() / "legacy.toml"),)
 
-    assert load_calls == [["b.toml"]]
+    assert load_calls == [(["b.toml"], assets_client, [243])]
+    assert disconnect_calls == [None]
 
     # With the enterprise ID known, the file is opened directly without a scan.
     (tmp_path / "eid7.toml").write_text(
@@ -855,6 +879,17 @@ def test_microgrid_config_loads_only_files_defining_it(
     assert not index_calls
     for cache in (cached_config, cached_index, cached_source):
         cache.clear()
+
+
+def test_missing_formula_error_points_to_assets_topology() -> None:
+    """A generated-formula failure is not presented as an invalid filter."""
+    message = _format_data_loading_error(
+        ValueError("grid is missing formula for AC_POWER_ACTIVE"), 243
+    )
+
+    assert "Komponententopologie in der Assets API" in message
+    assert "Filterparameter" not in message
+    assert "grid is missing formula for AC_POWER_ACTIVE" in message
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:

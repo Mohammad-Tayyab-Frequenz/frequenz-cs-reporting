@@ -95,8 +95,16 @@ def _load_microgrid_config_cached(
     del revision
 
     async def load() -> MicrogridConfig:
-        assets_config = await load_configs(default_files=list(config_files))
-        return assets_config.microgrids[microgrid_id]
+        assets_client = get_assets_client()
+        try:
+            assets_config = await load_configs(
+                default_files=list(config_files),
+                assets_client=assets_client,
+                microgrid_ids=[microgrid_id],
+            )
+            return assets_config.microgrids[microgrid_id]
+        finally:
+            await assets_client.disconnect()
 
     with log_duration(f"client_factory.load_config.mid{microgrid_id}"):
         coroutine = load()
