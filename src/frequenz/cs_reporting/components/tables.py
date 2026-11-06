@@ -23,6 +23,7 @@ _GRID_ROW_HEIGHT = 44
 _GRID_PAGINATION_HEIGHT = 56
 _GRID_BORDER_HEIGHT = 2
 _GRID_TOOLBAR_HEIGHT = 40
+_TIMESTAMP_COLUMNS = ("timestamp", "Zeitpunkt")
 
 _CSV_FORMATS = {
     "de": {"separator": ";", "decimal": ","},
@@ -81,6 +82,29 @@ def csv_export_bytes(df: pd.DataFrame, language: str) -> bytes:
     ).encode("utf-8")
 
 
+def _sort_rows_newest_first(df: pd.DataFrame) -> pd.DataFrame:
+    """Return table rows in descending timestamp order when possible."""
+    timestamp_column = next(
+        (column for column in _TIMESTAMP_COLUMNS if column in df.columns),
+        None,
+    )
+    if timestamp_column is None:
+        return df
+
+    parsed_timestamps = pd.to_datetime(
+        df[timestamp_column], errors="coerce", utc=True
+    )
+    if parsed_timestamps.notna().any():
+        return df.sort_values(
+            timestamp_column,
+            ascending=False,
+            na_position="last",
+            kind="stable",
+            key=lambda _values: parsed_timestamps,
+        )
+    return df
+
+
 # pylint: disable=too-many-arguments, too-many-locals
 def aggrid_table(
     df: pd.DataFrame,
@@ -126,6 +150,8 @@ def aggrid_table(
     """
     if df is None or not isinstance(df, pd.DataFrame):
         df = pd.DataFrame()
+    else:
+        df = _sort_rows_newest_first(df)
 
     if f"{key_prefix}_page_size" not in st.session_state:
         st.session_state[f"{key_prefix}_page_size"] = page_size
@@ -169,9 +195,9 @@ def aggrid_table(
             column_name,
             valueFormatter=_LOCALE_NUMBER_FORMATTER,
         )
-    for timestamp_column in ("timestamp", "Zeitpunkt"):
+    for timestamp_column in _TIMESTAMP_COLUMNS:
         if timestamp_column in df.columns:
-            gb.configure_column(timestamp_column, pinned="left")
+            gb.configure_column(timestamp_column, pinned="left", sort="desc")
 
     grid_options = gb.build()
     if column_selection:

@@ -43,6 +43,7 @@ from frequenz.cs_reporting.components.sidebar_inputs import (
 from frequenz.cs_reporting.components.tables import (
     _LOCALE_NUMBER_FORMATTER,
     _csv_download_urls,
+    _sort_rows_newest_first,
 )
 from frequenz.cs_reporting.components.ui import (
     _plot_card_height,
@@ -580,6 +581,26 @@ def test_csv_download_urls_support_german_and_english_formats() -> None:
     assert _decode_csv_data_url(urls["en"]) == ("Leistung,Standort\n1.5,Berlin\n")
 
 
+@pytest.mark.parametrize("timestamp_column", ["timestamp", "Zeitpunkt"])
+def test_table_rows_are_sorted_newest_first(timestamp_column: str) -> None:
+    """Every timestamped table starts with its newest available row."""
+    dataframe = pd.DataFrame(
+        {
+            timestamp_column: [
+                "2026-01-01T10:00:00+01:00",
+                None,
+                "2026-01-01T12:00:00+01:00",
+                "2026-01-01T11:00:00+01:00",
+            ],
+            "value": [10, 0, 12, 11],
+        }
+    )
+
+    sorted_dataframe = _sort_rows_newest_first(dataframe)
+
+    assert sorted_dataframe["value"].tolist() == [12, 11, 10, 0]
+
+
 def test_table_number_formatter_uses_selected_csv_language() -> None:
     """The table and CSV export read their format from the same selection."""
     formatter_code = str(_LOCALE_NUMBER_FORMATTER.js_code)
@@ -880,8 +901,8 @@ def test_battery_price_sync_excludes_the_incomplete_current_day() -> None:
     assert sync_end.isoformat() == "2026-10-16T00:00:00+02:00"
 
 
-def test_day_ahead_sync_range_does_not_request_unpublished_future_prices() -> None:
-    """A current-day price sync stops at the latest complete interval."""
+def test_day_ahead_sync_range_fetches_complete_current_market_day() -> None:
+    """A current-day price sync includes prices published for the full day."""
     start, end = _day_ahead_sync_range(
         datetime(2026, 9, 15, 22, 0, tzinfo=UTC),
         datetime(2026, 10, 16, 9, 20, tzinfo=UTC),
@@ -889,7 +910,24 @@ def test_day_ahead_sync_range_does_not_request_unpublished_future_prices() -> No
     )
 
     assert start == datetime(2026, 9, 15, 22, 0, tzinfo=UTC)
-    assert end == datetime(2026, 10, 16, 9, 15, tzinfo=UTC)
+    assert end == datetime(2026, 10, 16, 22, 0, tzinfo=UTC)
+
+
+def test_day_ahead_sync_range_uses_dst_aware_market_day_end() -> None:
+    """The current DE/LU market day ends at local midnight across DST."""
+    _, spring_transition_end = _day_ahead_sync_range(
+        datetime(2026, 3, 29, 8, 0, tzinfo=UTC),
+        datetime(2026, 3, 29, 9, 20, tzinfo=UTC),
+        now=datetime(2026, 3, 29, 9, 22, tzinfo=UTC),
+    )
+    _, autumn_transition_end = _day_ahead_sync_range(
+        datetime(2026, 10, 25, 8, 0, tzinfo=UTC),
+        datetime(2026, 10, 25, 9, 20, tzinfo=UTC),
+        now=datetime(2026, 10, 25, 9, 22, tzinfo=UTC),
+    )
+
+    assert spring_transition_end == datetime(2026, 3, 29, 22, 0, tzinfo=UTC)
+    assert autumn_transition_end == datetime(2026, 10, 25, 23, 0, tzinfo=UTC)
 
 
 def test_day_ahead_sync_range_keeps_historical_exclusive_end() -> None:

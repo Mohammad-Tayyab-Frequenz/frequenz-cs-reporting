@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from frequenz.client.common.metrics import Metric
@@ -49,6 +50,7 @@ from frequenz.cs_reporting.utils.timing import log_duration
 
 _COMPONENT_DATA_LOGGER = "frequenz.data.microgrid.component_data"
 _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
+_DAY_AHEAD_MARKET_TIMEZONE = ZoneInfo("Europe/Berlin")
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
 _BATTERY_SOC_SYNC_RETRY_INTERVAL = 15 * 60
@@ -739,7 +741,13 @@ def _day_ahead_sync_range(
     *,
     now: datetime | None = None,
 ) -> tuple[datetime, datetime]:
-    """Normalize a price synchronization range without requesting future data."""
+    """Normalize a price synchronization range to published market intervals.
+
+    Prices for the complete current DE/LU market day were published on the
+    previous day.  Therefore, a live range that reaches into today can safely
+    synchronize through the next local midnight.  This keeps the interactive
+    fallback useful even when the scheduled daily synchronization did not run.
+    """
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
     if start.tzinfo is None:
@@ -759,12 +767,16 @@ def _day_ahead_sync_range(
 
     frequency = f"{int(_DAY_AHEAD_PRICE_RESOLUTION.total_seconds())}s"
     normalized_start = start.floor(frequency)
-    normalized_end = min(
-        end.ceil(frequency),
-        current.floor(frequency),
-    )
-    if normalized_end <= normalized_start:
-        normalized_end = min(end, current)
+    current_market_time = current.tz_convert(_DAY_AHEAD_MARKET_TIMEZONE)
+    current_market_day_start = current_market_time.normalize()
+    next_market_day_start = current_market_day_start + pd.DateOffset(days=1)
+    current_market_day_start_utc = current_market_day_start.tz_convert("UTC")
+    next_market_day_start_utc = next_market_day_start.tz_convert("UTC")
+
+    if current_market_day_start_utc < end <= next_market_day_start_utc:
+        normalized_end = next_market_day_start_utc
+    else:
+        normalized_end = min(end.ceil(frequency), next_market_day_start_utc)
     if normalized_end <= normalized_start:
         raise ValueError("The day-ahead price range end must be after its start")
     return normalized_start.to_pydatetime(), normalized_end.to_pydatetime()
