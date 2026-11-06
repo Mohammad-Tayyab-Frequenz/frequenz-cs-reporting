@@ -457,7 +457,7 @@ def render_data_export(
     )
 
     st.divider()
-    st.markdown("### Exporte-Vorlagen")
+    st.markdown("### Export-Vorlagen")
     export_tabs = st.tabs(list(datasets), key="data_export_standard_tabs")
     for index, (tab, (dataset_name, dataset_df)) in enumerate(
         zip(export_tabs, datasets.items())
