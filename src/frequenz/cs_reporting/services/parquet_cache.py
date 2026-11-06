@@ -596,9 +596,7 @@ def _frame_covered_ranges(frame: pd.DataFrame, key: DatasetKey) -> list[_Range]:
     """Derive contiguous coverage from populated time-series records."""
     if frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
         return []
-    populated = frame.dropna(
-        how="any" if key.name == "dso_energy_flows" else "all"
-    )
+    populated = frame.dropna(how="any" if key.name == "dso_energy_flows" else "all")
     if populated.empty:
         return []
     timestamps = pd.DatetimeIndex(

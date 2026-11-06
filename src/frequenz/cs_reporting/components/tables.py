@@ -91,9 +91,7 @@ def _sort_rows_newest_first(df: pd.DataFrame) -> pd.DataFrame:
     if timestamp_column is None:
         return df
 
-    parsed_timestamps = pd.to_datetime(
-        df[timestamp_column], errors="coerce", utc=True
-    )
+    parsed_timestamps = pd.to_datetime(df[timestamp_column], errors="coerce", utc=True)
     if parsed_timestamps.notna().any():
         return df.sort_values(
             timestamp_column,

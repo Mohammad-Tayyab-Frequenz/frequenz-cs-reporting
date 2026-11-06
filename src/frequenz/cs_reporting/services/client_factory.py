@@ -98,7 +98,11 @@ def _load_microgrid_config_cached(
         return assets_config.microgrids[microgrid_id]
 
     with log_duration(f"client_factory.load_config.mid{microgrid_id}"):
-        return asyncio.run(load())
+        coroutine = load()
+        try:
+            return asyncio.run(coroutine)
+        finally:
+            coroutine.close()
 
 
 @st.cache_resource(show_spinner=False)

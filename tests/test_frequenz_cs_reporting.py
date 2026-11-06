@@ -50,7 +50,6 @@ from frequenz.cs_reporting.components.ui import (
     _plotly_component_height,
 )
 from frequenz.cs_reporting.constants import (
-    COLOR_DICT,
     KPI_SECTION_ACCENTS,
     TablesResult,
 )
@@ -68,6 +67,8 @@ from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import (
     battery_optimization as battery_optimization_view,
+)
+from frequenz.cs_reporting.views import (
     dashboard,
     metric_renderers,
 )
