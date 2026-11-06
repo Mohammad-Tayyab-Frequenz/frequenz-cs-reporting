@@ -15,7 +15,10 @@ from typing import Iterator
 import plotly.graph_objects as go
 import streamlit as st
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
-from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import run_workflow
+from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import (
+    NoDataAvailableError,
+    run_workflow,
+)
 
 from frequenz.cs_reporting.components.sidebar_inputs import collect_solar_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
@@ -138,9 +141,24 @@ def render() -> None:
         return
 
     with st.spinner("Workflow wird ausgeführt..."):
-        with log_duration("solar.run_workflow"):
-            with capture_workflow_figures() as figures:
-                plot_data = asyncio.run(run_workflow(user_config_changes=user_request))
+        try:
+            with log_duration("solar.run_workflow"):
+                with capture_workflow_figures() as figures:
+                    plot_data = asyncio.run(
+                        run_workflow(user_config_changes=user_request)
+                    )
+        except NoDataAvailableError:
+            component_ids = user_request["component_ids"][0]
+            st.warning(
+                "Keine Solar-Reporting-Daten gefunden. "
+                f"MID {microgrid_id}, Kategorie "
+                f"'{inputs_data.component_category}', Komponenten {component_ids}, "
+                f"Zeitraum {user_request['start_timestamp']:%Y-%m-%d} bis "
+                f"{user_request['end_timestamp']:%Y-%m-%d}, "
+                "Metrik AC_POWER_ACTIVE. Prüfen Sie die Komponentenkategorie, "
+                "den Zeitraum und die Datenverfügbarkeit im Reporting."
+            )
+            return
 
     with log_duration("solar.render_results"):
         render_workflow_results(plot_data, figures)

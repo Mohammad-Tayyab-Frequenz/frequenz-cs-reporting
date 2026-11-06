@@ -149,6 +149,15 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
         )
 
     if isinstance(exc, ValueError):
+        if "formula" in detail and (
+            "missing formula for" in detail or "No formula set for" in detail
+        ):
+            return (
+                f"Für Microgrid {microgrid_id} konnte keine vollständige "
+                "Messformel erzeugt werden. Bitte prüfen Sie die "
+                "Komponententopologie in der Assets API."
+                f"{detail_suffix}"
+            )
         return (
             "Die ausgewählten Filterparameter sind ungültig. "
             "Bitte prüfen Sie Zeitraum, Zeitzone und Auflösung."

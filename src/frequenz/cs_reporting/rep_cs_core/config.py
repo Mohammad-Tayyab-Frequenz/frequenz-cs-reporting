@@ -30,8 +30,22 @@ class AppConfig:
     paths: Paths
 
 
-_default_microgrids = os.getenv(
-    "MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/"
-)
+_PACKAGED_MICROGRIDS_DIR = Path("frequenz_config_microgrid/assets/")
+_LEGACY_MICROGRIDS_DIR = Path("toml_directory/")
 
-CFG = AppConfig(paths=Paths(microgrids_dir=Path(_default_microgrids)))
+
+def microgrid_config_dir() -> Path:
+    """Return the configured microgrid TOML directory.
+
+    An explicit environment setting takes precedence.  Otherwise, prefer the
+    packaged configuration directory and retain the legacy directory as a
+    fallback for deployments that do not provide it.
+    """
+    if (configured_dir := os.getenv("MICROGRID_CONFIG_DIR")) is not None:
+        return Path(configured_dir)
+    if _PACKAGED_MICROGRIDS_DIR.is_dir():
+        return _PACKAGED_MICROGRIDS_DIR
+    return _LEGACY_MICROGRIDS_DIR
+
+
+CFG = AppConfig(paths=Paths(microgrids_dir=microgrid_config_dir()))

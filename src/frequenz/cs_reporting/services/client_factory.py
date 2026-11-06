@@ -24,6 +24,7 @@ from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import AssetsConfig, MicrogridConfig, load_configs
 
+from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.utils.env import require_env
 from frequenz.cs_reporting.utils.timing import log_duration
 
@@ -94,8 +95,16 @@ def _load_microgrid_config_cached(
     del revision
 
     async def load() -> MicrogridConfig:
-        assets_config = await load_configs(default_files=list(config_files))
-        return assets_config.microgrids[microgrid_id]
+        assets_client = get_assets_client()
+        try:
+            assets_config = await load_configs(
+                default_files=list(config_files),
+                assets_client=assets_client,
+                microgrid_ids=[microgrid_id],
+            )
+            return assets_config.microgrids[microgrid_id]
+        finally:
+            await assets_client.disconnect()
 
     with log_duration(f"client_factory.load_config.mid{microgrid_id}"):
         coroutine = load()
@@ -169,7 +178,7 @@ def warm_up_config_directory() -> bool:
 
 def _config_root() -> str:
     """Return the configured TOML directory."""
-    return os.getenv("MICROGRID_CONFIG_DIR", "frequenz_config_microgrid/assets/")
+    return str(microgrid_config_dir())
 
 
 def _microgrid_config_source() -> MicrogridConfigSource:

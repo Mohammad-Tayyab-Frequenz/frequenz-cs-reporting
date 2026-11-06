@@ -18,8 +18,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 import streamlit as st
+from frequenz.gridpool.config import MicrogridConfig
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 from frequenz.lib.notebooks.solar.maintenance import plot_manager, plot_styles
+from frequenz.lib.notebooks.solar.maintenance.solar_maintenance_app import (
+    NoDataAvailableError,
+)
 
 from frequenz.cs_reporting.app_pages import (
     battery_optimization as battery_optimization_page,
@@ -29,6 +33,7 @@ from frequenz.cs_reporting.app_pages.battery_optimization import (
     _completed_price_range_end,
     _mid_caption,
 )
+from frequenz.cs_reporting.app_pages.reporting import _format_data_loading_error
 from frequenz.cs_reporting.app_pages.solar import (
     _solar_mid_heading,
     capture_workflow_figures,
@@ -53,6 +58,7 @@ from frequenz.cs_reporting.constants import (
     KPI_SECTION_ACCENTS,
     TablesResult,
 )
+from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     build_battery_optimization_results_table,
@@ -63,6 +69,7 @@ from frequenz.cs_reporting.services.data_service import (
     _battery_capacity_kwh_from_metric_data,
     _day_ahead_sync_range,
 )
+from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils import time
 from frequenz.cs_reporting.views import (
@@ -747,6 +754,46 @@ def test_invalid_microgrid_session_selection_is_reconciled(
     }
 
 
+def test_microgrid_config_dir_prefers_packaged_assets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The packaged assets directory is the first default checked."""
+    packaged_dir = tmp_path / "frequenz_config_microgrid" / "assets"
+    packaged_dir.mkdir(parents=True)
+    (tmp_path / "toml_directory").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MICROGRID_CONFIG_DIR", raising=False)
+
+    assert microgrid_config_dir() == Path("frequenz_config_microgrid/assets")
+    assert getattr(client_factory, "_config_root")() == (
+        "frequenz_config_microgrid/assets"
+    )
+
+
+def test_microgrid_config_dir_falls_back_to_legacy_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The legacy directory is used when packaged assets are unavailable."""
+    (tmp_path / "toml_directory").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MICROGRID_CONFIG_DIR", raising=False)
+
+    assert microgrid_config_dir() == Path("toml_directory")
+    assert getattr(client_factory, "_config_root")() == "toml_directory"
+
+
+def test_microgrid_config_dir_honors_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicitly configured directory overrides default discovery."""
+    configured_dir = tmp_path / "custom"
+    monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(configured_dir))
+
+    assert microgrid_config_dir() == configured_dir
+    assert getattr(client_factory, "_config_root")() == str(configured_dir)
+
+
+# pylint: disable=too-many-locals
 def test_microgrid_config_loads_only_files_defining_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -763,14 +810,36 @@ def test_microgrid_config_loads_only_files_defining_it(
     (tmp_path / "legacy.toml").write_text(
         '# legacy\n86.meta.name = "legacy"\n', encoding="utf-8"
     )
-    load_calls: list[list[str]] = []
+    load_calls: list[tuple[list[str], object, list[int]]] = []
+    disconnect_calls: list[None] = []
 
-    async def load_configs(*, default_files: list[str]) -> object:
-        load_calls.append([Path(file).name for file in default_files])
+    class FakeAssetsClient:
+        """Minimal Assets API client used to verify its lifecycle."""
+
+        async def disconnect(self) -> None:
+            """Record that the client was disconnected."""
+            disconnect_calls.append(None)
+
+    assets_client = FakeAssetsClient()
+
+    async def load_configs(
+        *,
+        default_files: list[str],
+        assets_client: object,
+        microgrid_ids: list[int],
+    ) -> object:
+        load_calls.append(
+            (
+                [Path(file).name for file in default_files],
+                assets_client,
+                microgrid_ids,
+            )
+        )
         return SimpleNamespace(microgrids={243: SimpleNamespace(name="wanted")})
 
     monkeypatch.setenv("MICROGRID_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(client_factory, "load_configs", load_configs)
+    monkeypatch.setattr(client_factory, "get_assets_client", lambda: assets_client)
     cached_config = getattr(client_factory, "_load_microgrid_config_cached")
     cached_index = getattr(client_factory, "_microgrid_file_index_cached")
     cached_source = getattr(client_factory, "_microgrid_config_source_cached")
@@ -789,7 +858,8 @@ def test_microgrid_config_loads_only_files_defining_it(
     assert index[555] == (str(tmp_path.resolve() / "dotted.toml"),)
     assert index.get(86) == (str(tmp_path.resolve() / "legacy.toml"),)
 
-    assert load_calls == [["b.toml"]]
+    assert load_calls == [(["b.toml"], assets_client, [243])]
+    assert disconnect_calls == [None]
 
     # With the enterprise ID known, the file is opened directly without a scan.
     (tmp_path / "eid7.toml").write_text(
@@ -815,6 +885,17 @@ def test_microgrid_config_loads_only_files_defining_it(
     assert not index_calls
     for cache in (cached_config, cached_index, cached_source):
         cache.clear()
+
+
+def test_missing_formula_error_points_to_assets_topology() -> None:
+    """A generated-formula failure is not presented as an invalid filter."""
+    message = _format_data_loading_error(
+        ValueError("grid is missing formula for AC_POWER_ACTIVE"), 243
+    )
+
+    assert "Komponententopologie in der Assets API" in message
+    assert "Filterparameter" not in message
+    assert "grid is missing formula for AC_POWER_ACTIVE" in message
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:
@@ -977,6 +1058,78 @@ def test_solar_reporting_renders_selected_mid_at_top(
     solar_page.render()
 
     assert titles == ["MID243 - Test", "Solar Reporting"]
+
+
+def test_solar_workflow_request_rejects_empty_component_category() -> None:
+    """An empty PV category is reported before the workflow calls the API."""
+
+    class EmptyConfig:
+        """Microgrid configuration without PV inverter components."""
+
+        @staticmethod
+        def component_type_ids(
+            component_type: str, component_category: str | None = None
+        ) -> list[int]:
+            del component_type, component_category
+            return []
+
+    with pytest.raises(ValueError, match="no PV components.*'inverter'"):
+        build_workflow_request(
+            microgrid_id=243,
+            config=cast(MicrogridConfig, EmptyConfig()),
+            start_date=date(2026, 1, 1),
+            time_zone="UTC",
+            component_category="inverter",
+            language="Deutsch",
+            resample_period="3600",
+            rolling_view_duration=30,
+            baseline_models=[],
+        )
+
+
+def test_solar_reporting_handles_no_data_without_crashing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The expected no-data result is rendered as an actionable warning."""
+    warnings: list[str] = []
+    inputs = SimpleNamespace(
+        microgrid_id=243,
+        start_date=date(2026, 1, 1),
+        time_zone="UTC",
+        component_category="inverter",
+        language="Deutsch",
+        resample_period="3600",
+        rolling_view_duration=30,
+        baseline_models=[],
+    )
+    request = {
+        "component_ids": [[3, 4]],
+        "start_timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+        "end_timestamp": datetime(2026, 11, 6, tzinfo=UTC),
+    }
+
+    async def no_data_workflow(**_kwargs: object) -> None:
+        raise NoDataAvailableError("No reporting data available")
+
+    monkeypatch.setattr(
+        solar_page, "collect_solar_sidebar_inputs", lambda **_kwargs: (inputs, True)
+    )
+    monkeypatch.setattr(solar_page, "get_microgrid_names", lambda: {243: "Test"})
+    monkeypatch.setattr(solar_page, "get_microgrid_config", lambda _mid: object())
+    monkeypatch.setattr(solar_page, "build_workflow_request", lambda **_kwargs: request)
+    monkeypatch.setattr(solar_page, "run_workflow", no_data_workflow)
+    monkeypatch.setattr(solar_page, "capture_workflow_figures", lambda: nullcontext([]))
+    monkeypatch.setattr(st, "spinner", lambda _message: nullcontext())
+    monkeypatch.setattr(st, "warning", warnings.append)
+    monkeypatch.setattr(st, "title", lambda _title: None)
+    monkeypatch.setattr(st, "divider", lambda: None)
+
+    solar_page.render()
+
+    assert len(warnings) == 1
+    assert "MID 243" in warnings[0]
+    assert "Komponenten [3, 4]" in warnings[0]
+    assert "AC_POWER_ACTIVE" in warnings[0]
 
 
 def test_battery_reporting_uses_standard_chart_and_table_section_headings(
