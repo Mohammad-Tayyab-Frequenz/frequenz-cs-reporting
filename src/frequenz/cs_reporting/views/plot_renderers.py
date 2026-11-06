@@ -21,7 +21,12 @@ from frequenz.lib.notebooks.reporting.plotter import (
 from frequenz.lib.notebooks.reporting.utils.column_mapper import ColumnMapper
 
 from frequenz.cs_reporting.components.ui import render_plot_card
-from frequenz.cs_reporting.constants import COLOR_DICT, COMPONENT_CONFIGS, TablesResult
+from frequenz.cs_reporting.constants import (
+    COLOR_DICT,
+    COMPONENT_CONFIGS,
+    KPI_SECTION_ACCENTS,
+    TablesResult,
+)
 from frequenz.cs_reporting.views.component_sources import (
     PLOT_SOURCE_ANALYSIS_KEYS,
     component_analysis_for_source,
@@ -42,6 +47,7 @@ _COMPONENT_TABS = [
 _TIME_SERIES_HEIGHT = 650
 _TIME_SERIES_MARGIN = {"t": 160, "r": 80, "b": 140, "l": 80}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
+_GERMAN_WEEKDAY_TICK_FORMAT = "%a, %d.%m.%Y<br>%H:%M"
 
 
 def _left_align_plot_title(fig: object) -> None:
@@ -59,6 +65,11 @@ def _apply_compact_time_series_layout(fig: go.Figure) -> None:
     )
     fig.update_xaxes(autorange=True, range=None)
     fig.update_yaxes(autorange=True, range=None)
+
+
+def _apply_german_weekday_xaxis_labels(fig: go.Figure) -> None:
+    """Show German weekday abbreviations alongside date and time tick labels."""
+    fig.update_xaxes(tickformat=_GERMAN_WEEKDAY_TICK_FORMAT)
 
 
 # pylint: disable=too-many-arguments, too-many-locals
@@ -170,6 +181,97 @@ def render_energy_pie_chart(
     )
     fig = plot_energy_pie_chart(power_df, color_dict=color_dict)
     render_plot_card("Energie-Mix", fig)
+
+
+def _build_consumption_breakdown(
+    metrics: dict[str, float | str | None],
+) -> dict[str, float | None]:
+    """Prepare the sources serving consumption for the energy-mix plot."""
+    grid_consumption = metrics.get("grid_consumption_sum") or 0.0
+    grid_to_battery = metrics.get("grid_to_battery_sum") or 0.0
+    values = {
+        "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
+        "Netz zu Verbrauch (kWh)": max(
+            float(grid_consumption) - float(grid_to_battery), 0.0
+        ),
+        "Erzeugung zu Verbrauch (kWh)": metrics.get("prod_self_consumption_sum"),
+        "Batterie zu Verbrauch (kWh)": metrics.get("battery_to_consumption_sum"),
+    }
+    return {
+        key: float(value) if isinstance(value, (int, float)) else 0.0
+        for key, value in values.items()
+    }
+
+
+def _render_consumption_mix(metrics: dict[str, float | str | None]) -> None:
+    """Render the consumption-source pie chart in the Energie-Mix tab."""
+    breakdown = _build_consumption_breakdown(metrics)
+    total_consumption = breakdown["Stromverbrauch (kWh)"] or 0.0
+    formatted_total = (
+        f"{total_consumption:,.0f}".replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
+    segment_colors = {
+        "Netz zu Verbrauch (kWh)": KPI_SECTION_ACCENTS[
+            "Netzkennzahlen - Reporting Daten"
+        ],
+        "Erzeugung zu Verbrauch (kWh)": KPI_SECTION_ACCENTS[
+            "(Eigen-)Erzeugungskennzahlen"
+        ],
+        "Batterie zu Verbrauch (kWh)": COLOR_DICT["Batterie Entladung"],
+    }
+    segments = {
+        label: value
+        for label, value in breakdown.items()
+        if label != "Stromverbrauch (kWh)" and value is not None and value > 0.0
+    }
+    fig = go.Figure()
+    if segments:
+        fig.add_trace(
+            go.Pie(
+                labels=list(segments),
+                values=list(segments.values()),
+                marker={
+                    "colors": [segment_colors[label] for label in segments],
+                },
+                textinfo="label+percent",
+                hovertemplate=(
+                    "<b>%{label}</b><br>Anteil: %{percent}<br>"
+                    "Energie: %{value:,.0f} kWh<extra></extra>"
+                ),
+            )
+        )
+    else:
+        fig.add_annotation(
+            text="Keine Daten zur Anzeige",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
+    fig.update_layout(
+        height=420,
+        margin={"l": 20, "r": 240, "t": 60, "b": 20},
+        legend={
+            "orientation": "v",
+            "y": 0.9,
+            "yanchor": "middle",
+            "x": 0.8,
+            "xanchor": "left",
+            "title": {"text": "Stromverbrauch Mix"},
+        },
+        separators=",.",
+    )
+    fig.add_annotation(
+        text=f"<b>Gesamtverbrauch:</b> {formatted_total} kWh",
+        x=0.5,
+        xref="paper",
+        y=1.08,
+        yref="paper",
+        showarrow=False,
+        font={"size": 14, "color": "#374151"},
+    )
+    render_plot_card("Stromverbrauch Mix", fig)
 
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
@@ -348,8 +450,9 @@ def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
             yaxis_title="kW",
         )
     _apply_compact_time_series_layout(fig)
+    _apply_german_weekday_xaxis_labels(fig)
     _left_align_plot_title(fig)
-    render_plot_card("Lastgang Übersicht", fig)
+    render_plot_card("Lastgang Übersicht", fig, plotly_config={"locale": "de"})
 
 
 def _render_battery_soc_plot(battery_usecase_df: pd.DataFrame | None) -> None:
@@ -401,7 +504,6 @@ def _get_active_tabs(
     battery_soc_tab: tuple[str, Callable[[], None]] | None = None
     component_type_set = set(component_types)
 
-    # 1. Overview Tab
     overview_df = _prepare_battery_usecase_df(tables)
     if overview_df is not None and not overview_df.empty:
         tabs.append(("Zeitreihen-Plot", lambda: _render_overview_plot(overview_df)))
@@ -411,22 +513,15 @@ def _get_active_tabs(
                 lambda: _render_battery_soc_plot(overview_df),
             )
 
-    # 2. Energy Mix Tab
-    power_table = tables.get("power_table")
-    required = {"Energy Source", "Energy [kWh]"}
-    if (
-        isinstance(power_table, pd.DataFrame)
-        and not power_table.empty
-        and required.issubset(power_table.columns)
-    ):
+    metrics = tables.get("metrics")
+    if isinstance(metrics, dict) and "mid_consumption_sum" in metrics:
         tabs.append(
             (
                 "Energie-Mix",
-                lambda: render_energy_pie_chart(power_table, color_dict=palette),
+                lambda: _render_consumption_mix(metrics),
             )
         )
 
-    # 3. Dynamic Component Tabs
     for label, key in _COMPONENT_TABS:
         df = tables.get(f"{key}_analysis")
         config = COMPONENT_CONFIGS.get(key)
@@ -494,7 +589,6 @@ def render_plots_tabs(
     """
     palette = color_dict or COLOR_DICT
 
-    # Get configuration of what to render
     plot_tabs_config = _get_active_tabs(
         tables,
         master_df,
@@ -508,7 +602,6 @@ def render_plots_tabs(
         st.info("Keine Plot-Daten verfügbar.")
         return
 
-    # Render the UI
     tab_labels = [label for label, _ in plot_tabs_config]
     for tab, (_, render_fn) in zip(st.tabs(tab_labels), plot_tabs_config):
         with tab:

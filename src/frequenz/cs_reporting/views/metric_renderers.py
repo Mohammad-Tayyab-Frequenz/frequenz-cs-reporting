@@ -6,14 +6,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from html import escape
+from math import isfinite
 from typing import Any, Iterable
 
 import streamlit as st
 
-from frequenz.cs_reporting.components.plot_charts import plot_percentage_bar
-from frequenz.cs_reporting.ui_resources import inject_style
+from frequenz.cs_reporting.constants import KPI_SECTION_ACCENTS
+from frequenz.cs_reporting.ui_resources import inject_style, load_tooltips
 
 
 def _fmt_de(val: float, decimals: int) -> str:
@@ -27,9 +28,12 @@ def _fmt_metric_value(val: object) -> str:
     if val is None:
         return "—"
     if isinstance(val, (int, float)):
-        if float(val) == int(val):
-            return _fmt_de(float(val), 0)
-        return _fmt_de(float(val), 2)
+        numeric_value = float(val)
+        if not isfinite(numeric_value):
+            return "—"
+        if numeric_value == int(numeric_value):
+            return _fmt_de(numeric_value, 0)
+        return _fmt_de(numeric_value, 2)
     return str(val)
 
 
@@ -46,13 +50,19 @@ def _format_previous_value(label: str, value: object) -> str:
     return f"Vorperiode: {_fmt_metric_value(value)}{unit_suffix}"
 
 
-_PRIOR_PERIOD_TOOLTIP = (
-    "Vorperiode ist immer derselbe Zeitraum davor. "
-    "Beispiel: Bei 4 ausgewählten Tagen werden die 4 Tage davor verglichen."
-)
+def _format_current_value(label: str, value: object) -> str:
+    """Format the current KPI value together with its display unit."""
+    unit = _unit_from_label(label)
+    unit_suffix = f" {unit}" if unit else ""
+    return f"{_fmt_metric_value(value)}{unit_suffix}"
+
+
+_PRIOR_PERIOD_TOOLTIP = load_tooltips("common")["prior_period"]
 
 _DELTA_COMPARISONS = {
     "Netzbezug (kWh)": "neutral",
+    "Netzbetreiber Netzbezug (kWh)": "neutral",
+    "Netzbetreiber Netzeinspeisung (kWh)": "neutral",
     "Netzeinspeisung (kWh)": "neutral",
     "Gesamtverbrauch Strom (kWh)": "neutral",
     "Gesamterzeugung (kWh)": "more_is_good",
@@ -77,10 +87,16 @@ def _delta_html(
     """Build a percentage-delta badge for numeric KPI values."""
     if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
         return ""
-    if previous == 0:
+    current_value = float(current)
+    previous_value = float(previous)
+    if (
+        not isfinite(current_value)
+        or not isfinite(previous_value)
+        or previous_value == 0
+    ):
         return ""
 
-    delta = ((float(current) - float(previous)) / abs(float(previous))) * 100
+    delta = ((current_value - previous_value) / abs(previous_value)) * 100
     if delta == 0 or comparison == "neutral":
         delta_class = "kpi-card__delta--neutral"
     elif (delta > 0) == (comparison == "more_is_good"):
@@ -95,23 +111,49 @@ def _delta_html(
 
 
 def _kpi_label_html(label: str) -> str:
-    """Render a KPI label together with the prior-period explanation."""
+    """Render a KPI label without duplicating the unit shown in its value."""
+    display_label = re.sub(r"\s*\([^)]*\)", "", label)
+    return f'<span class="kpi-card__label-text">{escape(display_label)}</span>'
+
+
+def _kpi_tooltip_content_html(tooltip: object) -> str:
+    """Format optional heading/body tooltip sections as safe HTML."""
+    text = str(tooltip)
+    blocks = text.split("\n\n")
+    if len(blocks) == 1:
+        return escape(" ".join(text.split()))
+
+    sections: list[str] = []
+    for block in blocks:
+        heading, separator, body = block.partition("\n")
+        safe_heading = escape(" ".join(heading.split()))
+        if not separator:
+            sections.append(
+                f'<span class="kpi-card__tooltip-body">{safe_heading}</span>'
+            )
+            continue
+        safe_body = escape(" ".join(body.split()))
+        sections.append(
+            f'<span class="kpi-card__tooltip-heading">{safe_heading}</span>'
+            f'<span class="kpi-card__tooltip-body">{safe_body}</span>'
+        )
+    return "".join(sections)
+
+
+def _kpi_tooltip_aria_label(tooltip: object) -> str:
+    """Return single-line escaped tooltip text safe for an HTML attribute."""
+    return escape(" ".join(str(tooltip).split()), quote=True)
+
+
+def _prior_period_help_html() -> str:
+    """Render the help tooltip displayed beside the prior-period value."""
     tooltip = escape(_PRIOR_PERIOD_TOOLTIP, quote=True)
     return (
-        f'<span class="kpi-card__label-text">{escape(label)}</span>'
         f'<span class="kpi-card__help" role="img" tabindex="0" '
-        f'aria-label="{tooltip}">?'
+        f'aria-label="{tooltip}">i'
         f'<span class="kpi-card__help-tooltip">{tooltip}</span></span>'
     )
 
-
-_SECTION_ACCENTS: dict[str, str] = {
-    "Netzkennzahlen": "#3b82f6",  # blue  – grid
-    "(Eigen-)Erzeugungskennzahlen": "#10b981",  # green – generation
-    "Verbrauchskennzahlen": "#f59e0b",  # amber – consumption
-    "Batteriekennzahlen": "#64748b",  # gray – neutral battery flows
-    "Bilanzkennzahlen": "#8b5cf6",  # purple – balance ratios
-}
 
 _SECTION_ICONS: dict[str, str] = {
     "Netzkennzahlen": "⚡",
@@ -128,55 +170,106 @@ def _ensure_kpi_css() -> None:
 
 
 def _peak_label(metrics: dict[str, object]) -> str:
-    """Compose the label for the peak metric box."""
+    """Compose the label for the reporting-data peak metric box."""
     return f"Lastspitze (kW) — {metrics.get('peak_date')}"
 
 
-_INVOICING_WARNING = (
-    "Die dargestellten Preise und Daten basieren auf einer Prognose eigener "
-    "gemessener Werte und entsprechen nicht den offiziellen Daten des "
-    "Verteilernetzbetreibers. Für Abrechnungen sind ausschließlich die "
-    "Netzbetreiber-Daten maßgeblich, daher sind Abweichungen zu Rechnungswerten "
-    "möglich."
-)
+def _dso_peak_label(metrics: dict[str, object]) -> str:
+    """Compose the label for the grid-operator peak metric box."""
+    return f"Lastspitze (kW) — {metrics.get('dso_peak_date')}"
 
-_DAY_AHEAD_PRICE_METRIC_KEYS = {
-    "grid_import_cost_sum",
-    "grid_feed_in_revenue_sum",
-    "average_da_price_grid_import",
-    "average_da_price_grid_feed_in",
+
+_INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
+_INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
+_OPTIONAL_METRIC_KEYS = {
+    "dso_import_energy_sum",
+    "dso_export_energy_sum",
+    "dso_import_cost_sum",
+    "dso_export_revenue_sum",
+    "average_da_price_dso_import",
+    "average_da_price_dso_export",
 }
+
+_NETWORK_IMPORT_ACCENT = "#64748b"
+_NETWORK_PEAK_ACCENT = "#dc2626"
 
 
 SECTION_SPECS: list[dict[str, Any]] = [
     {
-        "title": "Netzkennzahlen",
+        "title": "Netzkennzahlen - Reporting Daten",
         "warning": _INVOICING_WARNING,
         "boxes": [
-            {"label": "Netzbezug (kWh)", "key": "grid_consumption_sum"},
-            {"label": "Netzeinspeisung (kWh)", "key": "grid_feed_in_sum"},
-            {"label_fn": _peak_label, "key": "peak"},
+            {
+                "label": "Netzbezug (kWh)",
+                "key": "grid_consumption_sum",
+                "group": "grid-import",
+            },
             {
                 "label": "Prognostizierte Netzbezugskosten (€)",
                 "key": "grid_import_cost_sum",
-                "microgrid_ids": {231},
+                "group": "grid-import",
             },
-            {
-                "label": "Prognostizierte Einspeiseerloese (€)",
-                "key": "grid_feed_in_revenue_sum",
-                "microgrid_ids": {231},
-            },
-            {"label": "", "key": None, "microgrid_ids": {231}},
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_import",
-                "microgrid_ids": {231},
+                "group": "grid-import",
+            },
+            {
+                "label": "Netzeinspeisung (kWh)",
+                "key": "grid_feed_in_sum",
+                "group": "grid-feed-in",
+            },
+            {
+                "label": "Prognostizierte Einspeiseerlöse (€)",
+                "key": "grid_feed_in_revenue_sum",
+                "group": "grid-feed-in",
             },
             {
                 "label": "Prognostizierter Preis (ct/kWh)",
                 "key": "average_da_price_grid_feed_in",
-                "microgrid_ids": {231},
+                "group": "grid-feed-in",
             },
+            {"label_fn": _peak_label, "key": "peak"},
+        ],
+    },
+    {
+        "title": "Netzkennzahlen - Netzbetreiber",
+        "required_any_metric_keys": {
+            "dso_import_energy_sum",
+            "dso_export_energy_sum",
+        },
+        "boxes": [
+            {
+                "label": "Netzbezug (kWh)",
+                "key": "dso_import_energy_sum",
+                "group": "dso-import",
+            },
+            {
+                "label": "Netzbezugskosten (€)",
+                "key": "dso_import_cost_sum",
+                "group": "dso-import",
+            },
+            {
+                "label": "Preis (ct/kWh)",
+                "key": "average_da_price_dso_import",
+                "group": "dso-import",
+            },
+            {
+                "label": "Netzeinspeisung (kWh)",
+                "key": "dso_export_energy_sum",
+                "group": "dso-export",
+            },
+            {
+                "label": "Einspeiseerlöse (€)",
+                "key": "dso_export_revenue_sum",
+                "group": "dso-export",
+            },
+            {
+                "label": "Preis (ct/kWh)",
+                "key": "average_da_price_dso_export",
+                "group": "dso-export",
+            },
+            {"label_fn": _dso_peak_label, "key": "dso_peak"},
         ],
     },
     {
@@ -198,47 +291,23 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "wind_production_sum",
                 "component_type": "wind",
             },
-        ],
-    },
-    {
-        "title": "Verbrauchskennzahlen",
-        "per_row": 3,
-        "boxes": [
-            {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
             {"label": "Eigenverbrauch (kWh)", "key": "prod_self_consumption_sum"},
         ],
     },
     {
-        "title": "Batteriekennzahlen",
-        "required_component_type": "battery",
-        "per_row": 3,
+        "title": "Verbrauchskennzahlen",
         "boxes": [
-            {
-                "label": "Erzeugung zu Batterie (kWh)",
-                "key": "production_to_battery_sum",
-                "component_type": "battery",
-            },
-            {
-                "label": "Netz zu Batterie (kWh)",
-                "key": "grid_to_battery_sum",
-                "component_type": "battery",
-            },
-            {"label": "", "key": None},
-            {
-                "label": "Batterie zu Netz (kWh)",
-                "key": "battery_to_grid_sum",
-                "component_type": "battery",
-            },
-            {
-                "label": "Batterie zu Verbrauch (kWh)",
-                "key": "battery_to_consumption_sum",
-                "component_type": "battery",
-            },
+            {"label": "Gesamtverbrauch Strom (kWh)", "key": "mid_consumption_sum"},
         ],
     },
+    # Battery KPI cards are temporarily hidden.
+    # {
+    #     "title": "Batteriekennzahlen",
+    #     "required_component_type": "battery",
+    #     "boxes": [...],
+    # },
     {
         "title": "Bilanzkennzahlen",
-        "per_row": 3,
         "boxes": [
             {
                 "label": "Autarkiegrad (%)",
@@ -283,23 +352,6 @@ def _materialize_boxes(
     return boxes
 
 
-def _skip_missing_day_ahead_price_specs(
-    box_specs: list[dict[str, Any]],
-    metrics: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Remove day-ahead price KPI boxes when ENTSOE prices are unavailable."""
-    missing_price_metrics = _DAY_AHEAD_PRICE_METRIC_KEYS.difference(metrics)
-    if not missing_price_metrics:
-        return box_specs
-
-    return [
-        spec
-        for spec in box_specs
-        if spec.get("key") not in _DAY_AHEAD_PRICE_METRIC_KEYS
-        and not (spec.get("key") is None and spec.get("microgrid_ids") is not None)
-    ]
-
-
 def _filter_section_box_specs(
     section: dict[str, Any],
     component_type_set: set[str],
@@ -307,6 +359,7 @@ def _filter_section_box_specs(
     microgrid_id: int | None,
 ) -> list[dict[str, Any]]:
     """Return KPI box specs that apply to the selected microgrid."""
+    del microgrid_id
     required_component_type = section.get("required_component_type")
     if (
         component_types_provided
@@ -315,7 +368,7 @@ def _filter_section_box_specs(
     ):
         return []
 
-    box_specs = section["boxes"]
+    box_specs: list[dict[str, Any]] = section["boxes"]
     if component_types_provided:
         box_specs = [
             spec
@@ -324,105 +377,282 @@ def _filter_section_box_specs(
             or spec.get("component_type") in component_type_set
         ]
 
+    if section["title"] == "(Eigen-)Erzeugungskennzahlen":
+        production_types = component_type_set.intersection({"pv", "chp", "wind"})
+        if component_types_provided and len(production_types) <= 1:
+            box_specs = [
+                spec for spec in box_specs if spec.get("key") != "total_production_sum"
+            ]
+
+    return box_specs
+
+
+def _filter_available_optional_metric_specs(
+    box_specs: list[dict[str, Any]], metrics: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Hide optional KPI cards only when their source metric is unavailable."""
     return [
         spec
         for spec in box_specs
-        if spec.get("microgrid_ids") is None
-        or microgrid_id in spec.get("microgrid_ids", set())
+        if spec.get("key") not in _OPTIONAL_METRIC_KEYS or spec.get("key") in metrics
     ]
 
 
-# pylint: disable = too-many-locals
+# pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
+def _card_html(
+    label: str,
+    val: object,
+    _previous_val: object,
+    tooltip: object,
+    accent: str,
+    _delta_comparisons: dict[str, str] | None,
+    value_colors: Mapping[str, str] | None,
+) -> str:
+    """Build the HTML of a single KPI card."""
+    if val is None:
+        value_html = '<div class="kpi-card__value kpi-card__value--null">—</div>'
+    else:
+        # Temporarily hide percentage comparisons in KPI cards.
+        # comparison = (delta_comparisons or {}).get(label, "less_is_good")
+        value_html = (
+            '<div class="kpi-card__value-row">'
+            f'<div class="kpi-card__value">{_format_current_value(label, val)}</div>'
+            # f"{_delta_html(val, previous_val, comparison)}"
+            "</div>"
+        )
+    # Temporarily hide previous-period values in KPI cards.
+    # previous_html = (
+    #     f'<div class="kpi-card__previous">'
+    #     f"<span>{_format_previous_value(label, previous_val)}</span>"
+    #     f"{_prior_period_help_html()}</div>"
+    #     if previous_val is not None
+    #     else ""
+    # )
+    previous_html = ""
+    tooltip_html = (
+        '<span class="kpi-card__tooltip" role="button" tabindex="0" '
+        f'aria-label="{_kpi_tooltip_aria_label(tooltip)}">'
+        '<span class="kpi-card__tooltip-icon">i</span>'
+        '<span class="kpi-card__tooltip-text">'
+        f"{_kpi_tooltip_content_html(tooltip)}</span>"
+        "</span>"
+        if tooltip
+        else ""
+    )
+    value_color = (value_colors or {}).get(label, "#1a2740")
+    return (
+        f'<div class="kpi-card" style="--kpi-accent:{accent};'
+        f'--kpi-value-color:{escape(value_color, quote=True)};">'
+        '<div class="kpi-card__label-row">'
+        f'<div class="kpi-card__label">{_kpi_label_html(label)}</div>'
+        f"{tooltip_html}</div>"
+        f"{value_html}{previous_html}</div>"
+    )
+
+
+def _box_grid_html(
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
+    accent: str,
+    delta_comparisons: dict[str, str] | None,
+    value_colors: Mapping[str, str] | None = None,
+    groups: Sequence[str | None] | None = None,
+    group_order: Sequence[str] | None = None,
+    group_warnings: Mapping[str, str] | None = None,
+    group_labels: Mapping[str, str] | None = None,
+    grid_class: str = "",
+    card_accents: Sequence[str] | None = None,
+) -> str:
+    """Build a responsive CSS grid of KPI cards."""
+    if card_accents is not None and len(card_accents) != len(boxes):
+        raise ValueError("KPI card accents must match the number of cards")
+    cards = [
+        _card_html(
+            item[0],
+            item[1],
+            item[2] if len(item) >= 3 else None,
+            item[3] if len(item) == 4 else None,
+            card_accents[index] if card_accents is not None else accent,
+            delta_comparisons,
+            value_colors,
+        )
+        for index, item in enumerate(boxes)
+    ]
+    if groups is None:
+        return f'<div class="kpi-grid {grid_class}">{"".join(cards)}</div>'
+    if len(groups) != len(cards):
+        raise ValueError("KPI card groups must match the number of cards")
+
+    grouped_cards: dict[str, tuple[list[str], bool]] = {
+        group: ([], False) for group in (group_order or ())
+    }
+    for index, (card, group) in enumerate(zip(cards, groups)):
+        # Ungrouped cards remain individual grid items.
+        key = group or f"card-{index}"
+        grouped_cards.setdefault(key, ([], group is None))[0].append(card)
+    stacks: list[str] = []
+    for group, (stack, standalone) in grouped_cards.items():
+        warning = (group_warnings or {}).get(group)
+        if warning is not None:
+            label = (group_labels or {}).get(group, group)
+            warning_aria = escape(" ".join(warning.split()), quote=True)
+            stack_html = (
+                '<div class="kpi-group-warning">'
+                f'<span class="kpi-group-warning__label">{escape(label)}</span>'
+                '<span class="kpi-section-warning kpi-group-warning__button" '
+                f'role="button" tabindex="0" aria-label="{warning_aria}">'
+                '<span class="kpi-section-warning__icon">⚠</span>'
+                '<span class="kpi-section-warning__tooltip">'
+                f"{_kpi_tooltip_content_html(warning)}</span></span></div>"
+            )
+        else:
+            stack_html = "".join(stack)
+        stack_class = (
+            " kpi-card-stack--standalone" if standalone else " kpi-card-stack--group"
+        )
+        stacks.append(f'<div class="kpi-card-stack{stack_class}">{stack_html}</div>')
+    return (
+        f'<div class="kpi-grid kpi-grid--grouped {grid_class}">'
+        f'{"".join(stacks)}</div>'
+    )
+
+
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def render_box_grid(
-    boxes: Sequence[tuple[str, object] | tuple[str, object, object]],
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
     per_row: int = 3,
     row_gap: int = 12,
     accent: str = "#3b82f6",
     delta_comparisons: dict[str, str] | None = None,
+    value_colors: Mapping[str, str] | None = None,
 ) -> None:
-    """Render KPI boxes in a card grid.
+    """Render KPI boxes in a responsive card grid.
 
     Args:
         boxes: Prepared list of label/value tuples.
-        per_row: Maximum number of boxes to render per row.
-        row_gap: Vertical gap between rows in pixels.
+        per_row: Retained for compatibility; the responsive grid chooses columns.
+        row_gap: Retained for compatibility; CSS controls the grid gap.
         accent: Left-border accent colour for the cards.
         delta_comparisons: Mapping of metric labels to comparison semantics. Values
             are ``"more_is_good"``, ``"less_is_good"``, or ``"neutral"``.
+        value_colors: Optional mapping of metric labels to KPI value text colours.
 
     Returns:
         Streamlit markup is written directly to the page.
     """
+    del per_row, row_gap
     _ensure_kpi_css()
+    st.markdown(
+        _box_grid_html(boxes, accent, delta_comparisons, value_colors),
+        unsafe_allow_html=True,
+    )
 
-    for i in range(0, len(boxes), per_row):
-        row = [
-            item if len(item) == 3 else (item[0], item[1], None)
-            for item in boxes[i : i + per_row]
-        ]
-        while len(row) < per_row:
-            row.append(("", None, None))
 
-        cols = st.columns(per_row, gap="small")
-        for col, (label, val, previous_val) in zip(cols, row):
-            if label == "" and val is None:
-                col.markdown(
-                    '<div class="kpi-card kpi-card--empty">&nbsp;</div>',
-                    unsafe_allow_html=True,
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+def render_box_section(
+    title: str,
+    boxes: Sequence[
+        tuple[str, object]
+        | tuple[str, object, object]
+        | tuple[str, object, object, str | None]
+    ],
+    accent: str = "#3b82f6",
+    icon: str = "●",
+    delta_comparisons: dict[str, str] | None = None,
+    value_colors: Mapping[str, str] | None = None,
+    grid_class: str = "",
+) -> None:
+    """Render KPI cards inside a standard Reporting-style section panel."""
+    _ensure_kpi_css()
+    icon_bg = accent + "22"
+    box_grid_html = _box_grid_html(
+        boxes,
+        accent,
+        delta_comparisons,
+        value_colors,
+        grid_class=grid_class,
+    )
+    st.markdown(
+        '<div class="kpi-sections">'
+        '<section class="kpi-section">'
+        '<div class="kpi-section-header">'
+        f'<div class="kpi-section-icon" style="background:{icon_bg};">'
+        f"{escape(icon)}</div>"
+        f'<p class="kpi-section-title">{escape(title)}</p></div>'
+        f"{box_grid_html}"
+        "</section></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _summary_sections_html(section_blocks: list[tuple[str, str]]) -> str:
+    """Arrange network KPI sections beside each other and all others below.
+
+    The reporting-data section anchors the primary column.  The grid-operator
+    section occupies the adjacent column, while every other KPI section follows
+    below the reporting-data section in the primary column.
+    """
+    reporting_title = "Netzkennzahlen - Reporting Daten"
+    operator_title = "Netzkennzahlen - Netzbetreiber"
+    section_by_title = dict(section_blocks)
+    reporting_section = section_by_title.pop(reporting_title, None)
+    operator_section = section_by_title.pop(operator_title, None)
+
+    if reporting_section is None or operator_section is None:
+        return f'<div class="kpi-sections">{"".join(block for _, block in section_blocks)}</div>'
+
+    primary_sections = "".join((reporting_section, *section_by_title.values()))
+    return (
+        '<div class="kpi-sections kpi-summary-layout">'
+        f'<div class="kpi-summary-layout__primary">{primary_sections}</div>'
+        f'<div class="kpi-summary-layout__operator">{operator_section}</div>'
+        "</div>"
+    )
+
+
+def _section_data_warning_html(warning: str) -> str:
+    """Render a catalogue warning with a prominent heading and preserved lines."""
+    heading, separator, body = warning.strip().partition("\n\n")
+    safe_heading = escape(" ".join(heading.split()))
+    body_blocks: list[str] = []
+    if separator:
+        for block in body.split("\n\n"):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if lines and lines[0] == "Mögliche Gründe:":
+                reasons: list[str] = []
+                for line in lines[1:]:
+                    if line.startswith(("–", "-")):
+                        reasons.append(line[1:].strip())
+                    elif reasons:
+                        reasons[-1] += f" {line}"
+                reason_items = "".join(
+                    f"<li>{escape(reason)}</li>" for reason in reasons
                 )
-            else:
-                if val is None:
-                    value_html = (
-                        '<div class="kpi-card__value kpi-card__value--null">—</div>'
-                    )
-                else:
-                    comparison = (delta_comparisons or {}).get(label, "less_is_good")
-                    delta_html = _delta_html(val, previous_val, comparison)
-                    value_html = (
-                        '<div class="kpi-card__value-row">'
-                        f'<div class="kpi-card__value">{_fmt_metric_value(val)}</div>'
-                        f"{delta_html}"
-                        "</div>"
-                    )
-
-                previous_html = (
-                    f'<div class="kpi-card__previous">'
-                    f"{_format_previous_value(label, previous_val)}</div>"
-                    if previous_val is not None
-                    else ""
+                body_blocks.append(
+                    '<div class="kpi-section-data-warning__body">'
+                    f"{escape(lines[0])}</div>"
+                    f'<ul class="kpi-section-data-warning__reasons">{reason_items}</ul>'
                 )
-
-                col.markdown(
-                    f"""
-                    <div class="kpi-card" style="--kpi-accent:{accent};">
-                        <div class="kpi-card__label">{_kpi_label_html(label)}</div>
-                        {value_html}
-                        {previous_html}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+            elif lines:
+                body_blocks.append(
+                    '<div class="kpi-section-data-warning__body">'
+                    f'{escape(" ".join(lines))}</div>'
                 )
-
-        if i + per_row < len(boxes):
-            st.markdown(
-                f"<div style='margin-top:{row_gap}px;'></div>",
-                unsafe_allow_html=True,
-            )
-
-
-def _build_consumption_breakdown(metrics: dict[str, Any]) -> dict[str, float | None]:
-    """Prepare data for the percentage bar plot."""
-    grid_consumption = metrics.get("grid_consumption_sum") or 0.0
-    grid_to_battery = metrics.get("grid_to_battery_sum") or 0.0
-    values = {
-        "Stromverbrauch (kWh)": metrics.get("mid_consumption_sum"),
-        "Netz zu Verbrauch (kWh)": max(
-            float(grid_consumption) - float(grid_to_battery), 0.0
-        ),
-        "Erzeugung zu Verbrauch (kWh)": metrics.get("prod_self_consumption_sum"),
-        "Batterie zu Verbrauch (kWh)": metrics.get("battery_to_consumption_sum"),
-    }
-    return {k: (float(v) if v is not None else 0.0) for k, v in values.items()}
+    body_html = "".join(body_blocks)
+    return (
+        '<div class="kpi-section-data-warning" role="status">'
+        '<span class="kpi-section-data-warning__icon" aria-hidden="true">⚠</span>'
+        '<div class="kpi-section-data-warning__content">'
+        f'<strong class="kpi-section-data-warning__title">{safe_heading}</strong>'
+        f"{body_html}</div></div>"
+    )
 
 
 # pylint: disable=too-many-locals
@@ -431,6 +661,8 @@ def render_summary_boxes(
     component_types: Iterable[str] | None = None,
     microgrid_id: int | None = None,
     previous_metrics: dict[str, Any] | None = None,
+    skipped_dso_market_location_ids: tuple[str, ...] = (),
+    dso_data_warning: str | None = None,
 ) -> None:
     """Render overview metrics grouped into styled subsections.
 
@@ -442,11 +674,15 @@ def render_summary_boxes(
             KPI cards.
         previous_metrics: Optional metrics for the immediately preceding period,
             used to render previous values and percentage deltas.
+        skipped_dso_market_location_ids: MaLo IDs omitted because the Market
+            Metering API does not recognize them.
+        dso_data_warning: Warning shown within each grid-operator direction whose
+            data does not cover the complete selected period.
 
     Returns:
         Streamlit components are rendered directly.
     """
-    if not metrics:
+    if not metrics and not dso_data_warning:
         st.info("Keine Übersichtskennzahlen verfügbar.")
         return
 
@@ -454,65 +690,112 @@ def render_summary_boxes(
     component_types_provided = component_types is not None
     component_type_set = set(component_types or [])
 
-    st.markdown(
-        """
-        <div class="metrics-heading">
-            <h2>Leistungskennzahlen</h2>
-            <div class="metrics-heading__line"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # st.markdown(
+    #     """
+    #     <div class="metrics-heading">
+    #         <h2>Leistungskennzahlen</h2>
+    #         <div class="metrics-heading__line"></div>
+    #     </div>
+    #     """,
+    #     unsafe_allow_html=True,
+    # )
 
+    section_blocks: list[tuple[str, str]] = []
     for section in SECTION_SPECS:
+        title = section["title"]
+        is_operator_section = title == "Netzkennzahlen - Netzbetreiber"
+        required_any_metric_keys = section.get("required_any_metric_keys")
+        if (
+            not (is_operator_section and dso_data_warning is not None)
+            and required_any_metric_keys
+            and not required_any_metric_keys.intersection(metrics)
+        ):
+            continue
+        accent = KPI_SECTION_ACCENTS.get(title, "#3b82f6")
+        icon = _SECTION_ICONS.get(title, "●")
+        icon_bg = accent + "22"  # ~13% opacity hex approximation
         box_specs = _filter_section_box_specs(
             section,
             component_type_set,
             component_types_provided,
             microgrid_id,
         )
-        box_specs = _skip_missing_day_ahead_price_specs(box_specs, metrics)
+        if title != "Netzkennzahlen - Netzbetreiber":
+            box_specs = _filter_available_optional_metric_specs(box_specs, metrics)
         if not box_specs:
             continue
 
-        title = section["title"]
-        accent = _SECTION_ACCENTS.get(title, "#3b82f6")
-        icon = _SECTION_ICONS.get(title, "●")
-        icon_bg = accent + "22"  # ~13% opacity hex approximation
         warning = section.get("warning")
+        warning_icon = "⚠"
+        if (
+            title == "Netzkennzahlen - Netzbetreiber"
+            and skipped_dso_market_location_ids
+        ):
+            warning = (
+                "Netzbetreiber-Daten wurden für folgende MaLo-IDs nicht geladen: "
+                f"{', '.join(skipped_dso_market_location_ids)}"
+            )
+            warning_icon = "⚠"
         warning_html = (
             f'<span class="kpi-section-warning" role="button" tabindex="0" '
             f'aria-label="{warning}">'
-            '<span class="kpi-section-warning__icon">⚠</span>'
+            f'<span class="kpi-section-warning__icon">{warning_icon}</span>'
             f'<span class="kpi-section-warning__tooltip">{warning}</span>'
             "</span>"
             if warning
             else ""
         )
-
-        st.markdown(
-            f"""
-            <div class="kpi-section-header">
-                <div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>
-                <p class="kpi-section-title">{title}</p>
-                {warning_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
-        per_row = section.get("per_row", 3)
-        render_box_grid(
+        groups = [spec.get("group") for spec in box_specs]
+        grid_class = (
+            "kpi-grid--operator" if title.startswith("Netzkennzahlen - ") else ""
+        )
+        group_warnings: dict[str, str] = {}
+        if is_operator_section:
+            warning_text = dso_data_warning or _INCOMPLETE_DSO_DATA_WARNING
+            if "dso_import_energy_sum" not in metrics:
+                group_warnings["dso-import"] = warning_text
+            if "dso_export_energy_sum" not in metrics:
+                group_warnings["dso-export"] = warning_text
+        box_grid_html = _box_grid_html(
             boxes,
-            per_row=per_row,
-            accent=accent,
-            delta_comparisons=_DELTA_COMPARISONS,
+            accent,
+            _DELTA_COMPARISONS,
+            groups=groups,
+            group_order=(("dso-import", "dso-export") if is_operator_section else None),
+            group_warnings=group_warnings,
+            group_labels={
+                "dso-import": "Netzbezug",
+                "dso-export": "Netzeinspeisung",
+            },
+            grid_class=grid_class,
+            card_accents=[
+                (
+                    _NETWORK_IMPORT_ACCENT
+                    if group in {"grid-import", "dso-import"}
+                    else (
+                        _NETWORK_PEAK_ACCENT
+                        if spec.get("key") in {"peak", "dso_peak"}
+                        else accent
+                    )
+                )
+                for spec, group in zip(box_specs, groups)
+            ],
+        )
+        section_blocks.append(
+            (
+                title,
+                '<section class="kpi-section">'
+                '<div class="kpi-section-header">'
+                f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
+                f'<p class="kpi-section-title">{title}</p>'
+                f"{warning_html}</div>"
+                f"{box_grid_html}"
+                "</section>",
+            )
         )
 
-    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-    consumption_dict = _build_consumption_breakdown(metrics)
-    consumption_bar_plot = plot_percentage_bar(
-        consumption_dict, total_key="Stromverbrauch (kWh)"
+    st.markdown(
+        _summary_sections_html(section_blocks),
+        unsafe_allow_html=True,
     )
-    st.plotly_chart(consumption_bar_plot, width="stretch")

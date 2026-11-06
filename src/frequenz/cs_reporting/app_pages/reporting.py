@@ -20,17 +20,18 @@ from frequenz.lib.notebooks.reporting.utils.helpers import (
 from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
+    get_api_credential_revision,
     get_component_types,
     get_microgrid_config,
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
     get_cached_microgrid_data,
-    get_cached_microgrid_soc_data,
     get_dataset_sync_metadata,
+    get_market_metering_data,
     get_microgrid_data,
+    get_microgrid_soc_data,
     start_background_microgrid_data_sync,
-    start_background_microgrid_soc_data_sync,
 )
 from frequenz.cs_reporting.services.reporting_session import (
     ReportingDataKey,
@@ -42,7 +43,17 @@ from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
     build_master_df,
     render_dashboard,
+)
+from frequenz.cs_reporting.views.dashboard import (
+    render_data_export as render_data_export_view,
+)
+from frequenz.cs_reporting.views.dashboard import (
     split_periods,
+)
+
+_NO_REPORTING_DATA_WARNING = (
+    "Für den gewählten Zeitraum liegen keine oder nur teilweise Messdaten vor. "
+    "Es können nur Zeiträume abgebildet werden, in denen tatsächlich gemessen wurde."
 )
 
 
@@ -182,28 +193,25 @@ def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-def render() -> None:
-    """Render the Frequenz Reporting Dashboard page.
+def _render_reporting_page(*, export_only: bool) -> None:
+    """Load reporting data and render either the dashboard or export page.
 
     Collects sidebar inputs, fetches microgrid data, prepares it for analysis,
-    and renders the dashboard views.
+    and renders the selected reporting view.
+
+    Args:
+        export_only: Whether to render only the standalone data export view.
 
     Returns:
         Streamlit components are rendered directly.
     """
-    # Collect user inputs from sidebar
-    today = datetime.now(tz=UTC).date()
     with log_duration("reporting.sidebar_inputs"):
         selections = collect_sidebar_inputs(
-            default_start=today,
-            default_end=today,
             resolution_options=("15min", "30min", "1hour"),
             default_resolution="15min",
-            key_prefix="reporting_",
         )
 
     timezone = selections["timezone"]
-    # Extract and convert inputs
     microgrid_id = selections["microgrid_id"]
 
     # set_date_to_midnight returns TZ-aware datetimes aligned with the user's timezone
@@ -213,7 +221,6 @@ def render() -> None:
     if end_time.date() != datetime.now(tz=UTC).date():
         end_time += timedelta(days=1)
 
-    # Validate date range
     if start_time > end_time:
         st.warning(
             "Das Enddatum muss am oder nach dem Startdatum liegen. "
@@ -236,12 +243,12 @@ def render() -> None:
         end_iso=selections["end_date"].isoformat(),
         timezone=timezone,
         resolution_seconds=int(resolution.total_seconds()),
+        credential_revision=get_api_credential_revision(),
     )
 
     # We extend the fetch end date by 1 day to ensure the API returns data
     # for the full duration of the selected end_time.
 
-    # Fetch data with error handling
     active_power_sync: Future[pd.DataFrame] | None = None
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
@@ -254,7 +261,10 @@ def render() -> None:
             heading = f"MID{microgrid_id}"
             if microgrid_name:
                 heading = f"{heading} - {microgrid_name}"
-            st.title(heading)
+            if export_only:
+                st.title(f"{heading}")
+            else:
+                st.title(heading)
             snapshot = take_reporting_data_snapshot(data_key)
             if snapshot is not None:
                 df = snapshot.active_power.copy()
@@ -263,6 +273,9 @@ def render() -> None:
                     None
                     if snapshot.battery_soc is None
                     else snapshot.battery_soc.copy()
+                )
+                dso_energy_df = (
+                    None if snapshot.dso_energy is None else snapshot.dso_energy.copy()
                 )
             else:
                 with log_duration("reporting.load_active_power"):
@@ -291,28 +304,17 @@ def render() -> None:
                             resolution=resolution,
                         )
                 battery_soc_df = None
+                dso_energy_df = None
             if sync_metadata.status == "error":
                 last_sync = sync_metadata.last_successful_sync or "unbekannt"
                 st.warning(
                     "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
                     f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
                 )
-            battery_formula = (
-                mcfg.ctype["battery"].formula if "battery" in component_types else None
-            )
-            has_battery_soc_formula = (
-                battery_formula is not None and "BATTERY_SOC_PCT" in battery_formula
-            )
-            if snapshot is None and has_battery_soc_formula:
+            if snapshot is None and "battery" in component_types:
                 try:
                     with log_duration("reporting.load_battery_soc"):
-                        fetched_soc_df = get_cached_microgrid_soc_data(
-                            microgrid_id=microgrid_id,
-                            start_date=previous_start_time,
-                            end_date=end_time,
-                            resolution=resolution,
-                        )
-                        start_background_microgrid_soc_data_sync(
+                        fetched_soc_df = get_microgrid_soc_data(
                             microgrid_id=microgrid_id,
                             start_date=previous_start_time,
                             end_date=end_time,
@@ -320,12 +322,29 @@ def render() -> None:
                         )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
-                        f"Zwischengespeicherte Batterie-SOC-Daten konnten nicht "
-                        f"geladen werden: {exc}"
+                        f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
             if snapshot is None:
+                try:
+                    with log_duration("reporting.load_market_metering"):
+                        fetched_dso_energy_df = get_market_metering_data(
+                            microgrid_id=microgrid_id,
+                            start_date=previous_start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
+                except Exception as exc:  # pylint: disable=broad-except
+                    st.warning(
+                        "Netzbetreiber-Messdaten konnten nicht geladen werden: "
+                        f"{exc}"
+                    )
+                else:
+                    dso_energy_df = (
+                        None if fetched_dso_energy_df.empty else fetched_dso_energy_df
+                    )
+            if snapshot is None and active_power_sync is None:
                 store_reporting_data_snapshot(
                     ReportingDataSnapshot(
                         key=data_key,
@@ -334,22 +353,22 @@ def render() -> None:
                             None if battery_soc_df is None else battery_soc_df.copy()
                         ),
                         sync_metadata=sync_metadata,
+                        dso_energy=(
+                            None if dso_energy_df is None else dso_energy_df.copy()
+                        ),
                     )
                 )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(_format_data_loading_error(exc, microgrid_id))
         st.stop()
 
-    # Check for empty results
     if df.empty:
-        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.warning(_NO_REPORTING_DATA_WARNING)
         st.stop()
 
-    # Normalize the dataframe (Handle Index)
     with log_duration("reporting.prepare_dataframe"):
         df_prepared = _prepare_dataframe(df)
 
-    # Build and render dashboard
     with log_duration("reporting.create_column_mapper"):
         mapper = ColumnMapper.from_default()
     with log_duration("reporting.build_master_dataframe"):
@@ -360,6 +379,8 @@ def render() -> None:
             mapper,
             timezone=timezone,
             battery_soc_df=battery_soc_df,
+            dso_energy_df=dso_energy_df,
+            resolution=resolution,
         )
     with log_duration("reporting.split_periods"):
         current_master_df, previous_master_df = split_periods(
@@ -372,20 +393,51 @@ def render() -> None:
         if active_power_sync is not None and not active_power_sync.done():
             _poll_active_power_sync(active_power_sync)
             st.stop()
-        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.warning(_NO_REPORTING_DATA_WARNING)
         st.stop()
 
-    with log_duration("reporting.render_dashboard"):
-        render_dashboard(
-            current_master_df,
-            resolution=resolution,
-            component_types=component_types,
-            mapper=mapper,
-            microgrid_id=microgrid_id,
-            mcfg=mcfg,
-            previous_master_df=previous_master_df,
+    if export_only:
+        with log_duration("reporting.render_data_export"):
+            render_data_export_view(
+                current_master_df,
+                resolution=resolution,
+                component_types=component_types,
+                mapper=mapper,
+                previous_master_df=previous_master_df,
+            )
+    else:
+        dso_sync_metadata = get_dataset_sync_metadata(
+            "dso_energy_flows", microgrid_id, resolution
         )
-    _scroll_to_section_if_requested()
+        with log_duration("reporting.render_dashboard"):
+            render_dashboard(
+                current_master_df,
+                resolution=resolution,
+                component_types=component_types,
+                mapper=mapper,
+                microgrid_id=microgrid_id,
+                mcfg=mcfg,
+                previous_master_df=previous_master_df,
+                skipped_dso_market_location_ids=tuple(
+                    dso_sync_metadata.skipped_market_location_ids
+                ),
+            )
+    if active_power_sync is not None and not active_power_sync.done():
+        # Rerun once the refresh finishes so the cached-but-stale data shown
+        # above is replaced without requiring a second filter click.
+        _poll_active_power_sync(active_power_sync)
+    if not export_only:
+        _scroll_to_section_if_requested()
+
+
+def render() -> None:
+    """Render the Frequenz Reporting Dashboard page."""
+    _render_reporting_page(export_only=False)
+
+
+def render_data_export() -> None:
+    """Render the standalone data export page."""
+    _render_reporting_page(export_only=True)
 
 
 PAGE = PageSpec(

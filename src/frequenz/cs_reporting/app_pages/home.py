@@ -54,7 +54,7 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
     _FeatureCard(
         color_class="home-card--blue",
         icon="&#9889;",
-        title="Reporting-Dashboard",
+        title="Reporting",
         description=(
             "Leistungsflüsse auf Portfolioebene, Verbrauchsbilanzen "
             "und detaillierte KPI-Analysen über alle Microgrid-Komponenten."
@@ -67,9 +67,24 @@ _FEATURE_CARDS: tuple[_FeatureCard, ...] = (
         ),
     ),
     _FeatureCard(
+        color_class="home-card--amber",
+        icon="&#128267;",
+        title="Batterie-Reporting",
+        description=(
+            "Wirtschaftliche Auswertung des Batterieeinsatzes mit "
+            "Day-Ahead-Preisen, Leistungsflüssen und Ladezustand."
+        ),
+        features=(
+            "Analyse von Lade- und Entladevorgängen",
+            "Einsparungen und Preis-Spreads",
+            "Batteriedurchsatz und Vollzyklen",
+            "Auswertung von Leistung &amp; Ladezustand",
+        ),
+    ),
+    _FeatureCard(
         color_class="home-card--green",
         icon="&#9728;",
-        title="Solar-Monitoring",
+        title="Solar-Reporting",
         description=(
             "Wartungsorientierte Solar-Workflow-Prüfungen mit "
             "Baseline-Modellvergleich und rollierenden Performance-Ansichten."
@@ -188,23 +203,26 @@ def render() -> None:
     st.markdown(_stats_html(_STATS), unsafe_allow_html=True)
     st.markdown(_feature_grid_html(_FEATURE_CARDS), unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("Reporting-Dashboard öffnen", use_container_width=True):
+        if st.button("Reporting öffnen", use_container_width=True):
             _navigate_to("reporting_dashboard")
     with col2:
-        if st.button("Solar-Monitoring öffnen", use_container_width=True):
-            _navigate_to("solar")
+        if st.button("Batterie-Reporting öffnen", use_container_width=True):
+            _navigate_to("battery_optimization")
     with col3:
+        if st.button("Solar-Reporting öffnen", use_container_width=True):
+            _navigate_to("solar")
+    with col4:
         if st.button("Datenexport öffnen", use_container_width=True):
-            _navigate_to("reporting_dashboard", section="data-export")
+            _navigate_to("data_export")
 
     st.markdown(_footer_html(), unsafe_allow_html=True)
 
 
 PAGE = PageSpec(
     key="home",
-    title="Übersicht",
+    title="Startseite",
     icon="",
     order=0,
     render=render,

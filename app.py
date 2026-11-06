@@ -41,7 +41,7 @@ LOGO_NAME = "neustrom_logo.png"
 
 
 def _inject_global_theme() -> None:
-    """Inject the global theme for the Streamlit app."""
+    """Inject the global theme CSS for the Streamlit app."""
     st.markdown(
         """
         <style>
@@ -213,6 +213,11 @@ def _inject_global_theme() -> None:
             background: #ffffff;
         }
 
+        [data-testid="stSidebar"]
+        button[data-testid="stDateInputCalendarButton"] {
+            display: none;
+        }
+
         [data-testid="stSidebar"] [data-testid="stForm"] hr {
             margin: 0.35rem 0;
         }
@@ -317,6 +322,7 @@ if package_parent not in sys.path:
     sys.path.insert(0, package_parent)
 
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+from frequenz.cs_reporting.services.client_factory import warm_up_config_directory
 from frequenz.cs_reporting.services.deepnote_cache import (
     deepnote_hybrid_cache_enabled,
     prepare_deepnote_hybrid_cache,
@@ -510,6 +516,7 @@ def main() -> None:
     )
     _inject_global_theme()
 
+    warm_up_config_directory()
     with log_duration("app.discover_pages"):
         pages = discover_library_pages()
     if not pages:

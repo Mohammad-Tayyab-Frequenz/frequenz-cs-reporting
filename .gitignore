@@ -152,3 +152,6 @@ site/
 # Runtime reporting-data cache
 data/parquet/
 data/metadata/
+
+# Runtime toml_directory
+frequenz_config_microgrid/*

@@ -1,0 +1,16 @@
+/* Focused layout for the standalone data-export workflow. */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #d9e1ec;
+    border-radius: 12px;
+    background: #ffffff;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]:has(button[kind="primary"]) {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12);
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] h4 {
+    color: #1a2740;
+    margin-bottom: 0.35rem;
+}

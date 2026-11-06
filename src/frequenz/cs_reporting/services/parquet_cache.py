@@ -87,6 +87,7 @@ class SyncMetadata:
     total_stored_records: int = 0
     sync_duration_seconds: float = 0.0
     last_error: str | None = None
+    skipped_market_location_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> SyncMetadata:
@@ -136,11 +137,15 @@ class ParquetRangeCache:
             covered = self._metadata_ranges(metadata)
             if not storage_valid:
                 covered = []
+            elif _is_dense_time_series(key):
+                covered = _frame_covered_ranges(stored, key)
             required = _subtract_range(requested, covered)
             now = datetime.now(tz=UTC)
             due = _sync_due(metadata.last_successful_sync, now, self._sync_interval)
-            if not due and _is_small_trailing_extension(
-                required, covered, self._sync_interval
+            if (
+                not _is_dense_time_series(key)
+                and not due
+                and _is_small_trailing_extension(required, covered, self._sync_interval)
             ):
                 required = []
 
@@ -203,7 +208,8 @@ class ParquetRangeCache:
         """Read synchronization metadata for status display or monitoring."""
         return self._read_metadata(key)
 
-    # pylint: disable = too-many-locals, too-many-arguments, too-many-positional-arguments
+    # pylint: disable = too-many-locals, too-many-statements
+    # pylint: disable = too-many-arguments, too-many-positional-arguments
     def _synchronize(
         self,
         key: DatasetKey,
@@ -221,12 +227,64 @@ class ParquetRangeCache:
 
         try:
             raw_parts: list[tuple[pd.DataFrame, datetime, datetime]] = []
+            successful_ranges: list[_Range] = []
+            unavailable_errors: list[Exception] = []
+            skipped_market_location_ids: set[str] = set()
             incoming_axis: tuple[str, str | None] | None = None
             for range_start, range_end in ranges:
-                raw_frame = self._fetch_with_retry(fetch, range_start, range_end)
+                try:
+                    raw_frame = self._fetch_with_retry(fetch, range_start, range_end)
+                except Exception as exc:  # pylint: disable=broad-except
+                    if not (
+                        key.name.startswith("day_ahead_prices_")
+                        and _is_no_matching_data_error(exc)
+                    ):
+                        raise
+                    unavailable_errors.append(exc)
+                    _LOGGER.warning(
+                        "No day-ahead prices available for %s from %s to %s",
+                        key.slug,
+                        range_start,
+                        range_end,
+                    )
+                    continue
+                if raw_frame.empty and _is_dense_time_series(key):
+                    data_label = (
+                        "day-ahead prices"
+                        if key.name.startswith("day_ahead_prices_")
+                        else "Netzbetreiber-Messdaten"
+                    )
+                    unavailable_errors.append(
+                        ValueError(
+                            f"No {data_label} returned for "
+                            f"{range_start.isoformat()} to {range_end.isoformat()}"
+                        )
+                    )
+                    continue
+                skipped_market_location_ids.update(
+                    str(location_id)
+                    for location_id in raw_frame.attrs.get(
+                        "skipped_market_location_ids", ()
+                    )
+                )
                 if not raw_frame.empty and incoming_axis is None:
                     incoming_axis = _raw_frame_axis(raw_frame)
                 raw_parts.append((raw_frame, range_start, range_end))
+                successful_ranges.append((range_start, range_end))
+
+            if not raw_parts:
+                if unavailable_errors and not stored.empty:
+                    metadata.status = "partial"
+                    metadata.sync_duration_seconds = round(
+                        time.monotonic() - started, 3
+                    )
+                    metadata.last_error = (
+                        f"{type(unavailable_errors[0]).__name__}: "
+                        f"{unavailable_errors[0]}"
+                    )
+                    self._write_metadata(key, metadata)
+                    return stored, metadata
+                raise unavailable_errors[0]
 
             with log_duration(_cache_timing_operation(key, "normalize")):
                 incoming_parts = [
@@ -247,7 +305,10 @@ class ParquetRangeCache:
                     metadata.timestamp_axis,
                     metadata.index_name,
                 )
-                new_covered = _merge_ranges([*covered, *ranges])
+                if _is_dense_time_series(key):
+                    new_covered = _frame_covered_ranges(merged, key)
+                else:
+                    new_covered = _merge_ranges([*covered, *successful_ranges])
 
             self._write_frame(key, merged)
             metadata.covered_ranges = [
@@ -257,12 +318,17 @@ class ParquetRangeCache:
             metadata.timestamp_axis = axis
             metadata.index_name = index_name
             metadata.last_successful_sync = _iso(attempted_at)
-            metadata.status = "ok"
+            metadata.status = "partial" if unavailable_errors else "ok"
             metadata.records_retrieved = len(incoming)
             metadata.records_inserted_or_updated = len(incoming)
             metadata.total_stored_records = len(merged)
             metadata.sync_duration_seconds = round(time.monotonic() - started, 3)
-            metadata.last_error = None
+            metadata.last_error = (
+                f"{type(unavailable_errors[0]).__name__}: {unavailable_errors[0]}"
+                if unavailable_errors
+                else None
+            )
+            metadata.skipped_market_location_ids = sorted(skipped_market_location_ids)
             self._write_metadata(key, metadata)
             return merged, metadata
         except Exception as exc:
@@ -479,6 +545,16 @@ def _is_transient(exc: Exception) -> bool:
     )
 
 
+def _is_no_matching_data_error(exc: Exception) -> bool:
+    """Return whether an exception chain reports unavailable ENTSO-E data."""
+    current: BaseException | None = exc
+    while current is not None:
+        if type(current).__name__ == "NoMatchingDataError":
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _retry_after_seconds(exc: Exception) -> float | None:
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", {})
@@ -509,6 +585,44 @@ def _merge_ranges(ranges: list[_Range]) -> list[_Range]:
         else:
             merged.append((current_start, current_end))
     return merged
+
+
+def _is_dense_time_series(key: DatasetKey) -> bool:
+    """Return whether stored timestamps must continuously cover the metadata."""
+    return key.name.startswith("day_ahead_prices_") or key.name == "dso_energy_flows"
+
+
+def _frame_covered_ranges(frame: pd.DataFrame, key: DatasetKey) -> list[_Range]:
+    """Derive contiguous coverage from populated time-series records."""
+    if frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return []
+    populated = frame.dropna(how="any" if key.name == "dso_energy_flows" else "all")
+    if populated.empty:
+        return []
+    timestamps = pd.DatetimeIndex(
+        pd.to_datetime(populated.index, utc=True).unique()
+    ).sort_values()
+    resolution = pd.Timedelta(key.resolution_seconds, unit="s")
+    ranges: list[_Range] = []
+    range_start = timestamps[0]
+    previous = timestamps[0]
+    for timestamp in timestamps[1:]:
+        if timestamp - previous > resolution:
+            ranges.append(
+                (
+                    range_start.to_pydatetime(),
+                    (previous + resolution).to_pydatetime(),
+                )
+            )
+            range_start = timestamp
+        previous = timestamp
+    ranges.append(
+        (
+            range_start.to_pydatetime(),
+            (previous + resolution).to_pydatetime(),
+        )
+    )
+    return ranges
 
 
 def _subtract_range(requested: _Range, covered: list[_Range]) -> list[_Range]:
@@ -613,7 +727,12 @@ def _merge_frames(stored: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
         combined = pd.concat([stored, incoming], axis=0, sort=False)
     if combined.empty:
         return combined
-    return combined[~combined.index.duplicated(keep="last")].sort_index()
+    if not combined.index.has_duplicates:
+        return combined.sort_index()
+    # ``last()`` keeps the newest non-null value independently for each column.
+    # A partial API response can therefore update one metric without erasing a
+    # previously cached companion metric at the same timestamp.
+    return combined.groupby(level=0, sort=True).last()
 
 
 def _raw_frame_axis(frame: pd.DataFrame) -> tuple[str, str | None]:

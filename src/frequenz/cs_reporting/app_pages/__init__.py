@@ -32,7 +32,7 @@ def _lazy_render(module_name: str, expected_key: str) -> Callable[[], None]:
 PAGE_MANIFEST: dict[str, PageSpec] = {
     "home": PageSpec(
         key="home",
-        title="Übersicht",
+        title="Startseite",
         icon="",
         order=0,
         render=_lazy_render("home", "home"),
@@ -44,9 +44,16 @@ PAGE_MANIFEST: dict[str, PageSpec] = {
         order=1,
         render=_lazy_render("reporting", "reporting_dashboard"),
     ),
+    "data_export": PageSpec(
+        key="data_export",
+        title="Datenexport",
+        icon="",
+        order=4,
+        render=_lazy_render("data_export", "data_export"),
+    ),
     "solar": PageSpec(
         key="solar",
-        title="Solar-Monitoring",
+        title="Solar-Reporting",
         icon="",
         order=2,
         render=_lazy_render("solar", "solar"),

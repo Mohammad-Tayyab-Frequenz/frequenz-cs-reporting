@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, Literal, cast
 
 import streamlit as st
 
@@ -23,12 +23,14 @@ def _resolve_container(container: Any | None) -> Any:
     return container if container is not None else st.sidebar
 
 
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def microgrid_selector(
     label: str = "Microgrid-ID",
     ids: Iterable[int] = range(1, 2),
     format_func: Callable[[int], str] = str,
     key_prefix: str = "",
     container: Any | None = None,
+    label_visibility: Literal["visible", "hidden", "collapsed"] = "visible",
 ) -> int:
     """Render a selectbox for choosing a microgrid ID.
 
@@ -38,6 +40,7 @@ def microgrid_selector(
         format_func: Function used to create an option's display label.
         key_prefix: Optional prefix for Streamlit widget keys.
         container: Optional Streamlit container to render into.
+        label_visibility: Visibility mode for the selector label.
 
     Returns:
         Selected microgrid identifier.
@@ -50,6 +53,7 @@ def microgrid_selector(
         index=0,
         format_func=format_func,
         key=f"{key_prefix}microgrid_id",
+        label_visibility=label_visibility,
     )
 
     return cast(int, value)

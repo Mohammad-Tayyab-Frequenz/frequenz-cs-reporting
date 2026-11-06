@@ -23,6 +23,19 @@ COLOR_DICT = {
     "MID Gesamtverbrauch": "rgba(71,82,99,1)",
     "Batterie Leistungsfluss": "rgba(41,140,120,1)",
     "Netzbezug": "rgba(32,42,55,1)",
+    "Batterie Beladung": "rgba(146,219,68,1)",
+    "Batterie Entladung": "rgba(236,0,140,1)",
+}
+
+# Accent colors shared by KPI sections and related visualizations.
+KPI_SECTION_ACCENTS = {
+    "Netzkennzahlen": "#3b82f6",
+    "Netzkennzahlen - Reporting Daten": "#3b82f6",
+    "Netzkennzahlen - Netzbetreiber": "#3b82f6",
+    "(Eigen-)Erzeugungskennzahlen": "#10b981",
+    "Verbrauchskennzahlen": "#f59e0b",
+    "Batteriekennzahlen": "#64748b",
+    "Bilanzkennzahlen": "#8b5cf6",
 }
 
 # Column name constants (German display names)
@@ -94,6 +107,7 @@ class TablesResult(TypedDict):
     """
 
     power_table: pd.DataFrame
+    feed_in_table: pd.DataFrame
     metrics: dict[str, float | str | None]
     pv_analysis: pd.DataFrame
     batt_analysis: pd.DataFrame

@@ -3,6 +3,7 @@
 
 """Tests for persistent Parquet synchronization."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,56 @@ from frequenz.cs_reporting.services.parquet_cache import (
     ParquetRangeCache,
     SyncMetadata,
 )
+
+
+def test_soc_fetch_passes_assets_client_and_disconnects_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SOC fetches use asset metadata for bounds without leaking the client."""
+    disconnected: list[None] = []
+    expected = pd.DataFrame(
+        {
+            "battery": [50.0],
+            "battery_soc_lower_bound_pct": [5.0],
+            "battery_soc_upper_bound_pct": [98.0],
+        },
+        index=pd.DatetimeIndex([datetime(2026, 1, 1, tzinfo=UTC)]),
+    )
+
+    class FakeAssetsClient:
+        """Record when the short-lived Assets API client is disconnected."""
+
+        async def disconnect(self) -> None:
+            disconnected.append(None)
+
+    class FakeMicrogridClient:
+        """Return SOC data already enriched with rated bounds."""
+
+        async def soc(self, **_kwargs: object) -> pd.DataFrame:
+            return expected
+
+    fake_assets_client = FakeAssetsClient()
+    monkeypatch.setattr(data_service, "get_assets_client", lambda: fake_assets_client)
+
+    def get_client(
+        _microgrid_id: int, *, assets_client: object | None = None
+    ) -> FakeMicrogridClient:
+        assert assets_client is fake_assets_client
+        return FakeMicrogridClient()
+
+    monkeypatch.setattr(data_service, "get_microgrid_client", get_client)
+
+    actual = asyncio.run(
+        data_service.fetch_microgrid_soc_data(
+            231,
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 2, tzinfo=UTC),
+            timedelta(minutes=15),
+        )
+    )
+
+    pd.testing.assert_frame_equal(actual, expected)
+    assert disconnected == [None]
 
 
 def _frame(start: datetime, end: datetime, value: float = 1.0) -> pd.DataFrame:
@@ -225,6 +276,184 @@ def test_empty_response_is_recorded_as_a_successful_covered_range(
     assert cache.metadata(key).status == "ok"
 
 
+def test_day_ahead_sync_keeps_successful_ranges_when_one_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    """A missing ENTSO-E range does not discard prices fetched in the same sync."""
+
+    class NoMatchingDataError(Exception):
+        """Represent an ENTSO-E response with no published data."""
+
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    cached_start = start + timedelta(hours=1)
+    cached_end = cached_start + timedelta(hours=1)
+    end = cached_end + timedelta(hours=1)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+    cache.get(key, cached_start, cached_end, _frame)
+    calls: list[tuple[datetime, datetime]] = []
+
+    def partially_available(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        if fetch_start == cached_end:
+            raise NoMatchingDataError("not published")
+        return _frame(fetch_start, fetch_end)
+
+    partial = cache.get(key, start, end, partially_available)
+
+    assert len(partial) == 8
+    assert calls == [(start, cached_start), (cached_end, end)]
+    metadata = cache.metadata(key)
+    assert metadata.status == "partial"
+    assert "not published" in (metadata.last_error or "")
+    assert metadata.covered_ranges == [
+        [
+            start.isoformat().replace("+00:00", "Z"),
+            cached_end.isoformat().replace("+00:00", "Z"),
+        ]
+    ]
+
+    completed = cache.get(key, start, end, _frame)
+
+    assert len(completed) == 12
+    assert cache.metadata(key).status == "ok"
+
+
+def test_day_ahead_sync_repairs_false_coverage_from_sparse_cache(
+    tmp_path: Path,
+) -> None:
+    """Persisted metadata cannot hide missing price records after a restart."""
+    start = datetime(2026, 10, 16, tzinfo=UTC)
+    middle = start + timedelta(minutes=15)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+
+    cache.get(key, start, end, lambda *_args: _frame(start, middle))
+    calls: list[tuple[datetime, datetime]] = []
+
+    def fetch_missing(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        return _frame(fetch_start, fetch_end)
+
+    repaired = _cache(tmp_path).get(key, start, end, fetch_missing)
+
+    assert calls == [(middle, end)]
+    assert len(repaired) == 4
+    assert repaired.index.max() == pd.Timestamp(end - timedelta(minutes=15))
+
+
+def test_dso_sync_repairs_partial_coverage_after_restart(tmp_path: Path) -> None:
+    """DSO metadata is derived from records so missing tails remain retryable."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    middle = start + timedelta(hours=1)
+    end = middle + timedelta(hours=1)
+    key = DatasetKey("dso_energy_flows", 42, 900)
+    cache = _cache(tmp_path)
+
+    def dso_frame(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        index = pd.date_range(fetch_start, fetch_end, freq="15min", inclusive="left")
+        return pd.DataFrame(
+            {"dso_import_energy": 1.0, "dso_export_energy": 2.0}, index=index
+        )
+
+    first = cache.get(key, start, end, lambda *_args: dso_frame(start, middle))
+    calls: list[tuple[datetime, datetime]] = []
+
+    def fetch_missing(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        return dso_frame(fetch_start, fetch_end)
+
+    repaired = _cache(tmp_path).get(key, start, end, fetch_missing)
+
+    assert len(first) == 4
+    assert calls == [(middle, end)]
+    assert len(repaired) == 8
+    assert repaired.index.max() == pd.Timestamp(end - timedelta(minutes=15))
+
+
+def test_dso_sync_keeps_cached_history_when_unpublished_tail_is_empty(
+    tmp_path: Path,
+) -> None:
+    """A publication-lag tail does not discard already cached DSO history."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    middle = start + timedelta(hours=1)
+    end = middle + timedelta(hours=1)
+    key = DatasetKey("dso_energy_flows", 42, 900)
+    cache = _cache(tmp_path)
+
+    def dso_frame(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        index = pd.date_range(fetch_start, fetch_end, freq="15min", inclusive="left")
+        return pd.DataFrame(
+            {"dso_import_energy": 1.0, "dso_export_energy": 2.0}, index=index
+        )
+
+    expected = cache.get(key, start, middle, dso_frame)
+    actual = cache.get(key, start, end, lambda *_args: pd.DataFrame())
+
+    pd.testing.assert_frame_equal(actual, expected, check_freq=False)
+    metadata = cache.metadata(key)
+    assert metadata.status == "partial"
+    assert metadata.covered_ranges == [
+        [
+            start.isoformat().replace("+00:00", "Z"),
+            middle.isoformat().replace("+00:00", "Z"),
+        ]
+    ]
+
+
+def test_dso_refresh_does_not_erase_cached_direction_with_null(
+    tmp_path: Path,
+) -> None:
+    """A partial DSO refresh preserves the cached value for its missing direction."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    key = DatasetKey("dso_energy_flows", 42, 900)
+    cache = _cache(tmp_path, due=True)
+
+    def complete(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        index = pd.date_range(fetch_start, fetch_end, freq="15min", inclusive="left")
+        return pd.DataFrame(
+            {"dso_import_energy": 1.0, "dso_export_energy": 2.0}, index=index
+        )
+
+    cache.get(key, start, end, complete)
+
+    def partial(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        index = pd.date_range(fetch_start, fetch_end, freq="15min", inclusive="left")
+        return pd.DataFrame(
+            {"dso_import_energy": 9.0, "dso_export_energy": float("nan")},
+            index=index,
+        )
+
+    refreshed = cache.get(key, start, end, partial)
+
+    assert refreshed.iloc[-1]["dso_import_energy"] == 9.0
+    assert refreshed.iloc[-1]["dso_export_energy"] == 2.0
+    assert cache.metadata(key).covered_ranges == [
+        [
+            start.isoformat().replace("+00:00", "Z"),
+            end.isoformat().replace("+00:00", "Z"),
+        ]
+    ]
+
+
+def test_empty_day_ahead_response_does_not_mark_range_as_covered(
+    tmp_path: Path,
+) -> None:
+    """An empty ENTSO-E response remains retryable rather than becoming coverage."""
+    start = datetime(2026, 10, 16, tzinfo=UTC)
+    end = start + timedelta(minutes=15)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+
+    with pytest.raises(ValueError, match="No day-ahead prices returned"):
+        cache.get(key, start, end, lambda *_args: pd.DataFrame())
+
+    assert not cache.metadata(key).covered_ranges
+    assert len(cache.get(key, start, end, _frame)) == 1
+
+
 def test_timestamp_column_shape_is_preserved(tmp_path: Path) -> None:
     """A source timestamp column remains a column after a cache round trip."""
     start = datetime(2026, 1, 1, tzinfo=UTC)
@@ -403,7 +632,7 @@ def test_background_day_ahead_sync_is_shared_between_callers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Concurrent sessions reuse one in-process price synchronization job."""
-    start = datetime(2035, 1, 1, tzinfo=UTC)
+    start = datetime(2020, 1, 1, tzinfo=UTC)
     end = start + timedelta(days=1)
     calls: list[tuple[str, datetime, datetime]] = []
 
@@ -424,7 +653,7 @@ def test_background_day_ahead_sync_is_shared_between_callers(
 
     assert first is second
     assert not first.result(timeout=1).empty
-    assert calls == [("DE_LU", start, end + timedelta(days=1))]
+    assert calls == [("DE_LU", start, end)]
 
 
 def test_background_active_power_sync_is_shared_between_callers(

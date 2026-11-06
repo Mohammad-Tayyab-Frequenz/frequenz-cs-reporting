@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
@@ -29,24 +30,53 @@ from frequenz.cs_reporting.services.data_service import (
     get_cached_day_ahead_prices,
     start_background_day_ahead_price_sync,
 )
+from frequenz.cs_reporting.services.market_metering import merge_dso_energy
 from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
-from frequenz.cs_reporting.ui_resources import inject_style, render_template
+from frequenz.cs_reporting.ui_resources import (
+    inject_style,
+    load_tooltips,
+    render_template,
+)
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
 _DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+_DAY_AHEAD_PRICE_RESOLUTION = pd.Timedelta(15, unit="min")
+_PRICE_SYNC_RERUN_STATE_KEY = "_reporting_price_sync_rerun_future"
+_FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
+    "timestamp": "Zeitpunkt",
+    "grid_feed_in": "Netzeinspeisung",
+    "dso_export_power": "Netzbetreiber Netzeinspeisung (kW)",
+    _DAY_AHEAD_PRICE_COLUMN: "Day-Ahead-Preis (€/MWh)",
+}
+_REQUIRED_FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
+    "timestamp",
+    "grid_feed_in",
+    _DAY_AHEAD_PRICE_COLUMN,
+}
 _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_import_cost_sum",
     "grid_feed_in_revenue_sum",
     "average_da_price_grid_import",
     "average_da_price_grid_feed_in",
+    "dso_import_cost_sum",
+    "dso_export_revenue_sum",
+    "average_da_price_dso_import",
+    "average_da_price_dso_export",
 }
 _DAY_AHEAD_PRICE_WARNING = (
     "Day-ahead prices are not available in the local cache. "
     "Please check the scheduled data synchronization."
 )
+_INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
+    "Day-ahead prices are missing for intervals with grid import or feed-in. "
+    "Affected cost, revenue, and average-price KPIs are shown as unavailable "
+    "(—); missing prices are not treated as zero."
+)
+_DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
+_INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
 
 
 def _inject_dashboard_css() -> None:
@@ -95,12 +125,155 @@ def _average_price_ct_per_kwh(
     return (value * 100) / energy
 
 
+def _has_complete_prices_for_power(master_df: pd.DataFrame, power_column: str) -> bool:
+    """Return whether every positive-energy interval has a day-ahead price."""
+    if power_column not in master_df.columns:
+        return True
+    power = pd.to_numeric(master_df[power_column], errors="coerce").clip(lower=0)
+    relevant = power.fillna(0).gt(0)
+    if not relevant.any():
+        return True
+    if _DAY_AHEAD_PRICE_COLUMN not in master_df.columns:
+        return False
+    prices = pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
+    return bool(prices.loc[relevant].notna().all())
+
+
+def _has_complete_relevant_day_ahead_prices(master_df: pd.DataFrame) -> bool:
+    """Return whether prices cover all intervals that carry grid energy."""
+    power_columns = [
+        column
+        for column in (
+            "grid_consumption",
+            "grid_feed_in",
+            "dso_import_power",
+            "dso_export_power",
+        )
+        if column in master_df.columns
+    ]
+    return all(
+        _has_complete_prices_for_power(master_df, column) for column in power_columns
+    )
+
+
+# pylint: disable=too-many-arguments
+def _set_projected_value_metrics(
+    metrics: dict[str, float | str | None],
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+    *,
+    power_column: str,
+    energy_key: str,
+    value_key: str,
+    average_price_key: str,
+) -> None:
+    """Set projected value metrics without valuing missing prices at zero."""
+    if power_column not in master_df.columns:
+        return
+    interval_hours = resolution.total_seconds() / 3600
+    energy = (
+        pd.to_numeric(master_df[power_column], errors="coerce").clip(lower=0)
+        * interval_hours
+    )
+    relevant = energy.fillna(0).gt(0)
+    total_energy = float(energy.loc[relevant].sum())
+    metrics[energy_key] = total_energy
+    if not relevant.any():
+        metrics[value_key] = 0.0
+        metrics[average_price_key] = None
+        return
+    if _DAY_AHEAD_PRICE_COLUMN not in master_df.columns:
+        metrics[value_key] = None
+        metrics[average_price_key] = None
+        return
+    prices = pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
+    if prices.loc[relevant].isna().any():
+        metrics[value_key] = None
+        metrics[average_price_key] = None
+        return
+    projected_value = float((energy.loc[relevant] * prices.loc[relevant] / 1000).sum())
+    metrics[value_key] = projected_value
+    metrics[average_price_key] = (projected_value * 100) / total_energy
+
+
 def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:
     """Return whether the dataframe contains usable day-ahead price data."""
     return (
         _DAY_AHEAD_PRICE_COLUMN in master_df.columns
         and not master_df[_DAY_AHEAD_PRICE_COLUMN].isna().all()
     )
+
+
+def _has_current_day_ahead_prices(master_df: pd.DataFrame) -> bool:
+    """Return whether prices cover the most recent dashboard timestamp."""
+    if not _has_day_ahead_prices(master_df) or master_df.empty:
+        return False
+    latest_timestamp = pd.to_datetime(master_df["timestamp"], errors="coerce").max()
+    if pd.isna(latest_timestamp):
+        return False
+    latest_rows = master_df.loc[
+        pd.to_datetime(master_df["timestamp"], errors="coerce") == latest_timestamp,
+        _DAY_AHEAD_PRICE_COLUMN,
+    ]
+    return not latest_rows.empty and bool(latest_rows.notna().any())
+
+
+def _has_complete_dso_data(master_df: pd.DataFrame) -> bool:
+    """Return whether both DSO directions cover every displayed interval."""
+    if master_df.empty:
+        return False
+    return all(
+        _has_complete_dso_direction(master_df, column) for column in _DSO_POWER_COLUMNS
+    )
+
+
+def _has_complete_dso_direction(master_df: pd.DataFrame, power_column: str) -> bool:
+    """Return whether one DSO direction covers every displayed interval."""
+    return bool(
+        not master_df.empty
+        and power_column in master_df.columns
+        and pd.to_numeric(master_df[power_column], errors="coerce").notna().all()
+    )
+
+
+def _omit_incomplete_dso_data(master_df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+    """Remove incomplete DSO directions and report when neither is usable."""
+    present_columns = [
+        column for column in _DSO_POWER_COLUMNS if column in master_df.columns
+    ]
+    complete_columns = [
+        column
+        for column in present_columns
+        if _has_complete_dso_direction(master_df, column)
+    ]
+    incomplete_columns = [
+        column for column in present_columns if column not in complete_columns
+    ]
+    sanitized = (
+        master_df.drop(columns=incomplete_columns) if incomplete_columns else master_df
+    )
+    return sanitized, not complete_columns
+
+
+def _set_dso_peak_metrics(
+    metrics: dict[str, float | str | None], master_df: pd.DataFrame
+) -> None:
+    """Set the peak DSO import power and its local calendar date."""
+    power = pd.to_numeric(master_df["dso_import_power"], errors="coerce").clip(lower=0)
+    peak = float(power.max())
+    metrics["dso_peak"] = peak
+
+    peak_date = None
+    if peak > 0 and "timestamp" in master_df.columns:
+        peak_position = int(power.to_numpy().argmax())
+        timestamp = pd.to_datetime(
+            master_df["timestamp"].iloc[peak_position], errors="coerce"
+        )
+        if pd.notna(timestamp):
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.tz_localize("UTC")
+            peak_date = timestamp.tz_convert("Europe/Berlin").strftime("%d.%m.%Y")
+    metrics["dso_peak_date"] = peak_date
 
 
 def _aggregate_metrics(
@@ -113,6 +286,18 @@ def _aggregate_metrics(
         resolution,
         price_column=_DAY_AHEAD_PRICE_COLUMN if has_day_ahead_prices else None,
     )
+    for direction in ("import", "export"):
+        power_column = f"dso_{direction}_power"
+        if not _has_complete_dso_direction(master_df, power_column):
+            continue
+        dso_energy_sum = (
+            pd.to_numeric(master_df[power_column], errors="coerce")
+            * (resolution.total_seconds() / 3600)
+        ).sum(min_count=1)
+        if pd.notna(dso_energy_sum):
+            metrics[f"dso_{direction}_energy_sum"] = float(dso_energy_sum)
+    if _has_complete_dso_direction(master_df, "dso_import_power"):
+        _set_dso_peak_metrics(metrics, master_df)
     if not has_day_ahead_prices:
         for key in _DAY_AHEAD_PRICE_METRIC_KEYS:
             metrics.pop(key, None)
@@ -124,6 +309,40 @@ def _aggregate_metrics(
     metrics["average_da_price_grid_feed_in"] = _average_price_ct_per_kwh(
         metrics, "grid_feed_in_revenue_sum", "grid_feed_in_sum"
     )
+    _set_projected_value_metrics(
+        metrics,
+        master_df,
+        resolution,
+        power_column="grid_consumption",
+        energy_key="grid_consumption_sum",
+        value_key="grid_import_cost_sum",
+        average_price_key="average_da_price_grid_import",
+    )
+    _set_projected_value_metrics(
+        metrics,
+        master_df,
+        resolution,
+        power_column="grid_feed_in",
+        energy_key="grid_feed_in_sum",
+        value_key="grid_feed_in_revenue_sum",
+        average_price_key="average_da_price_grid_feed_in",
+    )
+    for direction in ("import", "export"):
+        power_column = f"dso_{direction}_power"
+        if not _has_complete_dso_direction(master_df, power_column):
+            continue
+        value_key = (
+            "dso_import_cost_sum" if direction == "import" else "dso_export_revenue_sum"
+        )
+        _set_projected_value_metrics(
+            metrics,
+            master_df,
+            resolution,
+            power_column=power_column,
+            energy_key=f"dso_{direction}_energy_sum",
+            value_key=value_key,
+            average_price_key=f"average_da_price_dso_{direction}",
+        )
     return metrics
 
 
@@ -195,6 +414,21 @@ def _filter_component_types_for_master_df(
     )
 
 
+def _build_feed_in_day_ahead_price_table(master_df: pd.DataFrame) -> pd.DataFrame:
+    """Build the feed-in and day-ahead-price table for the data section."""
+    display_columns = list(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.values())
+    if not _REQUIRED_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.issubset(master_df.columns):
+        return pd.DataFrame(columns=display_columns)
+    source_columns = [
+        column
+        for column in _FEED_IN_DAY_AHEAD_PRICE_COLUMNS
+        if column in master_df.columns
+    ]
+    return master_df.reindex(columns=source_columns).rename(
+        columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS
+    )
+
+
 @st.cache_data(show_spinner="Preparing analysis tables…")
 def _build_tables(
     master_df: pd.DataFrame,
@@ -231,6 +465,7 @@ def _build_tables(
     """
     component_types = _filter_component_types_for_master_df(component_types, master_df)
     power_table = compute_energy_summary(master_df, resolution)
+    feed_in_table = _build_feed_in_day_ahead_price_table(master_df)
     metrics = _aggregate_metrics(master_df, resolution)
 
     analyses = {
@@ -247,6 +482,7 @@ def _build_tables(
 
     return {
         "power_table": power_table,
+        "feed_in_table": feed_in_table,
         "metrics": metrics,
         "pv_analysis": analyses["pv_analysis"],
         "batt_analysis": analyses["batt_analysis"],
@@ -265,6 +501,8 @@ def build_master_df(
     mapper: ColumnMapper,
     timezone: str = "Europe/Berlin",
     battery_soc_df: pd.DataFrame | None = None,
+    dso_energy_df: pd.DataFrame | None = None,
+    resolution: timedelta = timedelta(minutes=15),
 ) -> pd.DataFrame:
     """Transform raw microgrid data into master analysis dataframe.
 
@@ -282,6 +520,8 @@ def build_master_df(
         mapper: Column name mapper for converting internal names to display names.
         timezone: Timezone name to use for the report timestamps.
         battery_soc_df: Optional battery SOC dataframe to merge into the report.
+        dso_energy_df: Optional DSO active-energy dataframe to merge into the report.
+        resolution: Duration represented by each DSO energy sample.
 
     Returns:
         Master dataframe with processed and aggregated component data, ready for
@@ -295,6 +535,8 @@ def build_master_df(
         timezone,
         get_microgrid_config_revision(),
         battery_soc_df,
+        dso_energy_df,
+        resolution,
         _mcfg=mcfg,
         _mapper=mapper,
     )
@@ -304,7 +546,7 @@ def build_master_df(
         return master_df
 
 
-@st.cache_data(ttl=300, show_spinner="Preparing report data…")
+@st.cache_data(ttl=900, show_spinner="Preparing report data…")
 def _build_master_df_cached(
     raw_df: pd.DataFrame,
     component_types: tuple[str, ...],
@@ -312,6 +554,8 @@ def _build_master_df_cached(
     timezone: str,
     config_revision: MicrogridConfigRevision,
     battery_soc_df: pd.DataFrame | None,
+    dso_energy_df: pd.DataFrame | None,
+    resolution: timedelta,
     *,
     _mcfg: Any,
     _mapper: ColumnMapper,
@@ -337,6 +581,7 @@ def _build_master_df_cached(
         component_display_names=component_display_names,
         battery_soc_df=battery_soc_df,
     )
+    master_df = merge_dso_energy(master_df, dso_energy_df, resolution)
     return master_df
 
 
@@ -364,7 +609,14 @@ def _merge_cached_day_ahead_prices(
         prices.index = price_index.tz_convert("UTC").tz_localize(None)
     elif target_index.tz is not None and price_index.tz is not None:
         prices.index = price_index.tz_convert(target_index.tz)
-    aligned_prices = prices.sort_index().reindex(target_index, method="ffill")
+    # A price applies until the next 15-minute market interval.  Bounding the
+    # forward fill prevents the last value in a stale Deepnote snapshot from
+    # appearing as a constant live price for the rest of the selected range.
+    aligned_prices = prices.sort_index().reindex(
+        target_index,
+        method="ffill",
+        tolerance=_DAY_AHEAD_PRICE_RESOLUTION - pd.Timedelta(1, unit="ns"),
+    )
     if aligned_prices.isna().all():
         return master_df.copy()
     indexed["day_ahead_price"] = aligned_prices
@@ -391,9 +643,24 @@ def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     """Poll background price synchronization and rerun the app when it finishes."""
     future = start_background_day_ahead_price_sync("DE_LU", start, end)
     if future.done():
-        request_reporting_data_reuse()
-        st.rerun()
+        _rerun_after_price_sync_once(future)
+        return
     st.info("Day-ahead prices are loading in the background …")
+
+
+def _request_dashboard_rerun() -> None:
+    """Request a dashboard rerun through a testable wrapper."""
+    st.rerun()
+
+
+def _rerun_after_price_sync_once(future: Future[pd.Series]) -> bool:
+    """Request at most one full app rerun for a completed price-sync future."""
+    if st.session_state.get(_PRICE_SYNC_RERUN_STATE_KEY) is future:
+        return False
+    st.session_state[_PRICE_SYNC_RERUN_STATE_KEY] = future
+    request_reporting_data_reuse()
+    _request_dashboard_rerun()
+    return True
 
 
 def _render_day_ahead_price_sync_status(
@@ -416,8 +683,9 @@ def _render_day_ahead_price_sync_status(
         st.warning(_DAY_AHEAD_PRICE_WARNING)
         return
 
-    request_reporting_data_reuse()
-    st.rerun()
+    if _rerun_after_price_sync_once(future):
+        return
+    st.warning(_INCOMPLETE_DAY_AHEAD_PRICE_WARNING)
 
 
 def render_dashboard(
@@ -428,6 +696,7 @@ def render_dashboard(
     microgrid_id: int,
     mcfg: Any,
     previous_master_df: pd.DataFrame | None = None,
+    skipped_dso_market_location_ids: tuple[str, ...] = (),
 ) -> None:
     """Render the complete microgrid reporting dashboard.
 
@@ -447,6 +716,7 @@ def render_dashboard(
         mcfg: Microgrid configuration object containing component metadata.
         previous_master_df: Optional master dataframe for the immediately
             preceding period, used for KPI comparison cards.
+        skipped_dso_market_location_ids: MaLo IDs skipped during DSO retrieval.
 
     Returns:
         Renders Streamlit components directly to the app interface.
@@ -455,8 +725,14 @@ def render_dashboard(
         This function orchestrates the dashboard layout and delegates rendering
         to specialized section modules (summary_boxes, plots_tabs, data_tabs).
     """
+    dso_data_incomplete = not _has_complete_dso_data(master_df)
+    master_df, _ = _omit_incomplete_dso_data(master_df)
+    if previous_master_df is not None:
+        previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
     component_types = _filter_component_types_for_master_df(component_types, master_df)
-    if not _has_day_ahead_prices(master_df):
+    if not _has_current_day_ahead_prices(
+        master_df
+    ) or not _has_complete_relevant_day_ahead_prices(master_df):
         _render_day_ahead_price_sync_status(
             master_df,
             previous_master_df,
@@ -472,12 +748,17 @@ def render_dashboard(
         )
 
     with log_duration("dashboard.render_kpis"):
-        _section_divider("Übersicht", "KPIs")
+        # _section_divider("Übersicht", "KPIs")
+        st.subheader("Reporting")
         sections.render_summary_boxes(
             tables["metrics"],
             component_types,
             microgrid_id,
             previous_metrics=previous_metrics,
+            skipped_dso_market_location_ids=skipped_dso_market_location_ids,
+            dso_data_warning=(
+                _INCOMPLETE_DSO_DATA_WARNING if dso_data_incomplete else None
+            ),
         )
 
     with log_duration("dashboard.render_plots"):
@@ -488,3 +769,31 @@ def render_dashboard(
         st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
         _section_divider("Datentabellen")
         sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
+
+
+def render_data_export(
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+    component_types: Iterable[str],
+    mapper: ColumnMapper,
+    previous_master_df: pd.DataFrame | None = None,
+) -> None:
+    """Render all predefined reporting tables on the standalone export page."""
+    master_df, dso_data_unavailable = _omit_incomplete_dso_data(master_df)
+    if dso_data_unavailable:
+        st.warning(_INCOMPLETE_DSO_DATA_WARNING)
+    if previous_master_df is not None:
+        previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
+    component_types = _filter_component_types_for_master_df(component_types, master_df)
+    if not _has_current_day_ahead_prices(
+        master_df
+    ) or not _has_complete_relevant_day_ahead_prices(master_df):
+        _render_day_ahead_price_sync_status(
+            master_df,
+            previous_master_df,
+            resolution,
+        )
+
+    with log_duration("data_export.render_tables"):
+        tables = _build_tables(master_df, resolution, component_types)
+        sections.render_data_export(master_df, mapper, tables, resolution)

@@ -15,21 +15,31 @@ from datetime import datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+from frequenz.client.common.metrics import Metric
 from frequenz.lib.notebooks.reporting.asset_optimization import (
     data as asset_optimization_data,
 )
 from pandas.errors import PerformanceWarning
 
+from frequenz.cs_reporting.services.battery_capacity import (
+    fetch_battery_capacity_data_kwh,
+)
 from frequenz.cs_reporting.services.cache_config import CacheConfig, get_cache_config
 from frequenz.cs_reporting.services.client_factory import (
+    get_assets_client,
     get_component_types,
+    get_market_location_ids,
     get_microgrid_client,
+    get_microgrid_config,
+    get_reporting_client,
 )
 from frequenz.cs_reporting.services.deepnote_cache import (
     start_background_deepnote_cache_persist,
 )
+from frequenz.cs_reporting.services.market_metering import fetch_market_metering_data
 from frequenz.cs_reporting.services.parquet_cache import (
     DatasetKey,
     ParquetRangeCache,
@@ -40,9 +50,11 @@ from frequenz.cs_reporting.utils.timing import log_duration
 
 _COMPONENT_DATA_LOGGER = "frequenz.data.microgrid.component_data"
 _DAY_AHEAD_PRICE_RESOLUTION = timedelta(minutes=15)
+_DAY_AHEAD_MARKET_TIMEZONE = ZoneInfo("Europe/Berlin")
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
 _BATTERY_SOC_SYNC_RETRY_INTERVAL = 15 * 60
+_BATTERY_SOC_DATASET = "battery_soc_with_bounds_v1"
 _ACTIVE_POWER_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="active-power-sync",
@@ -164,22 +176,168 @@ async def fetch_microgrid_soc_data(
         Dataframe of battery SOC values. Empty when no SOC data is available.
     """
     start_iso, end_iso = validate_range(start_date, end_date)
-    client = get_microgrid_client(microgrid_id)
+    assets_client = get_assets_client()
+    client = get_microgrid_client(microgrid_id, assets_client=assets_client)
 
-    coro = client.soc(
-        microgrid_id=microgrid_id,
-        start=start_iso,
-        end=end_iso,
-        resampling_period=resolution,
-        keep_components=False,
-    )
-    with _quiet_expected_component_data_warnings():
-        with log_duration("data.battery_soc.api_request"):
-            df = await asyncio.wait_for(coro, timeout)
+    try:
+        coro = client.soc(
+            microgrid_id=microgrid_id,
+            start=start_iso,
+            end=end_iso,
+            resampling_period=resolution,
+            keep_components=False,
+        )
+        with _quiet_expected_component_data_warnings():
+            with log_duration("data.battery_soc.api_request"):
+                df = await asyncio.wait_for(coro, timeout)
+    finally:
+        await assets_client.disconnect()
 
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame()
     return df.copy()
+
+
+def _battery_capacity_kwh_from_metric_data(df: pd.DataFrame) -> float | None:
+    """Return the latest valid capacity for each battery component in kWh.
+
+    The Reporting API reports ``METRIC_BATTERY_CAPACITY`` in Wh.  Capacity is a
+    point-in-time metric, so repeated readings must not be summed.  Individual
+    battery capacities are summed to obtain the microgrid capacity.
+    """
+    numeric_capacity_data = df.apply(
+        lambda column: pd.to_numeric(column, errors="coerce")
+    )
+    capacity_values_wh = pd.Series(
+        numeric_capacity_data.ffill().tail(1).to_numpy().ravel()
+    ).dropna()
+    if capacity_values_wh.empty:
+        return None
+
+    capacity_kwh = float(capacity_values_wh.sum()) / 1000.0
+    return capacity_kwh if capacity_kwh > 0 else None
+
+
+async def fetch_microgrid_battery_capacity_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float = 30.0,
+) -> float | None:
+    """Fetch battery capacity from the Reporting API's battery capacity metric."""
+    start_iso, end_iso = validate_range(start_date, end_date)
+    component_ids = get_microgrid_config(microgrid_id).component_type_ids(
+        "battery",
+        "component",
+    )
+    if not component_ids:
+        return None
+
+    client = get_reporting_client()
+    try:
+        receiver = client.receive_microgrid_components_data(
+            microgrid_components=[(microgrid_id, component_ids)],
+            metrics=Metric.BATTERY_CAPACITY,
+            start_time=start_iso,
+            end_time=end_iso,
+            resampling_period=resolution,
+        )
+        with _quiet_expected_component_data_warnings():
+            async with asyncio.timeout(timeout):
+                samples = [sample async for sample in receiver]
+    finally:
+        await client.disconnect()
+
+    if not samples:
+        return None
+    data = pd.DataFrame(samples)
+    capacity_data = data[data["metric"] == Metric.BATTERY_CAPACITY.name]
+    if capacity_data.empty:
+        capacity_data = data[data["metric"] == f"{Metric.BATTERY_CAPACITY.name}_avg"]
+    if capacity_data.empty:
+        return None
+    capacity_data = capacity_data.pivot_table(
+        index="timestamp",
+        columns="component_id",
+        values="value",
+        aggfunc="last",
+    )
+    return _battery_capacity_kwh_from_metric_data(capacity_data)
+
+
+async def fetch_microgrid_battery_capacity_data_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float = 30.0,
+) -> pd.DataFrame:
+    """Fetch time-varying battery capacity data in kWh from Reporting.
+
+    Streamlit-side wrapper that resolves the battery components and Reporting
+    client from the app configuration. Use
+    ``battery_capacity.fetch_battery_capacity_data_kwh`` directly when those are
+    already at hand, e.g. in a notebook.
+    """
+    start_iso, end_iso = validate_range(start_date, end_date)
+    component_ids = get_microgrid_config(microgrid_id).component_type_ids(
+        "battery", "component"
+    )
+    client = get_reporting_client()
+    try:
+        return await fetch_battery_capacity_data_kwh(
+            client,
+            microgrid_id,
+            component_ids,
+            start_iso,
+            end_iso,
+            resolution,
+            timeout=timeout,
+        )
+    finally:
+        await client.disconnect()
+
+
+def get_market_metering_data(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float | None = None,
+) -> pd.DataFrame:
+    """Load DSO energy through the persistent range cache."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        market_location_ids = get_market_location_ids(microgrid_id)
+        config = get_cache_config()
+        effective_timeout = timeout or max(float(config.request_timeout_seconds), 300.0)
+        cache = ParquetRangeCache(
+            config.storage_path,
+            sync_interval=timedelta(minutes=config.sync_interval_minutes),
+            overlap=timedelta(minutes=config.sync_overlap_minutes),
+        )
+        with log_duration("data.market_metering.cache_get"):
+            return cache.get(
+                _dataset_key("dso_energy_flows", microgrid_id, resolution),
+                start_date,
+                end_date,
+                lambda fetch_start, fetch_end: asyncio.run(
+                    fetch_market_metering_data(
+                        microgrid_id,
+                        fetch_start,
+                        fetch_end,
+                        resolution,
+                        timeout=effective_timeout,
+                        market_location_ids=market_location_ids,
+                    )
+                ),
+            )
+    raise RuntimeError(
+        "get_market_metering_data() called from within an active event loop. "
+        "Use `await fetch_market_metering_data(...)` in async contexts."
+    )
 
 
 def get_microgrid_data(
@@ -339,7 +497,7 @@ def get_microgrid_soc_data(
         )
         with log_duration("data.battery_soc.cache_get"):
             return cache.get(
-                _dataset_key("battery_soc", microgrid_id, resolution),
+                _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
                 start_date,
                 end_date,
                 lambda fetch_start, fetch_end: asyncio.run(
@@ -373,7 +531,7 @@ def get_cached_microgrid_soc_data(
     )
     with log_duration("data.battery_soc.cache_read"):
         return cache.read(
-            _dataset_key("battery_soc", microgrid_id, resolution),
+            _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
             start_date,
             end_date,
         )
@@ -578,9 +736,18 @@ def _persist_cache_after_successful_sync(future: Future[Any]) -> None:
 
 
 def _day_ahead_sync_range(
-    start_date: datetime, end_date: datetime
+    start_date: datetime,
+    end_date: datetime,
+    *,
+    now: datetime | None = None,
 ) -> tuple[datetime, datetime]:
-    """Normalize a price synchronization range to stable UTC day boundaries."""
+    """Normalize a price synchronization range to published market intervals.
+
+    Prices for the complete current DE/LU market day were published on the
+    previous day.  Therefore, a live range that reaches into today can safely
+    synchronize through the next local midnight.  This keeps the interactive
+    fallback useful even when the scheduled daily synchronization did not run.
+    """
     start = pd.Timestamp(start_date)
     end = pd.Timestamp(end_date)
     if start.tzinfo is None:
@@ -591,9 +758,28 @@ def _day_ahead_sync_range(
         end = end.tz_localize("UTC")
     else:
         end = end.tz_convert("UTC")
-    normalized_start = start.normalize().to_pydatetime()
-    normalized_end = (end.normalize() + timedelta(days=1)).to_pydatetime()
-    return normalized_start, normalized_end
+
+    current = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+    if current.tzinfo is None:
+        current = current.tz_localize("UTC")
+    else:
+        current = current.tz_convert("UTC")
+
+    frequency = f"{int(_DAY_AHEAD_PRICE_RESOLUTION.total_seconds())}s"
+    normalized_start = start.floor(frequency)
+    current_market_time = current.tz_convert(_DAY_AHEAD_MARKET_TIMEZONE)
+    current_market_day_start = current_market_time.normalize()
+    next_market_day_start = current_market_day_start + pd.DateOffset(days=1)
+    current_market_day_start_utc = current_market_day_start.tz_convert("UTC")
+    next_market_day_start_utc = next_market_day_start.tz_convert("UTC")
+
+    if current_market_day_start_utc < end <= next_market_day_start_utc:
+        normalized_end = next_market_day_start_utc
+    else:
+        normalized_end = min(end.ceil(frequency), next_market_day_start_utc)
+    if normalized_end <= normalized_start:
+        raise ValueError("The day-ahead price range end must be after its start")
+    return normalized_start.to_pydatetime(), normalized_end.to_pydatetime()
 
 
 def _day_ahead_price_key(country_code: str) -> DatasetKey:
@@ -611,4 +797,59 @@ def _day_ahead_price_cache(config: CacheConfig) -> ParquetRangeCache:
         config.storage_path,
         sync_interval=timedelta(minutes=config.sync_interval_minutes),
         overlap=max(timedelta(minutes=config.sync_overlap_minutes), timedelta(hours=2)),
+    )
+
+
+def get_battery_capacity_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float | None = None,
+) -> float | None:
+    """Sync wrapper for Reporting API battery capacity data in kWh."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        config = get_cache_config()
+        effective_timeout = timeout or float(config.request_timeout_seconds)
+        return asyncio.run(
+            fetch_microgrid_battery_capacity_kwh(
+                microgrid_id,
+                start_date,
+                end_date,
+                resolution,
+                timeout=effective_timeout,
+            )
+        )
+    raise RuntimeError(
+        "get_battery_capacity_kwh() called from within an active event loop. "
+        "Use `await fetch_microgrid_battery_capacity_kwh(...)` in async contexts."
+    )
+
+
+def get_battery_capacity_data_kwh(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+    timeout: float | None = None,
+) -> pd.DataFrame:
+    """Sync wrapper for time-varying Reporting API battery capacity data."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        config = get_cache_config()
+        effective_timeout = timeout or float(config.request_timeout_seconds)
+        return asyncio.run(
+            fetch_microgrid_battery_capacity_data_kwh(
+                microgrid_id,
+                start_date,
+                end_date,
+                resolution,
+                timeout=effective_timeout,
+            )
+        )
+    raise RuntimeError(
+        "get_battery_capacity_data_kwh() called from an active event loop."
     )
