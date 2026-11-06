@@ -2611,8 +2611,8 @@ def test_daily_battery_optimization_figure_combines_value_bars_and_result_line()
         pd.DataFrame(
             {
                 "date": [date(2026, 1, 1), date(2026, 1, 2)],
-                "charging_cost_eur": [1000.0, 2000.0],
-                "discharging_value_eur": [2234.34, -3678.67],
+                "discharging_cost_eur": [1000.0, 2000.0],
+                "charging_value_eur": [2234.34, -3678.67],
                 "optimization_savings_eur": [1234.34, -5678.67],
             }
         )
@@ -2639,8 +2639,8 @@ def test_daily_battery_optimization_figure_combines_value_bars_and_result_line()
     assert fig.data[0].cliponaxis is False
     assert fig.data[1].cliponaxis is False
     assert fig.layout.uniformtext.mode == "show"
-    assert fig.data[0].marker.color == "rgba(146,219,68,1)"
-    assert fig.data[1].marker.color == "rgba(236,0,140,1)"
+    assert fig.data[0].marker.color == "rgba(236,0,140,1)"
+    assert fig.data[1].marker.color == "rgba(146,219,68,1)"
     assert fig.data[2].line.color == "rgba(100,116,139,1)"
 
 

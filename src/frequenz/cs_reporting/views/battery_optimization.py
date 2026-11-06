@@ -33,6 +33,10 @@ _SUMMARY_VALUE_COLUMNS = [
     "discharging_value_eur",
     "optimization_savings_eur",
 ]
+_PLOT_VALUE_COLUMN_ALIASES = {
+    "charging_value_eur": "discharging_value_eur",
+    "discharging_cost_eur": "charging_cost_eur",
+}
 _AGGREGATION_OPTIONS = {
     "daily": "Täglich",
     "weekly": "Wöchentlich",
@@ -291,16 +295,28 @@ def aggregate_battery_optimization_summary(
     )
 
 
+def _with_plot_value_column_aliases(summary: pd.DataFrame) -> pd.DataFrame:
+    """Add plot-value aliases, preferring the latest pipeline column names."""
+    result = summary.copy()
+    for current_column, legacy_column in _PLOT_VALUE_COLUMN_ALIASES.items():
+        if current_column in result.columns:
+            result[legacy_column] = result[current_column]
+        elif legacy_column in result.columns:
+            result[current_column] = result[legacy_column]
+    return result
+
+
 def build_daily_battery_optimization_figure(
     daily_summary: pd.DataFrame,
     aggregation: str = "daily",
 ) -> go.Figure:
     """Build the battery values and optimization result combination chart."""
     fig = go.Figure()
-    period_summary = (
-        aggregate_battery_optimization_intervals(daily_summary, aggregation)
-        if "timestamp" in daily_summary.columns
-        else aggregate_battery_optimization_summary(daily_summary, aggregation)
+    summary_with_aliases = _with_plot_value_column_aliases(daily_summary)
+    period_summary = _with_plot_value_column_aliases(
+        aggregate_battery_optimization_intervals(summary_with_aliases, aggregation)
+        if "timestamp" in summary_with_aliases.columns
+        else aggregate_battery_optimization_summary(summary_with_aliases, aggregation)
     )
     if period_summary.empty:
         fig.update_layout(
@@ -324,8 +340,8 @@ def build_daily_battery_optimization_figure(
 
     x_values = period_summary["period_label"]
     bar_specs = (
-        ("discharging_value_eur", "Wert Beladung", "rgba(236,0,140,1)"),
-        ("charging_cost_eur", "Wert Entladung", "rgba(146,219,68,1)"),
+        ("charging_value_eur", "Wert Entladung", "rgba(236,0,140,1)"),
+        ("discharging_cost_eur", "Wert Beladung", "rgba(146,219,68,1)"),
     )
     for column, name, color in bar_specs:
         values = period_summary[column]
