@@ -45,7 +45,8 @@ reporting utilities from `frequenz-lib-notebooks`, and renders dashboards, table
 - `FREQUENZ_API_KEY` and `FREQUENZ_API_SECRET` **(required)**: Credentials used
   to authenticate and sign Reporting and Assets API requests.
 - `MICROGRID_CONFIG_DIR` *(optional)*: Directory containing TOML microgrid
-  configs. Defaults to `toml_directory/`.
+  configs. When unset, `frequenz_config_microgrid/assets/` is used if present,
+  otherwise the app falls back to `toml_directory/`.
 - `PARQUET_STORAGE_PATH` *(optional)*: Persistent directory for reporting data.
   Defaults to `data/parquet`.
 - `SYNC_INTERVAL_MINUTES` *(optional)*: Minimum interval between overlap
