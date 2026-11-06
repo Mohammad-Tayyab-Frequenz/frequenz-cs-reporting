@@ -170,8 +170,13 @@ def _ensure_kpi_css() -> None:
 
 
 def _peak_label(metrics: dict[str, object]) -> str:
-    """Compose the label for the peak metric box."""
+    """Compose the label for the reporting-data peak metric box."""
     return f"Lastspitze (kW) — {metrics.get('peak_date')}"
+
+
+def _dso_peak_label(metrics: dict[str, object]) -> str:
+    """Compose the label for the grid-operator peak metric box."""
+    return f"Lastspitze (kW) — {metrics.get('dso_peak_date')}"
 
 
 _INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
@@ -184,6 +189,9 @@ _OPTIONAL_METRIC_KEYS = {
     "average_da_price_dso_import",
     "average_da_price_dso_export",
 }
+
+_NETWORK_IMPORT_ACCENT = "#64748b"
+_NETWORK_PEAK_ACCENT = "#dc2626"
 
 
 SECTION_SPECS: list[dict[str, Any]] = [
@@ -261,7 +269,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "average_da_price_dso_export",
                 "group": "dso-export",
             },
-            {"label_fn": _peak_label, "key": "peak"},
+            {"label_fn": _dso_peak_label, "key": "dso_peak"},
         ],
     },
     {
@@ -456,19 +464,22 @@ def _box_grid_html(
     group_warnings: Mapping[str, str] | None = None,
     group_labels: Mapping[str, str] | None = None,
     grid_class: str = "",
+    card_accents: Sequence[str] | None = None,
 ) -> str:
     """Build a responsive CSS grid of KPI cards."""
+    if card_accents is not None and len(card_accents) != len(boxes):
+        raise ValueError("KPI card accents must match the number of cards")
     cards = [
         _card_html(
             item[0],
             item[1],
             item[2] if len(item) >= 3 else None,
             item[3] if len(item) == 4 else None,
-            accent,
+            card_accents[index] if card_accents is not None else accent,
             delta_comparisons,
             value_colors,
         )
-        for item in boxes
+        for index, item in enumerate(boxes)
     ]
     if groups is None:
         return f'<div class="kpi-grid {grid_class}">{"".join(cards)}</div>'
@@ -758,6 +769,18 @@ def render_summary_boxes(
                 "dso-export": "Netzeinspeisung",
             },
             grid_class=grid_class,
+            card_accents=[
+                (
+                    _NETWORK_IMPORT_ACCENT
+                    if group in {"grid-import", "dso-import"}
+                    else (
+                        _NETWORK_PEAK_ACCENT
+                        if spec.get("key") in {"peak", "dso_peak"}
+                        else accent
+                    )
+                )
+                for spec, group in zip(box_specs, groups)
+            ],
         )
         section_blocks.append(
             (

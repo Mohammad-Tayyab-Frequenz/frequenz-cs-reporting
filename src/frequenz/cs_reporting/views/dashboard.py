@@ -255,6 +255,27 @@ def _omit_incomplete_dso_data(master_df: pd.DataFrame) -> tuple[pd.DataFrame, bo
     return sanitized, not complete_columns
 
 
+def _set_dso_peak_metrics(
+    metrics: dict[str, float | str | None], master_df: pd.DataFrame
+) -> None:
+    """Set the peak DSO import power and its local calendar date."""
+    power = pd.to_numeric(master_df["dso_import_power"], errors="coerce").clip(lower=0)
+    peak = float(power.max())
+    metrics["dso_peak"] = peak
+
+    peak_date = None
+    if peak > 0 and "timestamp" in master_df.columns:
+        peak_position = int(power.to_numpy().argmax())
+        timestamp = pd.to_datetime(
+            master_df["timestamp"].iloc[peak_position], errors="coerce"
+        )
+        if pd.notna(timestamp):
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.tz_localize("UTC")
+            peak_date = timestamp.tz_convert("Europe/Berlin").strftime("%d.%m.%Y")
+    metrics["dso_peak_date"] = peak_date
+
+
 def _aggregate_metrics(
     master_df: pd.DataFrame, resolution: timedelta
 ) -> dict[str, float | str | None]:
@@ -275,6 +296,8 @@ def _aggregate_metrics(
         ).sum(min_count=1)
         if pd.notna(dso_energy_sum):
             metrics[f"dso_{direction}_energy_sum"] = float(dso_energy_sum)
+    if _has_complete_dso_direction(master_df, "dso_import_power"):
+        _set_dso_peak_metrics(metrics, master_df)
     if not has_day_ahead_prices:
         for key in _DAY_AHEAD_PRICE_METRIC_KEYS:
             metrics.pop(key, None)

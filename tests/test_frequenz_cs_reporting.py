@@ -1525,6 +1525,27 @@ def test_aggregate_metrics_adds_projected_dso_values_when_prices_exist(
     assert metrics["average_da_price_dso_export"] == pytest.approx(50 / 3)
 
 
+def test_aggregate_metrics_calculates_reporting_and_dso_peaks_separately() -> None:
+    """Each network peak uses its own import-power data source and date."""
+    metrics = _aggregate_metrics(
+        pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(
+                    ["2026-01-01 22:30:00+00:00", "2026-01-01 23:30:00+00:00"]
+                ),
+                "grid_consumption": [900.0, 100.0],
+                "dso_import_power": [100.0, 800.0],
+            }
+        ),
+        timedelta(minutes=15),
+    )
+
+    assert metrics["peak"] == 900.0
+    assert metrics["peak_date"] == "01.01.2026"
+    assert metrics["dso_peak"] == 800.0
+    assert metrics["dso_peak_date"] == "02.01.2026"
+
+
 def test_aggregate_metrics_invalidates_only_unpriced_dso_direction() -> None:
     """Missing prices cannot silently become zero-value DSO exports."""
     metrics = _aggregate_metrics(
@@ -1864,8 +1885,8 @@ def test_grouped_kpi_cards_keep_grid_costs_and_prices_below_their_flow() -> None
     assert feed_in_start < markup.index("Prognostizierte Einspeiseerlöse")
 
 
-def test_operator_kpis_use_two_flow_columns_and_separate_peak_column() -> None:
-    """Operator imports, exports, and peak form three separate columns."""
+def test_operator_kpis_use_two_flow_columns_and_full_width_peak_row() -> None:
+    """Operator imports and exports precede a separate full-width peak row."""
     operator_section = next(
         section
         for section in SECTION_SPECS
@@ -1892,6 +1913,55 @@ def test_operator_kpis_use_two_flow_columns_and_separate_peak_column() -> None:
 
     assert markup.count("kpi-card-stack--group") == 2
     assert markup.count("kpi-card-stack--standalone") == 1
+
+
+def test_network_sections_use_flow_and_peak_card_accents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both network sections use grey imports, blue exports, and a red peak."""
+    rendered_markup: list[str] = []
+    monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
+    monkeypatch.setattr(
+        st, "markdown", lambda body, **_kwargs: rendered_markup.append(body)
+    )
+    metric_renderers.render_summary_boxes(
+        {
+            "grid_consumption_sum": 1.0,
+            "grid_import_cost_sum": 2.0,
+            "average_da_price_grid_import": 3.0,
+            "grid_feed_in_sum": 4.0,
+            "grid_feed_in_revenue_sum": 5.0,
+            "average_da_price_grid_feed_in": 6.0,
+            "dso_import_energy_sum": 7.0,
+            "dso_import_cost_sum": 8.0,
+            "average_da_price_dso_import": 9.0,
+            "dso_export_energy_sum": 10.0,
+            "dso_export_revenue_sum": 11.0,
+            "average_da_price_dso_export": 12.0,
+            "peak": 13.0,
+            "peak_date": "01.01.2026",
+            "dso_peak": 14.0,
+            "dso_peak_date": "02.01.2026",
+        }
+    )
+
+    markup = "".join(rendered_markup)
+    sections = []
+    for title in (
+        "Netzkennzahlen - Reporting Daten",
+        "Netzkennzahlen - Netzbetreiber",
+    ):
+        section_start = markup.index(title)
+        section_end = markup.index("</section>", section_start)
+        sections.append(markup[section_start:section_end])
+    for section_markup in sections:
+        assert section_markup.count("--kpi-accent:#64748b") == 3
+        assert section_markup.count("--kpi-accent:#3b82f6") == 3
+        assert section_markup.count("--kpi-accent:#dc2626") == 1
+    assert "Lastspitze — 01.01.2026" in sections[0]
+    assert "13 kW" in sections[0]
+    assert "Lastspitze — 02.01.2026" in sections[1]
+    assert "14 kW" in sections[1]
 
 
 def test_operator_grid_shows_dash_cards_for_missing_dso_direction() -> None:
@@ -2014,7 +2084,7 @@ def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
     )
 
     filtered_keys = [spec.get("key") for spec in filtered_specs]
-    assert "peak" in filtered_keys
+    assert "dso_peak" in filtered_keys
     assert "dso_import_energy_sum" in filtered_keys
     assert "dso_export_energy_sum" in filtered_keys
 
@@ -2034,8 +2104,8 @@ def test_operator_section_warns_for_only_the_missing_direction(
             "dso_import_energy_sum": 9.5,
             "dso_import_cost_sum": 1.2,
             "average_da_price_dso_import": 12.6,
-            "peak": 20.0,
-            "peak_date": "01.01.2026",
+            "dso_peak": 20.0,
+            "dso_peak_date": "01.01.2026",
         }
     )
 

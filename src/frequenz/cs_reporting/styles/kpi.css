@@ -99,7 +99,12 @@
     left: auto;
 }
 .kpi-grid--operator {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 120px;
+    row-gap: 10px;
+}
+.kpi-grid--operator > .kpi-card-stack--standalone {
+    grid-column: 1 / -1;
 }
 .kpi-grid--featured-first {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -112,9 +117,6 @@
 }
 
 @media (max-width: 720px) {
-    .kpi-grid--operator {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
     .kpi-grid--featured-first {
         grid-template-columns: 1fr;
     }
