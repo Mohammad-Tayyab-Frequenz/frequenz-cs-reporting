@@ -175,6 +175,7 @@ def _peak_label(metrics: dict[str, object]) -> str:
 
 
 _INVOICING_WARNING = load_tooltips("reporting")["invoicing_warning"]
+_INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
 _OPTIONAL_METRIC_KEYS = {
     "dso_import_energy_sum",
     "dso_export_energy_sum",
@@ -220,6 +221,7 @@ SECTION_SPECS: list[dict[str, Any]] = [
                 "key": "average_da_price_grid_feed_in",
                 "group": "grid-feed-in",
             },
+            {"label_fn": _peak_label, "key": "peak"},
         ],
     },
     {
@@ -450,6 +452,9 @@ def _box_grid_html(
     delta_comparisons: dict[str, str] | None,
     value_colors: Mapping[str, str] | None = None,
     groups: Sequence[str | None] | None = None,
+    group_order: Sequence[str] | None = None,
+    group_warnings: Mapping[str, str] | None = None,
+    group_labels: Mapping[str, str] | None = None,
     grid_class: str = "",
 ) -> str:
     """Build a responsive CSS grid of KPI cards."""
@@ -470,18 +475,38 @@ def _box_grid_html(
     if len(groups) != len(cards):
         raise ValueError("KPI card groups must match the number of cards")
 
-    grouped_cards: dict[str, tuple[list[str], bool]] = {}
+    grouped_cards: dict[str, tuple[list[str], bool]] = {
+        group: ([], False) for group in (group_order or ())
+    }
     for index, (card, group) in enumerate(zip(cards, groups)):
         # Ungrouped cards remain individual grid items.
         key = group or f"card-{index}"
         grouped_cards.setdefault(key, ([], group is None))[0].append(card)
-    stacks = "".join(
-        f'<div class="kpi-card-stack'
-        f'{" kpi-card-stack--standalone" if standalone else " kpi-card-stack--group"}">'
-        f'{"".join(stack)}</div>'
-        for stack, standalone in grouped_cards.values()
+    stacks: list[str] = []
+    for group, (stack, standalone) in grouped_cards.items():
+        warning = (group_warnings or {}).get(group)
+        if warning is not None:
+            label = (group_labels or {}).get(group, group)
+            warning_aria = escape(" ".join(warning.split()), quote=True)
+            stack_html = (
+                '<div class="kpi-group-warning">'
+                f'<span class="kpi-group-warning__label">{escape(label)}</span>'
+                '<span class="kpi-section-warning kpi-group-warning__button" '
+                f'role="button" tabindex="0" aria-label="{warning_aria}">'
+                '<span class="kpi-section-warning__icon">⚠</span>'
+                '<span class="kpi-section-warning__tooltip">'
+                f"{_kpi_tooltip_content_html(warning)}</span></span></div>"
+            )
+        else:
+            stack_html = "".join(stack)
+        stack_class = (
+            " kpi-card-stack--standalone" if standalone else " kpi-card-stack--group"
+        )
+        stacks.append(f'<div class="kpi-card-stack{stack_class}">{stack_html}</div>')
+    return (
+        f'<div class="kpi-grid kpi-grid--grouped {grid_class}">'
+        f'{"".join(stacks)}</div>'
     )
-    return f'<div class="kpi-grid kpi-grid--grouped {grid_class}">{stacks}</div>'
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -640,8 +665,8 @@ def render_summary_boxes(
             used to render previous values and percentage deltas.
         skipped_dso_market_location_ids: MaLo IDs omitted because the Market
             Metering API does not recognize them.
-        dso_data_warning: Warning shown instead of grid-operator KPI cards when
-            DSO data does not cover the complete selected period.
+        dso_data_warning: Warning shown within each grid-operator direction whose
+            data does not cover the complete selected period.
 
     Returns:
         Streamlit components are rendered directly.
@@ -667,12 +692,10 @@ def render_summary_boxes(
     section_blocks: list[tuple[str, str]] = []
     for section in SECTION_SPECS:
         title = section["title"]
-        is_dso_warning_section = (
-            title == "Netzkennzahlen - Netzbetreiber" and dso_data_warning is not None
-        )
+        is_operator_section = title == "Netzkennzahlen - Netzbetreiber"
         required_any_metric_keys = section.get("required_any_metric_keys")
         if (
-            not is_dso_warning_section
+            not (is_operator_section and dso_data_warning is not None)
             and required_any_metric_keys
             and not required_any_metric_keys.intersection(metrics)
         ):
@@ -680,28 +703,14 @@ def render_summary_boxes(
         accent = KPI_SECTION_ACCENTS.get(title, "#3b82f6")
         icon = _SECTION_ICONS.get(title, "●")
         icon_bg = accent + "22"  # ~13% opacity hex approximation
-        if is_dso_warning_section:
-            assert dso_data_warning is not None
-            section_blocks.append(
-                (
-                    title,
-                    '<section class="kpi-section">'
-                    '<div class="kpi-section-header">'
-                    f'<div class="kpi-section-icon" style="background:{icon_bg};">'
-                    f"{icon}</div>"
-                    f'<p class="kpi-section-title">{title}</p></div>'
-                    f"{_section_data_warning_html(dso_data_warning)}"
-                    "</section>",
-                )
-            )
-            continue
         box_specs = _filter_section_box_specs(
             section,
             component_type_set,
             component_types_provided,
             microgrid_id,
         )
-        box_specs = _filter_available_optional_metric_specs(box_specs, metrics)
+        if title != "Netzkennzahlen - Netzbetreiber":
+            box_specs = _filter_available_optional_metric_specs(box_specs, metrics)
         if not box_specs:
             continue
 
@@ -728,13 +737,26 @@ def render_summary_boxes(
         boxes = _materialize_boxes(box_specs, metrics, previous_metrics)
         groups = [spec.get("group") for spec in box_specs]
         grid_class = (
-            "kpi-grid--operator" if title == "Netzkennzahlen - Netzbetreiber" else ""
+            "kpi-grid--operator" if title.startswith("Netzkennzahlen - ") else ""
         )
+        group_warnings: dict[str, str] = {}
+        if is_operator_section:
+            warning_text = dso_data_warning or _INCOMPLETE_DSO_DATA_WARNING
+            if "dso_import_energy_sum" not in metrics:
+                group_warnings["dso-import"] = warning_text
+            if "dso_export_energy_sum" not in metrics:
+                group_warnings["dso-export"] = warning_text
         box_grid_html = _box_grid_html(
             boxes,
             accent,
             _DELTA_COMPARISONS,
             groups=groups,
+            group_order=(("dso-import", "dso-export") if is_operator_section else None),
+            group_warnings=group_warnings,
+            group_labels={
+                "dso-import": "Netzbezug",
+                "dso-export": "Netzeinspeisung",
+            },
             grid_class=grid_class,
         )
         section_blocks.append(

@@ -48,7 +48,13 @@ _PRICE_SYNC_RERUN_STATE_KEY = "_reporting_price_sync_rerun_future"
 _FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
     "timestamp": "Zeitpunkt",
     "grid_feed_in": "Netzeinspeisung",
+    "dso_export_power": "Netzbetreiber Netzeinspeisung (kW)",
     _DAY_AHEAD_PRICE_COLUMN: "Day-Ahead-Preis (€/MWh)",
+}
+_REQUIRED_FEED_IN_DAY_AHEAD_PRICE_COLUMNS = {
+    "timestamp",
+    "grid_feed_in",
+    _DAY_AHEAD_PRICE_COLUMN,
 }
 _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "grid_import_cost_sum",
@@ -214,24 +220,39 @@ def _has_current_day_ahead_prices(master_df: pd.DataFrame) -> bool:
 
 def _has_complete_dso_data(master_df: pd.DataFrame) -> bool:
     """Return whether both DSO directions cover every displayed interval."""
-    if master_df.empty or not set(_DSO_POWER_COLUMNS).issubset(master_df.columns):
+    if master_df.empty:
         return False
+    return all(
+        _has_complete_dso_direction(master_df, column) for column in _DSO_POWER_COLUMNS
+    )
+
+
+def _has_complete_dso_direction(master_df: pd.DataFrame, power_column: str) -> bool:
+    """Return whether one DSO direction covers every displayed interval."""
     return bool(
-        master_df.loc[:, list(_DSO_POWER_COLUMNS)]
-        .apply(pd.to_numeric, errors="coerce")
-        .notna()
-        .all(axis=None)
+        not master_df.empty
+        and power_column in master_df.columns
+        and pd.to_numeric(master_df[power_column], errors="coerce").notna().all()
     )
 
 
 def _omit_incomplete_dso_data(master_df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
-    """Remove partial DSO series so downstream views cannot expose partial totals."""
+    """Remove incomplete DSO directions and report when neither is usable."""
     present_columns = [
         column for column in _DSO_POWER_COLUMNS if column in master_df.columns
     ]
-    if not present_columns or _has_complete_dso_data(master_df):
-        return master_df, False
-    return master_df.drop(columns=present_columns), True
+    complete_columns = [
+        column
+        for column in present_columns
+        if _has_complete_dso_direction(master_df, column)
+    ]
+    incomplete_columns = [
+        column for column in present_columns if column not in complete_columns
+    ]
+    sanitized = (
+        master_df.drop(columns=incomplete_columns) if incomplete_columns else master_df
+    )
+    return sanitized, not complete_columns
 
 
 def _aggregate_metrics(
@@ -244,10 +265,9 @@ def _aggregate_metrics(
         resolution,
         price_column=_DAY_AHEAD_PRICE_COLUMN if has_day_ahead_prices else None,
     )
-    has_complete_dso_data = _has_complete_dso_data(master_df)
     for direction in ("import", "export"):
         power_column = f"dso_{direction}_power"
-        if not has_complete_dso_data or power_column not in master_df.columns:
+        if not _has_complete_dso_direction(master_df, power_column):
             continue
         dso_energy_sum = (
             pd.to_numeric(master_df[power_column], errors="coerce")
@@ -286,7 +306,7 @@ def _aggregate_metrics(
     )
     for direction in ("import", "export"):
         power_column = f"dso_{direction}_power"
-        if not has_complete_dso_data or power_column not in master_df.columns:
+        if not _has_complete_dso_direction(master_df, power_column):
             continue
         value_key = (
             "dso_import_cost_sum" if direction == "import" else "dso_export_revenue_sum"
@@ -373,10 +393,14 @@ def _filter_component_types_for_master_df(
 
 def _build_feed_in_day_ahead_price_table(master_df: pd.DataFrame) -> pd.DataFrame:
     """Build the feed-in and day-ahead-price table for the data section."""
-    source_columns = list(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS)
     display_columns = list(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.values())
-    if not set(_FEED_IN_DAY_AHEAD_PRICE_COLUMNS).issubset(master_df.columns):
+    if not _REQUIRED_FEED_IN_DAY_AHEAD_PRICE_COLUMNS.issubset(master_df.columns):
         return pd.DataFrame(columns=display_columns)
+    source_columns = [
+        column
+        for column in _FEED_IN_DAY_AHEAD_PRICE_COLUMNS
+        if column in master_df.columns
+    ]
     return master_df.reindex(columns=source_columns).rename(
         columns=_FEED_IN_DAY_AHEAD_PRICE_COLUMNS
     )
@@ -678,7 +702,7 @@ def render_dashboard(
         This function orchestrates the dashboard layout and delegates rendering
         to specialized section modules (summary_boxes, plots_tabs, data_tabs).
     """
-    has_complete_dso_data = _has_complete_dso_data(master_df)
+    dso_data_incomplete = not _has_complete_dso_data(master_df)
     master_df, _ = _omit_incomplete_dso_data(master_df)
     if previous_master_df is not None:
         previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)
@@ -710,7 +734,7 @@ def render_dashboard(
             previous_metrics=previous_metrics,
             skipped_dso_market_location_ids=skipped_dso_market_location_ids,
             dso_data_warning=(
-                _INCOMPLETE_DSO_DATA_WARNING if not has_complete_dso_data else None
+                _INCOMPLETE_DSO_DATA_WARNING if dso_data_incomplete else None
             ),
         )
 
@@ -732,9 +756,8 @@ def render_data_export(
     previous_master_df: pd.DataFrame | None = None,
 ) -> None:
     """Render all predefined reporting tables on the standalone export page."""
-    has_complete_dso_data = _has_complete_dso_data(master_df)
-    master_df, _ = _omit_incomplete_dso_data(master_df)
-    if not has_complete_dso_data:
+    master_df, dso_data_unavailable = _omit_incomplete_dso_data(master_df)
+    if dso_data_unavailable:
         st.warning(_INCOMPLETE_DSO_DATA_WARNING)
     if previous_master_df is not None:
         previous_master_df, _ = _omit_incomplete_dso_data(previous_master_df)

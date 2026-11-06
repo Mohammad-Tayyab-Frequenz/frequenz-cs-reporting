@@ -93,6 +93,7 @@ from frequenz.cs_reporting.views.component_sources import default_component_plot
 from frequenz.cs_reporting.views.dashboard import (
     _PRICE_SYNC_RERUN_STATE_KEY,
     _aggregate_metrics,
+    _build_feed_in_day_ahead_price_table,
     _filter_component_types_for_master_df,
     _has_complete_dso_data,
     _has_current_day_ahead_prices,
@@ -330,6 +331,47 @@ def test_dso_price_data_table_contains_only_requested_columns() -> None:
     assert dso_price_data.iloc[0].tolist() == list(master_df.iloc[0, :4])
 
 
+def test_feed_in_table_includes_grid_operator_feed_in() -> None:
+    """The feed-in data tab includes the grid-operator export measurement."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
+            "grid_feed_in": [1.0],
+            "dso_export_power": [2.0],
+            "day_ahead_price": [3.0],
+        }
+    )
+
+    feed_in_table = _build_feed_in_day_ahead_price_table(master_df)
+
+    assert list(feed_in_table.columns) == [
+        "Zeitpunkt",
+        "Netzeinspeisung",
+        "Netzbetreiber Netzeinspeisung (kW)",
+        "Day-Ahead-Preis (€/MWh)",
+    ]
+    assert feed_in_table.iloc[0].tolist() == list(master_df.iloc[0])
+
+
+def test_feed_in_table_remains_available_without_grid_operator_data() -> None:
+    """Missing operator data omits its column without hiding local feed-in."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [pd.Timestamp("2026-01-01", tz="UTC")],
+            "grid_feed_in": [1.0],
+            "day_ahead_price": [3.0],
+        }
+    )
+
+    feed_in_table = _build_feed_in_day_ahead_price_table(master_df)
+
+    assert list(feed_in_table.columns) == [
+        "Zeitpunkt",
+        "Netzeinspeisung",
+        "Day-Ahead-Preis (€/MWh)",
+    ]
+
+
 def test_data_table_specs_render_after_overview_tabs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -396,8 +438,7 @@ def test_data_table_specs_render_after_overview_tabs(
     assert rendered == [
         ("core", 0),
         ("master", 1),
-        ("power_mix", 2),
-        ("pv_energy", 3),
+        ("pv_energy", 2),
     ]
 
 
@@ -447,8 +488,27 @@ def test_data_tables_can_render_stacked_without_tabs(
         stacked=True,
     )
 
-    assert headings == ["Kerndaten", "Gesamt-Datensatz", "Leistungsmix"]
-    assert rendered == ["core", "master", "power_mix"]
+    assert headings == ["Kerndaten", "Gesamt-Datensatz"]
+    assert rendered == ["core", "master"]
+
+
+def test_standard_export_templates_exclude_power_mix() -> None:
+    """Leistungsmix is not offered among the predefined export templates."""
+    master_df = pd.DataFrame({"timestamp": [pd.Timestamp("2026-01-01", tz="UTC")]})
+
+    datasets = (
+        table_renderers._available_export_datasets(  # pylint: disable=protected-access
+            master_df,
+            ColumnMapper.from_default(),
+            cast(
+                TablesResult,
+                {"power_table": pd.DataFrame({"value": [1.0]})},
+            ),
+            resolution=None,
+        )
+    )
+
+    assert "Leistungsmix" not in datasets
 
 
 def test_data_table_prepares_both_sources_for_fragment_switching(
@@ -1485,8 +1545,8 @@ def test_aggregate_metrics_invalidates_only_unpriced_dso_direction() -> None:
     assert metrics["average_da_price_dso_export"] is None
 
 
-def test_aggregate_metrics_omits_incomplete_dso_period() -> None:
-    """Partial DSO series must not be presented as complete-period totals."""
+def test_aggregate_metrics_keeps_complete_dso_direction() -> None:
+    """A complete export remains available when import data is incomplete."""
     master_df = pd.DataFrame(
         {
             "timestamp": pd.date_range("2026-01-01", periods=2, freq="15min"),
@@ -1498,7 +1558,8 @@ def test_aggregate_metrics_omits_incomplete_dso_period() -> None:
     metrics = _aggregate_metrics(master_df, timedelta(minutes=15))
 
     assert not _has_complete_dso_data(master_df)
-    assert not any(key.startswith("dso_") for key in metrics)
+    assert "dso_import_energy_sum" not in metrics
+    assert metrics["dso_export_energy_sum"] == pytest.approx(30.0)
 
 
 def test_dso_period_is_complete_only_with_both_directions_for_every_interval() -> None:
@@ -1514,8 +1575,8 @@ def test_dso_period_is_complete_only_with_both_directions_for_every_interval() -
     assert not _has_complete_dso_data(complete_df.drop(columns="dso_export_power"))
 
 
-def test_incomplete_dso_columns_are_removed_from_downstream_views() -> None:
-    """Partial DSO values cannot leak into plots, tables, or data exports."""
+def test_only_incomplete_dso_direction_is_removed_from_downstream_views() -> None:
+    """A partial import is removed without discarding complete export data."""
     master_df = pd.DataFrame(
         {
             "grid_consumption": [1.0, 2.0],
@@ -1524,12 +1585,30 @@ def test_incomplete_dso_columns_are_removed_from_downstream_views() -> None:
         }
     )
 
-    sanitized_df, was_incomplete = _omit_incomplete_dso_data(master_df)
+    sanitized_df, dso_data_unavailable = _omit_incomplete_dso_data(master_df)
 
-    assert was_incomplete
+    assert not dso_data_unavailable
     assert "grid_consumption" in sanitized_df
-    assert not set(("dso_import_power", "dso_export_power")) & set(sanitized_df)
+    assert "dso_import_power" not in sanitized_df
+    assert "dso_export_power" in sanitized_df
     assert "dso_import_power" in master_df
+
+
+def test_dso_data_is_unavailable_only_when_both_directions_are_missing() -> None:
+    """The DSO warning is reserved for periods with no usable direction."""
+    master_df = pd.DataFrame(
+        {
+            "dso_import_power": [400.0, None],
+            "dso_export_power": [None, 80.0],
+        }
+    )
+
+    sanitized_df, dso_data_unavailable = _omit_incomplete_dso_data(master_df)
+
+    assert dso_data_unavailable
+    assert not {"dso_import_power", "dso_export_power"}.intersection(
+        sanitized_df.columns
+    )
 
 
 def test_split_periods_returns_selected_and_previous_ranges() -> None:
@@ -1755,6 +1834,7 @@ def test_day_ahead_price_kpi_specs_are_shown_for_every_microgrid() -> None:
         "grid_feed_in_sum",
         "grid_feed_in_revenue_sum",
         "average_da_price_grid_feed_in",
+        "peak",
     ]
 
 
@@ -1795,11 +1875,11 @@ def test_operator_kpis_use_two_flow_columns_and_separate_peak_column() -> None:
 
     assert labels[:6] == [
         "Netzbezug (kWh)",
-        "Prognostizierte Netzbezugskosten (€)",
-        "Prognostizierter Preis (ct/kWh)",
+        "Netzbezugskosten (€)",
+        "Preis (ct/kWh)",
         "Netzeinspeisung (kWh)",
-        "Prognostizierte Einspeiseerlöse (€)",
-        "Prognostizierter Preis (ct/kWh)",
+        "Einspeiseerlöse (€)",
+        "Preis (ct/kWh)",
     ]
 
     markup = _box_grid_html(
@@ -1812,6 +1892,29 @@ def test_operator_kpis_use_two_flow_columns_and_separate_peak_column() -> None:
 
     assert markup.count("kpi-card-stack--group") == 2
     assert markup.count("kpi-card-stack--standalone") == 1
+
+
+def test_operator_grid_shows_dash_cards_for_missing_dso_direction() -> None:
+    """One unavailable DSO direction keeps its cards with null values."""
+    markup = _box_grid_html(
+        [
+            ("Netzbezug (kWh)", 9.5),
+            ("Netzeinspeisung (kWh)", None),
+            ("Einspeiseerlöse (€)", None),
+            ("Preis (ct/kWh)", None),
+            ("Lastspitze (kW)", 12.0),
+        ],
+        "#3b82f6",
+        None,
+        groups=["dso-import", "dso-export", "dso-export", "dso-export", None],
+        group_order=["dso-import", "dso-export"],
+        grid_class="kpi-grid--operator",
+    )
+
+    assert markup.count("kpi-card-stack--group") == 2
+    assert markup.count("kpi-card-stack--standalone") == 1
+    assert markup.count("kpi-card__value--null") == 3
+    assert markup.index("Netzbezug") < markup.index("Lastspitze")
 
 
 def test_summary_sections_place_other_kpis_below_reporting_data() -> None:
@@ -1916,10 +2019,39 @@ def test_dso_kpi_is_shown_when_market_metering_data_exists() -> None:
     assert "dso_export_energy_sum" in filtered_keys
 
 
-def test_incomplete_dso_warning_replaces_operator_kpi_cards(
+def test_operator_section_warns_for_only_the_missing_direction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The grid-operator section remains visible with a warning instead of KPIs."""
+    """Missing DSO export data gets a warning beside available import KPIs."""
+    rendered_markup: list[str] = []
+    monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
+    monkeypatch.setattr(
+        st, "markdown", lambda body, **_kwargs: rendered_markup.append(body)
+    )
+
+    metric_renderers.render_summary_boxes(
+        {
+            "dso_import_energy_sum": 9.5,
+            "dso_import_cost_sum": 1.2,
+            "average_da_price_dso_import": 12.6,
+            "peak": 20.0,
+            "peak_date": "01.01.2026",
+        }
+    )
+
+    markup = "".join(rendered_markup)
+    operator_markup = markup[markup.index("Netzkennzahlen - Netzbetreiber") :]
+    assert "Netzbezug" in operator_markup
+    assert "Netzeinspeisung" in operator_markup
+    assert operator_markup.count('class="kpi-group-warning"') == 1
+    assert operator_markup.count("Messdaten des Netzbetreibers unvollständig") == 2
+    assert "kpi-card__value--null" not in operator_markup
+
+
+def test_incomplete_dso_warning_is_shown_for_each_operator_direction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each unavailable operator direction gets its own warning control."""
     rendered_markup: list[str] = []
     monkeypatch.setattr(metric_renderers, "_ensure_kpi_css", lambda: None)
     monkeypatch.setattr(
@@ -1936,8 +2068,11 @@ def test_incomplete_dso_warning_replaces_operator_kpi_cards(
     operator_start = markup.index("Netzkennzahlen - Netzbetreiber")
     warning_start = markup.index("Netzbetreiber-Daten sind unvollständig.")
     assert operator_start < warning_start
-    assert 'class="kpi-section-data-warning"' in markup
-    assert "Netzbetreiber Netzbezug" not in markup
+    operator_markup = markup[operator_start:]
+    assert operator_markup.count('class="kpi-group-warning"') == 2
+    assert operator_markup.count("Netzbetreiber-Daten sind unvollständig.") == 4
+    assert "Netzbezug" in operator_markup
+    assert "Netzeinspeisung" in operator_markup
 
 
 def test_overview_plot_renders_without_day_ahead_price(

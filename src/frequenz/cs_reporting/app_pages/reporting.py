@@ -51,6 +51,11 @@ from frequenz.cs_reporting.views.dashboard import (
     split_periods,
 )
 
+_NO_REPORTING_DATA_WARNING = (
+    "Für den gewählten Zeitraum liegen keine oder nur teilweise Messdaten vor. "
+    "Es können nur Zeiträume abgebildet werden, in denen tatsächlich gemessen wurde."
+)
+
 
 def _scroll_to_section_if_requested() -> None:
     """Scroll to a dashboard section when requested via query params."""
@@ -358,7 +363,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
         st.stop()
 
     if df.empty:
-        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.warning(_NO_REPORTING_DATA_WARNING)
         st.stop()
 
     with log_duration("reporting.prepare_dataframe"):
@@ -388,7 +393,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
         if active_power_sync is not None and not active_power_sync.done():
             _poll_active_power_sync(active_power_sync)
             st.stop()
-        st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
+        st.warning(_NO_REPORTING_DATA_WARNING)
         st.stop()
 
     if export_only:

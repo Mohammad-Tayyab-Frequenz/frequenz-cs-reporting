@@ -91,12 +91,6 @@ def _round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 TABLE_TAB_SPECS = [
     {
-        "label": "Leistungsmix",
-        "table_key": "power_table",
-        "key_prefix": "power_mix",
-        "caption": "Aggregierter Energiemix aus PV und Netz",
-    },
-    {
         "label": "PV-Energie (pro Komponente)",
         "table_key": "pv_energy_table",
         "key_prefix": "pv_energy",
@@ -423,7 +417,6 @@ def _available_export_datasets(
     }
     if tables_dict is not None:
         reporting_tables = (
-            ("Leistungsmix", "power_table"),
             ("PV-Analyse", "pv_analysis"),
             ("Batterie-Analyse", "batt_analysis"),
             ("Wind-Analyse", "wind_analysis"),
