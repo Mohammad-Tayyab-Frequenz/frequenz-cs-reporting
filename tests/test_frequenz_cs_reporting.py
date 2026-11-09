@@ -66,7 +66,6 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
     calculate_selection_metrics,
 )
 from frequenz.cs_reporting.services.data_service import (
-    _battery_capacity_kwh_from_metric_data,
     _day_ahead_sync_range,
 )
 from frequenz.cs_reporting.services.solar_workflow import build_workflow_request
@@ -2750,18 +2749,6 @@ def test_interval_calculations_use_nearest_capacity_before_first_sample() -> Non
     assert intervals["battery_capacity_kwh"].tolist() == [500.0, 500.0]
 
 
-def test_battery_capacity_uses_latest_reporting_metric_sample() -> None:
-    """Reporting capacity samples are converted from Wh to kWh without summing."""
-    capacity_data = pd.DataFrame(
-        {
-            "battery_one": [500_000.0, 500_000.0],
-            "battery_two": [250_000.0, 250_000.0],
-        }
-    )
-
-    assert _battery_capacity_kwh_from_metric_data(capacity_data) == pytest.approx(750.0)
-
-
 def test_battery_optimization_summary_ignores_rows_without_prices() -> None:
     """Rows without day-ahead prices are excluded from monetary calculation."""
     total_savings, daily_summary = calculate_battery_optimization_summary(
@@ -2942,3 +2929,26 @@ def test_battery_cycles_figure_uses_period_discharge_and_capacity() -> None:
     assert fig.layout.yaxis.tickprefix == ""
     assert fig.data[0].y[0] == pytest.approx(0.5)
     assert fig.data[0].text[0] == "0,50"
+
+
+@pytest.mark.parametrize(
+    ("toml_text", "expected"),
+    [
+        ("[[assets.microgrids.7]]\n", {7}),
+        ("  [ microgrids.8.meta ]\n", {8}),
+        ("[assets.microgrids.11.components]\n", {11}),
+        ("assets.microgrids.12.name = 'x'\n", {12}),
+        ("# [assets.microgrids.9]\n", set()),
+        ("name = 'microgrids.10'\n", set()),
+    ],
+)
+def test_microgrid_ids_are_found_in_supported_toml_shapes(
+    tmp_path: Path, toml_text: str, expected: set[int]
+) -> None:
+    """The plain-text scan finds IDs in every supported shape, not in comments."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(toml_text, encoding="utf-8")
+
+    found = getattr(client_factory, "_microgrid_ids_in_file")(str(config_file))
+
+    assert found == expected

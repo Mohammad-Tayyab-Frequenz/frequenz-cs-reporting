@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -72,16 +73,22 @@ def main() -> None:
     if args.dataset != "day-ahead-prices" and not args.microgrid_id:
         parser.error("--microgrid-id is required for the selected dataset")
 
-    for microgrid_id in args.microgrid_id or []:
-        if args.dataset in ("active-power", "all"):
-            get_microgrid_data(microgrid_id, start, end, resolution)
-        if args.dataset in ("battery-soc", "all"):
-            get_microgrid_soc_data(microgrid_id, start, end, resolution)
-    if args.dataset in ("day-ahead-prices", "all"):
-        # The afternoon publication contains future prices. Keep tomorrow's
-        # values so the dashboard remains covered until the next daily run.
-        price_end = args.end or end + timedelta(days=1)
-        get_day_ahead_prices(args.country_code, start, price_end)
+    try:
+        for microgrid_id in args.microgrid_id or []:
+            if args.dataset in ("active-power", "all"):
+                get_microgrid_data(microgrid_id, start, end, resolution)
+            if args.dataset in ("battery-soc", "all"):
+                get_microgrid_soc_data(microgrid_id, start, end, resolution)
+        if args.dataset in ("day-ahead-prices", "all"):
+            price_end = args.end or end + timedelta(days=1)
+            get_day_ahead_prices(args.country_code, start, price_end)
+    except Exception:
+        if use_hybrid_cache:
+            try:
+                persist_deepnote_hybrid_cache()
+            except OSError:
+                logging.getLogger(__name__).exception("Could not persist the cache")
+        raise
     if use_hybrid_cache:
         persist_deepnote_hybrid_cache()
 

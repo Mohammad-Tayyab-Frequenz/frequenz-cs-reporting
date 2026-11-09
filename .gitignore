@@ -155,3 +155,10 @@ data/metadata/
 
 # Runtime toml_directory
 frequenz_config_microgrid/*
+
+# Graphify output and md files
+graphify-out/*
+Claude.md
+DESIGN.md
+
+.DS_Store

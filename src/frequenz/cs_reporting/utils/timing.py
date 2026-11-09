@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import shutil
 import time
 from atexit import register
 from collections.abc import Iterator
@@ -20,6 +21,7 @@ from time import perf_counter
 from frequenz.cs_reporting.services.cache_config import get_cache_config
 
 _TIMING_LOG_NAME = "duration_log.txt"
+_MAX_TIMING_LOG_BYTES = 5 * 1024 * 1024
 _TIMING_QUEUE: Queue[tuple[Path, str]] = Queue()
 _TIMING_WORKER_LOCK = Lock()
 _TIMING_WORKER: Thread | None = None
@@ -40,6 +42,9 @@ def _append_timing_batch(entries: list[tuple[Path, str]]) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as output:
                 fcntl.flock(output.fileno(), fcntl.LOCK_EX)
+                if os.fstat(output.fileno()).st_size > _MAX_TIMING_LOG_BYTES:
+                    shutil.copyfile(path, path.with_name(path.name + ".1"))
+                    output.truncate(0)
                 output.writelines(lines)
                 fcntl.flock(output.fileno(), fcntl.LOCK_UN)
         except OSError:

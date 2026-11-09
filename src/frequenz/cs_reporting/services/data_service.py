@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -313,11 +313,7 @@ def get_market_metering_data(
         market_location_ids = get_market_location_ids(microgrid_id)
         config = get_cache_config()
         effective_timeout = timeout or max(float(config.request_timeout_seconds), 300.0)
-        cache = ParquetRangeCache(
-            config.storage_path,
-            sync_interval=timedelta(minutes=config.sync_interval_minutes),
-            overlap=timedelta(minutes=config.sync_overlap_minutes),
-        )
+        cache = _range_cache(config)
         with log_duration("data.market_metering.cache_get"):
             return cache.get(
                 _dataset_key("dso_energy_flows", microgrid_id, resolution),
@@ -370,11 +366,7 @@ def get_microgrid_data(
         # No active loop: safe to block
         config = get_cache_config()
         effective_timeout = timeout or float(config.request_timeout_seconds)
-        cache = ParquetRangeCache(
-            config.storage_path,
-            sync_interval=timedelta(minutes=config.sync_interval_minutes),
-            overlap=timedelta(minutes=config.sync_overlap_minutes),
-        )
+        cache = _range_cache(config)
         with log_duration("data.active_power.cache_get"):
             return cache.get(
                 _dataset_key("active_power", microgrid_id, resolution),
@@ -415,17 +407,71 @@ def get_cached_microgrid_data(
         Cached active-power data and the metadata read with it.
     """
     config = get_cache_config()
-    cache = ParquetRangeCache(
-        config.storage_path,
-        sync_interval=timedelta(minutes=config.sync_interval_minutes),
-        overlap=timedelta(minutes=config.sync_overlap_minutes),
-    )
+    cache = _range_cache(config)
     with log_duration("data.active_power.cache_read"):
         return cache.read_with_metadata(
             _dataset_key("active_power", microgrid_id, resolution),
             start_date,
             end_date,
         )
+
+
+def _range_cache(
+    config: CacheConfig, overlap: timedelta | None = None
+) -> ParquetRangeCache:
+    """Build the persistent range cache from the environment configuration."""
+    return ParquetRangeCache(
+        config.storage_path,
+        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+        overlap=(
+            overlap
+            if overlap is not None
+            else timedelta(minutes=config.sync_overlap_minutes)
+        ),
+    )
+
+
+def _prune_finished_jobs(
+    jobs: dict[Any, tuple[Future[Any], float]], now: float, retry_interval: float
+) -> None:
+    """Drop finished jobs past their retry interval; each holds its result.
+
+    The caller must hold the lock guarding ``jobs``.
+    """
+    for key in [
+        key
+        for key, (future, started) in jobs.items()
+        if future.done() and now - started >= retry_interval
+    ]:
+        del jobs[key]
+
+
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+def _start_shared_job(
+    jobs: dict[Any, tuple[Future[Any], float]],
+    lock: Lock,
+    executor: ThreadPoolExecutor,
+    retry_interval: float,
+    key: tuple[Any, ...],
+    function: Callable[..., Any],
+    args: tuple[Any, ...],
+) -> Future[Any]:
+    """Run ``function(*args)`` once per ``key``, sharing it between sessions.
+
+    A finished job is reused until ``retry_interval`` passes, which throttles
+    retries of failed or empty synchronizations on every rerun.
+    """
+    now = monotonic()
+    with lock:
+        _prune_finished_jobs(jobs, now, retry_interval)
+        existing = jobs.get(key)
+        if existing is not None:
+            return existing[0]
+        future = executor.submit(function, *args)
+        jobs[key] = (future, now)
+    # Outside the lock: a finished future runs the callback inline.
+    future.add_done_callback(_persist_cache_after_successful_sync)
+    return future
 
 
 def start_background_microgrid_data_sync(
@@ -436,30 +482,15 @@ def start_background_microgrid_data_sync(
 ) -> Future[pd.DataFrame]:
     """Start one shared, non-blocking active-power cache synchronization."""
     sync_start, sync_end = _active_power_sync_range(start_date, end_date, resolution)
-    key = (
-        microgrid_id,
-        sync_start,
-        sync_end,
-        int(resolution.total_seconds()),
+    return _start_shared_job(
+        _ACTIVE_POWER_SYNC_JOBS,
+        _ACTIVE_POWER_SYNC_LOCK,
+        _ACTIVE_POWER_SYNC_EXECUTOR,
+        _ACTIVE_POWER_SYNC_RETRY_INTERVAL,
+        (microgrid_id, sync_start, sync_end, int(resolution.total_seconds())),
+        get_microgrid_data,
+        (microgrid_id, sync_start, sync_end, resolution),
     )
-    now = monotonic()
-    with _ACTIVE_POWER_SYNC_LOCK:
-        existing = _ACTIVE_POWER_SYNC_JOBS.get(key)
-        if existing is not None:
-            future, started = existing
-            if not future.done() or now - started < _ACTIVE_POWER_SYNC_RETRY_INTERVAL:
-                return future
-
-        future = _ACTIVE_POWER_SYNC_EXECUTOR.submit(
-            get_microgrid_data,
-            microgrid_id,
-            sync_start,
-            sync_end,
-            resolution,
-        )
-        future.add_done_callback(_persist_cache_after_successful_sync)
-        _ACTIVE_POWER_SYNC_JOBS[key] = (future, now)
-        return future
 
 
 def get_microgrid_soc_data(
@@ -490,11 +521,7 @@ def get_microgrid_soc_data(
     except RuntimeError:
         config = get_cache_config()
         effective_timeout = timeout or float(config.request_timeout_seconds)
-        cache = ParquetRangeCache(
-            config.storage_path,
-            sync_interval=timedelta(minutes=config.sync_interval_minutes),
-            overlap=timedelta(minutes=config.sync_overlap_minutes),
-        )
+        cache = _range_cache(config)
         with log_duration("data.battery_soc.cache_get"):
             return cache.get(
                 _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
@@ -524,11 +551,7 @@ def get_cached_microgrid_soc_data(
 ) -> pd.DataFrame:
     """Read battery SOC data from the cache without an external request."""
     config = get_cache_config()
-    cache = ParquetRangeCache(
-        config.storage_path,
-        sync_interval=timedelta(minutes=config.sync_interval_minutes),
-        overlap=timedelta(minutes=config.sync_overlap_minutes),
-    )
+    cache = _range_cache(config)
     with log_duration("data.battery_soc.cache_read"):
         return cache.read(
             _dataset_key(_BATTERY_SOC_DATASET, microgrid_id, resolution),
@@ -545,30 +568,15 @@ def start_background_microgrid_soc_data_sync(
 ) -> Future[pd.DataFrame]:
     """Start one shared, non-blocking battery-SOC cache synchronization."""
     sync_start, sync_end = _active_power_sync_range(start_date, end_date, resolution)
-    key = (
-        microgrid_id,
-        sync_start,
-        sync_end,
-        int(resolution.total_seconds()),
+    return _start_shared_job(
+        _BATTERY_SOC_SYNC_JOBS,
+        _BATTERY_SOC_SYNC_LOCK,
+        _BATTERY_SOC_SYNC_EXECUTOR,
+        _BATTERY_SOC_SYNC_RETRY_INTERVAL,
+        (microgrid_id, sync_start, sync_end, int(resolution.total_seconds())),
+        get_microgrid_soc_data,
+        (microgrid_id, sync_start, sync_end, resolution),
     )
-    now = monotonic()
-    with _BATTERY_SOC_SYNC_LOCK:
-        existing = _BATTERY_SOC_SYNC_JOBS.get(key)
-        if existing is not None:
-            future, started = existing
-            if not future.done() or now - started < _BATTERY_SOC_SYNC_RETRY_INTERVAL:
-                return future
-
-        future = _BATTERY_SOC_SYNC_EXECUTOR.submit(
-            get_microgrid_soc_data,
-            microgrid_id,
-            sync_start,
-            sync_end,
-            resolution,
-        )
-        future.add_done_callback(_persist_cache_after_successful_sync)
-        _BATTERY_SOC_SYNC_JOBS[key] = (future, now)
-        return future
 
 
 def _dataset_key(name: str, microgrid_id: int, resolution: timedelta) -> DatasetKey:
@@ -611,11 +619,7 @@ def get_dataset_sync_metadata(
 ) -> SyncMetadata:
     """Return persisted freshness information for a reporting dataset."""
     config = get_cache_config()
-    cache = ParquetRangeCache(
-        config.storage_path,
-        sync_interval=timedelta(minutes=config.sync_interval_minutes),
-        overlap=timedelta(minutes=config.sync_overlap_minutes),
-    )
+    cache = _range_cache(config)
     return cache.metadata(_dataset_key(name, microgrid_id, resolution))
 
 
@@ -708,24 +712,15 @@ def start_background_day_ahead_price_sync(
         Future representing the background synchronization.
     """
     sync_start, sync_end = _day_ahead_sync_range(start_date, end_date)
-    key = (country_code, sync_start, sync_end)
-    now = monotonic()
-    with _DAY_AHEAD_SYNC_LOCK:
-        existing = _DAY_AHEAD_SYNC_JOBS.get(key)
-        if existing is not None:
-            future, started = existing
-            if not future.done() or now - started < _DAY_AHEAD_SYNC_RETRY_INTERVAL:
-                return future
-
-        future = _DAY_AHEAD_SYNC_EXECUTOR.submit(
-            get_day_ahead_prices,
-            country_code,
-            sync_start,
-            sync_end,
-        )
-        future.add_done_callback(_persist_cache_after_successful_sync)
-        _DAY_AHEAD_SYNC_JOBS[key] = (future, now)
-        return future
+    return _start_shared_job(
+        _DAY_AHEAD_SYNC_JOBS,
+        _DAY_AHEAD_SYNC_LOCK,
+        _DAY_AHEAD_SYNC_EXECUTOR,
+        _DAY_AHEAD_SYNC_RETRY_INTERVAL,
+        (country_code, sync_start, sync_end),
+        get_day_ahead_prices,
+        (country_code, sync_start, sync_end),
+    )
 
 
 def _persist_cache_after_successful_sync(future: Future[Any]) -> None:
@@ -793,9 +788,8 @@ def _day_ahead_price_key(country_code: str) -> DatasetKey:
 
 def _day_ahead_price_cache(config: CacheConfig) -> ParquetRangeCache:
     """Build the persistent cache used by scheduled price synchronization."""
-    return ParquetRangeCache(
-        config.storage_path,
-        sync_interval=timedelta(minutes=config.sync_interval_minutes),
+    return _range_cache(
+        config,
         overlap=max(timedelta(minutes=config.sync_overlap_minutes), timedelta(hours=2)),
     )
 

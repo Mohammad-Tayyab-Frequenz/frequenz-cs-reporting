@@ -90,18 +90,19 @@ def collect_sidebar_inputs(
         end_key = f"{_REPORTING_FILTER_KEY_PREFIX}end_date"
         timezone_key = f"{_REPORTING_FILTER_KEY_PREFIX}timezone"
 
-        start_initial = st.session_state.get(start_key, default_start)
+        # Seed through Session State and omit ``value``: passing both makes
+        # Streamlit warn that the widget has a default and a state value.
+        st.session_state.setdefault(start_key, default_start)
 
         columns = st.columns(2)
         with columns[0]:
             start_date = st.date_input(
                 "Von",
-                value=start_initial,
                 max_value=today,
                 key=start_key,
             )
 
-        end_initial = min(
+        st.session_state[end_key] = min(
             st.session_state.get(end_key, default_end),
             today,
         )
@@ -109,7 +110,6 @@ def collect_sidebar_inputs(
         with columns[1]:
             end_date = st.date_input(
                 "Ende",
-                value=end_initial,
                 max_value=today,
                 key=end_key,
             )

@@ -53,3 +53,17 @@ def test_log_duration_records_end_when_operation_fails(
     contents = (tmp_path / "metadata" / "duration_log.txt").read_text(encoding="utf-8")
     assert "[timing] START reporting.failing_step" in contents
     assert "[timing] END reporting.failing_step duration=1.000s" in contents
+
+
+def test_oversized_log_is_rotated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The log is moved aside once it passes the size limit."""
+    monkeypatch.setattr(timing, "_MAX_TIMING_LOG_BYTES", 10)
+    log = tmp_path / "duration_log.txt"
+    log.write_text("x" * 100, encoding="utf-8")
+
+    timing._append_timing_batch([(log, "new\n")])  # pylint: disable=protected-access
+
+    assert log.read_text(encoding="utf-8") == "new\n"
+    assert (tmp_path / "duration_log.txt.1").read_text(encoding="utf-8") == "x" * 100

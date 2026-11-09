@@ -736,3 +736,121 @@ def test_active_power_sync_does_not_round_end_into_future() -> None:
     assert sync_start == datetime(2040, 1, 1, 10, 0, tzinfo=UTC)
     assert sync_end == datetime(2040, 1, 1, 11, 0, tzinfo=UTC)
     assert sync_end <= end
+
+
+def test_finished_background_syncs_are_pruned_after_retry_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finished jobs do not accumulate, as each holds its result DataFrame."""
+    start = datetime(2020, 1, 1, tzinfo=UTC)
+    resolution = timedelta(minutes=15)
+    monkeypatch.setattr(data_service, "_ACTIVE_POWER_SYNC_RETRY_INTERVAL", 0)
+    monkeypatch.setattr(data_service, "_BATTERY_SOC_SYNC_RETRY_INTERVAL", 0)
+    monkeypatch.setattr(data_service, "_DAY_AHEAD_SYNC_RETRY_INTERVAL", 0)
+    monkeypatch.setattr(
+        data_service, "get_microgrid_data", lambda mid, s, e, r: _frame(s, e)
+    )
+    monkeypatch.setattr(
+        data_service, "get_microgrid_soc_data", lambda mid, s, e, r: _frame(s, e)
+    )
+    monkeypatch.setattr(
+        data_service,
+        "get_day_ahead_prices",
+        lambda country, s, e: pd.Series([1.0], index=pd.DatetimeIndex([s])),
+    )
+    data_service._ACTIVE_POWER_SYNC_JOBS.clear()  # pylint: disable=protected-access
+    data_service._BATTERY_SOC_SYNC_JOBS.clear()  # pylint: disable=protected-access
+    data_service._DAY_AHEAD_SYNC_JOBS.clear()  # pylint: disable=protected-access
+
+    for hours in range(1, 6):
+        end = start + timedelta(hours=hours)
+        data_service.start_background_microgrid_data_sync(
+            42, start, end, resolution
+        ).result(timeout=1)
+        data_service.start_background_microgrid_soc_data_sync(
+            42, start, end, resolution
+        ).result(timeout=1)
+        data_service.start_background_day_ahead_price_sync("DE_LU", start, end).result(
+            timeout=1
+        )
+
+    assert len(getattr(data_service, "_ACTIVE_POWER_SYNC_JOBS")) == 1
+    assert len(getattr(data_service, "_BATTERY_SOC_SYNC_JOBS")) == 1
+    assert len(getattr(data_service, "_DAY_AHEAD_SYNC_JOBS")) == 1
+
+
+def test_timeout_is_not_retried_but_connection_errors_are(tmp_path: Path) -> None:
+    """A timeout fails fast while the dataset lock is held; outages retry."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=1)
+    cache = ParquetRangeCache(
+        tmp_path / "parquet",
+        sync_interval=timedelta(minutes=15),
+        overlap=timedelta(minutes=15),
+        retry_attempts=3,
+        sleeper=lambda _delay: None,
+    )
+    attempts = {"timeout": 0, "connection": 0}
+
+    def hang(_start: datetime, _end: datetime) -> pd.DataFrame:
+        attempts["timeout"] += 1
+        raise TimeoutError("request timed out")
+
+    def drop(_start: datetime, _end: datetime) -> pd.DataFrame:
+        attempts["connection"] += 1
+        raise ConnectionError("connection reset")
+
+    with pytest.raises(TimeoutError):
+        cache.get(DatasetKey("active_power", 1, 900), start, end, hang)
+    with pytest.raises(ConnectionError):
+        cache.get(DatasetKey("active_power", 2, 900), start, end, drop)
+
+    assert attempts == {"timeout": 1, "connection": 3}
+
+
+def test_disk_errors_are_not_retried_as_transient(tmp_path: Path) -> None:
+    """Local file errors are OSErrors but retrying them cannot help."""
+    cache = ParquetRangeCache(
+        tmp_path / "parquet",
+        sync_interval=timedelta(minutes=15),
+        overlap=timedelta(minutes=15),
+        retry_attempts=3,
+        sleeper=lambda _delay: None,
+    )
+    attempts: list[None] = []
+
+    def denied(_start: datetime, _end: datetime) -> pd.DataFrame:
+        attempts.append(None)
+        raise PermissionError("read-only disk")
+
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    with pytest.raises(PermissionError):
+        cache.get(
+            DatasetKey("active_power", 1, 900),
+            start,
+            start + timedelta(hours=1),
+            denied,
+        )
+
+    assert len(attempts) == 1
+
+
+def test_failure_to_record_error_keeps_the_original_exception(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A full disk while writing metadata does not hide the sync failure."""
+    cache = _cache(tmp_path)
+
+    def broken_write(*_args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(cache, "_write_metadata", broken_write)
+
+    def fail(_start: datetime, _end: datetime) -> pd.DataFrame:
+        raise ValueError("api returned garbage")
+
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    with pytest.raises(ValueError, match="api returned garbage"):
+        cache.get(
+            DatasetKey("active_power", 1, 900), start, start + timedelta(hours=1), fail
+        )

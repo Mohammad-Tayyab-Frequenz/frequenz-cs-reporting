@@ -4,7 +4,9 @@
 """Tests for Deepnote's hybrid cache storage helpers."""
 
 import os
+import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -67,3 +69,58 @@ def test_background_persist_copies_local_cache(
     assert future is not None
     future.result(timeout=2)
     assert (persistent / "metadata" / "active_power.json").is_file()
+
+
+def test_persist_skips_temporary_files_and_copies_data_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A snapshot copies data before its coverage metadata or temporary files."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+    prepare_deepnote_hybrid_cache(persistent, local)
+    (local / "parquet" / "a.parquet").write_bytes(b"data")
+    (local / "parquet" / ".a.parquet.x1.parquet.tmp").write_bytes(b"partial")
+    (local / "metadata" / "a.json").write_text("{}", encoding="utf-8")
+    copied: list[str] = []
+    real_copytree = shutil.copytree
+
+    def recording_copytree(source: Path, *args: Any, **kwargs: Any) -> Any:
+        copied.append(Path(source).name)
+        return real_copytree(source, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copytree", recording_copytree)
+
+    persist_deepnote_hybrid_cache(persistent, local)
+
+    assert copied == ["parquet", "metadata"]
+    assert (persistent / "parquet" / "a.parquet").is_file()
+    assert not list((persistent / "parquet").glob("*.tmp"))
+
+
+def test_interrupted_persist_does_not_publish_new_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An interrupted copy cannot make old data appear covered."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+    prepare_deepnote_hybrid_cache(persistent, local)
+    (persistent / "parquet" / "a.parquet").write_bytes(b"old-data")
+    (persistent / "metadata" / "a.json").write_text("old-metadata", encoding="utf-8")
+    (local / "parquet" / "a.parquet").write_bytes(b"new-data")
+    (local / "metadata" / "a.json").write_text("new-metadata", encoding="utf-8")
+    real_copytree = shutil.copytree
+
+    def fail_copying_metadata(source: Path, *args: Any, **kwargs: Any) -> Any:
+        if Path(source).name == "metadata":
+            raise OSError("simulated interruption")
+        return real_copytree(source, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copytree", fail_copying_metadata)
+
+    with pytest.raises(OSError, match="simulated interruption"):
+        persist_deepnote_hybrid_cache(persistent, local)
+
+    assert (persistent / "parquet" / "a.parquet").read_bytes() == b"new-data"
+    assert (persistent / "metadata" / "a.json").read_text(encoding="utf-8") == (
+        "old-metadata"
+    )
