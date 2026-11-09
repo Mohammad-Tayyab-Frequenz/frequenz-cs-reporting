@@ -116,7 +116,13 @@ def persist_deepnote_hybrid_cache(
         source = local / directory
         if source.is_dir():
             destination = persistent / directory
-            shutil.copytree(source, destination, dirs_exist_ok=True)
+            shutil.copytree(
+                source,
+                destination,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("*.tmp"),
+                copy_function=_copy_atomically,
+            )
             _fsync_files(destination)
 
 
@@ -158,6 +164,14 @@ def _persist_until_idle() -> None:
                 _PERSIST_FUTURE = None
                 return
             _PERSIST_PENDING = False
+
+
+def _copy_atomically(source: str, destination: str) -> str:
+    """Copy a file so an interruption never leaves a truncated destination."""
+    temporary = f"{destination}.persist.tmp"
+    shutil.copy2(source, temporary)
+    os.replace(temporary, destination)
+    return destination
 
 
 def _fsync_files(root: Path) -> None:

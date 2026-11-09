@@ -27,6 +27,8 @@ from frequenz.cs_reporting.utils.timing import log_duration
 _LOGGER = logging.getLogger(__name__)
 _Range = tuple[datetime, datetime]
 _COLUMN_PREFIX = "__frequenz_column_v1__"
+# Each sync writes a new file version; cap the in-memory copies of old ones.
+_MAX_CACHED_FRAMES = 32
 _LEGACY_BOUNDARY_ERROR = (
     "ValueError: Reporting data contains timestamps outside the requested range"
 )
@@ -335,8 +337,12 @@ class ParquetRangeCache:
             metadata.status = "error"
             metadata.sync_duration_seconds = round(time.monotonic() - started, 3)
             metadata.last_error = f"{type(exc).__name__}: {exc}"
-            self._write_metadata(key, metadata)
             _LOGGER.exception("Synchronization failed for %s", key.slug)
+            try:
+                self._write_metadata(key, metadata)
+            except OSError:
+                # e.g. a full disk: do not hide the original sync failure.
+                _LOGGER.exception("Could not record the failure for %s", key.slug)
             if _range_is_covered(ranges, covered):
                 return stored, metadata
             raise
@@ -449,7 +455,7 @@ class ParquetRangeCache:
             return []
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=_MAX_CACHED_FRAMES)
 def _read_parquet_versioned(path: str, version: tuple[int, int]) -> pd.DataFrame:
     """Read Parquet once per exact file version."""
     del version
@@ -537,9 +543,13 @@ def _http_status(exc: Exception) -> int | None:
 
 
 def _is_transient(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return False
+    if isinstance(exc, (PermissionError, FileNotFoundError)):
+        return False
     status = _http_status(exc)
     return (
-        isinstance(exc, (TimeoutError, ConnectionError, OSError))
+        isinstance(exc, (ConnectionError, OSError))
         or status == 429
         or (status is not None and 500 <= status < 600)
     )

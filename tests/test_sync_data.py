@@ -44,3 +44,49 @@ def test_price_sync_does_not_require_a_microgrid(
     assert country_code == "DE_LU"
     assert start.isoformat() == "2026-10-13T00:00:00+00:00"
     assert end.isoformat() == "2026-10-14T00:00:00+00:00"
+
+
+def test_cache_is_persisted_even_when_a_microgrid_sync_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Data synchronized before a failure is still saved to persistent storage."""
+    persisted: list[bool] = []
+
+    def fail(*_args: object) -> pd.DataFrame:
+        raise RuntimeError("api down")
+
+    monkeypatch.setenv("DEEPNOTE", "1")
+    monkeypatch.setattr(sync_data, "deepnote_hybrid_cache_enabled", lambda: True)
+    monkeypatch.setattr(sync_data, "prepare_deepnote_hybrid_cache", lambda: None)
+    monkeypatch.setattr(
+        sync_data, "persist_deepnote_hybrid_cache", lambda: persisted.append(True)
+    )
+    monkeypatch.setattr(sync_data, "get_microgrid_data", fail)
+    monkeypatch.setattr("sys.argv", ["sync_data", "--microgrid-id", "1"])
+
+    with pytest.raises(RuntimeError, match="api down"):
+        sync_data.main()
+
+    assert persisted == [True]
+
+
+def test_persist_error_does_not_replace_the_sync_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing snapshot copy must not hide why the synchronization failed."""
+
+    def fail(*_args: object) -> pd.DataFrame:
+        raise RuntimeError("api down")
+
+    def fail_persist() -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setenv("DEEPNOTE", "1")
+    monkeypatch.setattr(sync_data, "deepnote_hybrid_cache_enabled", lambda: True)
+    monkeypatch.setattr(sync_data, "prepare_deepnote_hybrid_cache", lambda: None)
+    monkeypatch.setattr(sync_data, "persist_deepnote_hybrid_cache", fail_persist)
+    monkeypatch.setattr(sync_data, "get_microgrid_data", fail)
+    monkeypatch.setattr("sys.argv", ["sync_data", "--microgrid-id", "1"])
+
+    with pytest.raises(RuntimeError, match="api down"):
+        sync_data.main()
