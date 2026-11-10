@@ -4,6 +4,7 @@
 """AgGrid helpers for rendering reporting tables."""
 
 import json
+import zlib
 from base64 import b64encode
 from collections.abc import Iterable
 
@@ -530,7 +531,13 @@ def aggrid_table(
                 """) if component_source else None),
         fit_columns_on_grid_load=False,
         columns_auto_size_mode=ColumnsAutoSizeMode.NO_AUTOSIZE,
-        key=key_prefix,
+        # The column chooser is built once per grid, so remount it when the
+        # available columns change (e.g. after applying a new date filter).
+        key=(
+            f"{key_prefix}_{zlib.crc32('|'.join(map(str, df.columns)).encode())}"
+            if column_selection
+            else key_prefix
+        ),
     )
 
     if component_source and grid_response:
