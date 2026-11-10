@@ -4,9 +4,10 @@
 
 
 ## Upgrading
-
+- Add cs-reporting library dependency to the dockerfile.
 
 ## New Features
+
 
 ## Bug Fixes
 
