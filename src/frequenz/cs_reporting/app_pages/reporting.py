@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import re
-from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -26,12 +25,10 @@ from frequenz.cs_reporting.services.client_factory import (
     get_microgrid_names,
 )
 from frequenz.cs_reporting.services.data_service import (
-    get_cached_microgrid_data,
     get_dataset_sync_metadata,
     get_market_metering_data,
     get_microgrid_data,
     get_microgrid_soc_data,
-    start_background_microgrid_data_sync,
 )
 from frequenz.cs_reporting.services.reporting_session import (
     ReportingDataKey,
@@ -73,23 +70,6 @@ def _scroll_to_section_if_requested() -> None:
         """,
         unsafe_allow_javascript=True,
     )
-
-
-@st.fragment(run_every=2.0)
-def _poll_active_power_sync(
-    future: Future[pd.DataFrame],
-) -> None:
-    """Rerun the page when its already-started active-power refresh finishes."""
-    if not future.done():
-        st.info("Microgrid-Daten werden aktualisiert …")
-        return
-
-    try:
-        future.result()
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        st.warning(f"Microgrid-Daten konnten nicht aktualisiert werden: {exc}")
-        return
-    st.rerun()
 
 
 def _parse_resolution(resolution_str: str) -> timedelta:
@@ -258,7 +238,6 @@ def _render_reporting_page(*, export_only: bool) -> None:
     # We extend the fetch end date by 1 day to ensure the API returns data
     # for the full duration of the selected end_time.
 
-    active_power_sync: Future[pd.DataFrame] | None = None
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
             with log_duration("reporting.load_component_types"):
@@ -288,30 +267,15 @@ def _render_reporting_page(*, export_only: bool) -> None:
                 )
             else:
                 with log_duration("reporting.load_active_power"):
-                    df, sync_metadata = get_cached_microgrid_data(
+                    df = get_microgrid_data(
                         microgrid_id=microgrid_id,
                         start_date=previous_start_time,
                         end_date=end_time,
                         resolution=resolution,
                     )
-                    if df.empty:
-                        with log_duration("reporting.initial_active_power_sync"):
-                            df = get_microgrid_data(
-                                microgrid_id=microgrid_id,
-                                start_date=previous_start_time,
-                                end_date=end_time,
-                                resolution=resolution,
-                            )
-                        sync_metadata = get_dataset_sync_metadata(
-                            "active_power", microgrid_id, resolution
-                        )
-                    else:
-                        active_power_sync = start_background_microgrid_data_sync(
-                            microgrid_id=microgrid_id,
-                            start_date=previous_start_time,
-                            end_date=end_time,
-                            resolution=resolution,
-                        )
+                    sync_metadata = get_dataset_sync_metadata(
+                        "active_power", microgrid_id, resolution
+                    )
                 battery_soc_df = None
                 dso_energy_df = None
             if sync_metadata.status == "error":
@@ -399,9 +363,6 @@ def _render_reporting_page(*, export_only: bool) -> None:
             resolution,
         )
     if current_master_df.empty:
-        if active_power_sync is not None and not active_power_sync.done():
-            _poll_active_power_sync(active_power_sync)
-            st.stop()
         st.warning(_NO_REPORTING_DATA_WARNING)
         st.stop()
 
@@ -431,10 +392,6 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     dso_sync_metadata.skipped_market_location_ids
                 ),
             )
-    if active_power_sync is not None and not active_power_sync.done():
-        # Rerun once the refresh finishes so the cached-but-stale data shown
-        # above is replaced without requiring a second filter click.
-        _poll_active_power_sync(active_power_sync)
     if not export_only:
         _scroll_to_section_if_requested()
 
