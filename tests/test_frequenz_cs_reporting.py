@@ -102,6 +102,7 @@ from frequenz.cs_reporting.views.dashboard import (
     _PRICE_SYNC_RERUN_STATE_KEY,
     _aggregate_metrics,
     _build_feed_in_day_ahead_price_table,
+    _component_has_data,
     _filter_component_types_for_master_df,
     _has_complete_dso_data,
     _has_current_day_ahead_prices,
@@ -132,6 +133,7 @@ from frequenz.cs_reporting.views.plot_renderers import (
     _component_ids_for_plot_source,
     _render_consumption_mix,
     _render_overview_plot,
+    _use_webgl_for_large_time_series,
 )
 from frequenz.cs_reporting.views.table_renderers import (
     _build_core_data_df,
@@ -2376,7 +2378,31 @@ def test_overview_plot_renders_without_day_ahead_price(
     assert rendered_titles == ["Lastgang Übersicht"]
     assert rendered_figures[0].layout.height == 650
     assert rendered_figures[0].layout.xaxis.tickformat == "%a, %d.%m.%Y<br>%H:%M"
+    assert "Day Ahead Preis" not in [trace.name for trace in rendered_figures[0].data]
     assert rendered_configs == [{"locale": "de"}]
+
+
+def test_large_time_series_uses_webgl_without_dropping_points() -> None:
+    """Annual-size plots retain all samples while using the scalable renderer."""
+    figure = go.Figure(
+        go.Scatter(
+            x=pd.date_range("2026-01-01", periods=10_001, freq="15min"),
+            y=list(range(10_001)),
+            line={"shape": "hv"},
+        )
+    )
+
+    result = _use_webgl_for_large_time_series(figure, 10_001)
+
+    assert isinstance(result.data[0], go.Scattergl)
+    assert len(result.data[0].x) == 10_001
+
+
+def test_component_with_balanced_signed_power_has_data() -> None:
+    """Charging and discharging must not cancel a battery from the overview."""
+    raw_df = pd.DataFrame({"battery": [-4.0, 4.0, None]})
+
+    assert _component_has_data(raw_df, "battery")
 
 
 def test_plotly_component_height_adds_room_around_fixed_height_figures() -> None:

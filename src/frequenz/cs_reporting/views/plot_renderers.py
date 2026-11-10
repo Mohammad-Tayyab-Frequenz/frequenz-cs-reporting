@@ -48,6 +48,7 @@ _TIME_SERIES_HEIGHT = 650
 _TIME_SERIES_MARGIN = {"t": 160, "r": 80, "b": 140, "l": 80}
 _TIME_SERIES_RANGE_SLIDER_THICKNESS = 0.15
 _GERMAN_WEEKDAY_TICK_FORMAT = "%a, %d.%m.%Y<br>%H:%M"
+_WEBGL_POINT_THRESHOLD = 10_000
 
 
 def _left_align_plot_title(fig: object) -> None:
@@ -70,6 +71,23 @@ def _apply_compact_time_series_layout(fig: go.Figure) -> None:
 def _apply_german_weekday_xaxis_labels(fig: go.Figure) -> None:
     """Show German weekday abbreviations alongside date and time tick labels."""
     fig.update_xaxes(tickformat=_GERMAN_WEEKDAY_TICK_FORMAT)
+
+
+def _use_webgl_for_large_time_series(fig: go.Figure, point_count: int) -> go.Figure:
+    """Use WebGL traces when a full-resolution plot has many points."""
+    if point_count <= _WEBGL_POINT_THRESHOLD:
+        return fig
+    return go.Figure(
+        data=[
+            (
+                go.Scattergl(trace.to_plotly_json())
+                if isinstance(trace, go.Scatter) and not trace.stackgroup
+                else trace
+            )
+            for trace in fig.data
+        ],
+        layout=fig.layout,
+    )
 
 
 # pylint: disable=too-many-arguments, too-many-locals
@@ -392,7 +410,7 @@ def _prepare_battery_usecase_df(tables: TablesResult) -> pd.DataFrame | None:
     if battery_usecase_df is None or battery_usecase_df.empty:
         return None
 
-    return battery_usecase_df.drop(columns={"grid_feed_in"}, errors="ignore")
+    return battery_usecase_df
 
 
 def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
@@ -432,6 +450,7 @@ def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
             xaxis_title="Zeitpunkt",
             yaxis_title="kW",
             soc_secondary_y_title="SOC [%]",
+            enable_resampler=False,
         )
     else:
         fig = plot_time_series_battery_usecase(
@@ -449,6 +468,11 @@ def _render_overview_plot(battery_usecase_df: pd.DataFrame | None) -> None:
             xaxis_title="Zeitpunkt",
             yaxis_title="kW",
         )
+    for trace in fig.data:
+        if trace.name == "grid_feed_in":
+            trace.name = "Netzeinspeisung"
+            trace.line.color = "rgba(16,185,129,1)"
+    fig = _use_webgl_for_large_time_series(fig, len(battery_usecase_df))
     _apply_compact_time_series_layout(fig)
     _apply_german_weekday_xaxis_labels(fig)
     _left_align_plot_title(fig)
