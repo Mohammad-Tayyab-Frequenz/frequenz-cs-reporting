@@ -546,6 +546,13 @@ def build_master_df(
         return master_df
 
 
+def _component_has_data(raw_df: pd.DataFrame, component_type: str) -> bool:
+    """Return whether a component has any non-zero power measurement."""
+    return bool(
+        pd.to_numeric(raw_df[component_type], errors="coerce").fillna(0).ne(0).any()
+    )
+
+
 @st.cache_data(ttl=900, show_spinner="Preparing report data…")
 def _build_master_df_cached(
     raw_df: pd.DataFrame,
@@ -564,11 +571,11 @@ def _build_master_df_cached(
     del config_revision
     filtered_component_types = [col for col in component_types if col in raw_df.columns]
 
-    # Now drop components whose meters sum to zero
+    # Keep signed flows even when charge and discharge cancel over the period.
     filtered_component_types = [
-        c
-        for c in filtered_component_types
-        if pd.to_numeric(raw_df[c], errors="coerce").fillna(0).sum() != 0
+        component_type
+        for component_type in filtered_component_types
+        if _component_has_data(raw_df, component_type)
     ]
     component_display_names = get_meter_display_names(microgrid_id)
     master_df = create_energy_report_df(
