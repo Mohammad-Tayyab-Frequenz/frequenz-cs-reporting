@@ -342,18 +342,47 @@ def _load_assets_config() -> AssetsConfig:
     return _load_assets_config_cached(*_microgrid_config_source())
 
 
-def get_market_location_ids(microgrid_id: int) -> tuple[str, ...]:
-    """Return configured market-location IDs associated with a microgrid."""
+def _market_location_ids(
+    assets_config: AssetsConfig, microgrid_id: int
+) -> tuple[str, ...]:
+    """Return the market-location IDs related to a microgrid."""
     return tuple(
         sorted(
             {
                 str(relation.market_location_id)
-                for relation in _load_assets_config().relations.values()
+                for relation in assets_config.relations.values()
                 if relation.microgrid_id == microgrid_id
                 and relation.market_location_id is not None
             }
         )
     )
+
+
+def get_market_location_ids(microgrid_id: int) -> tuple[str, ...]:
+    """Return configured market-location IDs associated with a microgrid.
+
+    Only the TOML files defining the microgrid are loaded first, which avoids
+    parsing the whole configuration directory.  If they hold no market
+    relation for the microgrid, the complete configuration is used instead, in
+    case the relations live in a different file.
+    """
+    files = _enterprise_config_files(microgrid_id)
+    if not files:
+        config_files, _ = _microgrid_config_source()
+        files = _microgrid_file_index_cached(config_files).get(microgrid_id)
+    if files:
+        ids = _market_location_ids(
+            _load_assets_config_cached(files, get_microgrid_config_revision()),
+            microgrid_id,
+        )
+        if ids:
+            return ids
+        _logger.warning(
+            "No market relation for microgrid %s in %s; loading all configs.",
+            microgrid_id,
+            files[0],
+        )
+    return _market_location_ids(_load_assets_config(), microgrid_id)
 
 
 def get_market_metering_client(timeout: float) -> MarketMeteringApiClient:

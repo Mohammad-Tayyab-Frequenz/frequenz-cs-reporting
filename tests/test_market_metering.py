@@ -26,18 +26,41 @@ def test_market_location_ids_are_selected_by_microgrid_relation(
             market_location_id=market_location_id,
         )
 
-    monkeypatch.setattr(
-        client_factory,
-        "_load_assets_config",
-        lambda: SimpleNamespace(
-            relations={
-                "first": relation(251, "50003164650"),
-                "second": relation(252, "50003807771"),
-                "duplicate": relation(251, "50003164650"),
-                "without_malo": relation(251, None),
-            }
-        ),
+    config = SimpleNamespace(
+        relations={
+            "first": relation(251, "50003164650"),
+            "second": relation(252, "50003807771"),
+            "duplicate": relation(251, "50003164650"),
+            "without_malo": relation(251, None),
+        }
     )
+    monkeypatch.setattr(
+        client_factory, "_enterprise_config_files", lambda _mid: ("eid1.toml",)
+    )
+    monkeypatch.setattr(
+        client_factory, "_load_assets_config_cached", lambda files, _rev: config
+    )
+
+    assert client_factory.get_market_location_ids(251) == ("50003164650",)
+
+
+def test_market_location_ids_fall_back_to_full_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Relations defined outside the microgrid's own files are still found."""
+    empty = SimpleNamespace(relations={})
+    full = SimpleNamespace(
+        relations={
+            "r": SimpleNamespace(microgrid_id=251, market_location_id="50003164650")
+        }
+    )
+    monkeypatch.setattr(
+        client_factory, "_enterprise_config_files", lambda _mid: ("eid1.toml",)
+    )
+    monkeypatch.setattr(
+        client_factory, "_load_assets_config_cached", lambda files, _rev: empty
+    )
+    monkeypatch.setattr(client_factory, "_load_assets_config", lambda: full)
 
     assert client_factory.get_market_location_ids(251) == ("50003164650",)
 
