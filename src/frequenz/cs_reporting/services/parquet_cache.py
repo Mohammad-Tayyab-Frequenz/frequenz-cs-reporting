@@ -12,6 +12,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -233,9 +234,16 @@ class ParquetRangeCache:
             unavailable_errors: list[Exception] = []
             skipped_market_location_ids: set[str] = set()
             incoming_axis: tuple[str, str | None] | None = None
-            for range_start, range_end in ranges:
+            # Fetch all ranges concurrently; results are consumed in order below.
+            executor = ThreadPoolExecutor(max_workers=len(ranges))
+            futures = [
+                executor.submit(self._fetch_with_retry, fetch, start_, end_)
+                for start_, end_ in ranges
+            ]
+            executor.shutdown(wait=False)
+            for (range_start, range_end), future in zip(ranges, futures):
                 try:
-                    raw_frame = self._fetch_with_retry(fetch, range_start, range_end)
+                    raw_frame = future.result()
                 except Exception as exc:  # pylint: disable=broad-except
                     if not (
                         key.name.startswith("day_ahead_prices_")

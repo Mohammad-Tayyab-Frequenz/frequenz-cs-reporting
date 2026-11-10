@@ -6,7 +6,11 @@
 from __future__ import annotations
 
 import re
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -15,6 +19,7 @@ from frequenz.lib.notebooks.reporting.utils.helpers import (
     normalize_date_for_reporting,
     set_date_to_midnight,
 )
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from frequenz.cs_reporting.components.sidebar_inputs import collect_sidebar_inputs
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
@@ -70,6 +75,50 @@ def _scroll_to_section_if_requested() -> None:
         """,
         unsafe_allow_javascript=True,
     )
+
+
+def _submit_with_script_context(
+    executor: ThreadPoolExecutor, fn: Callable[..., Any], *args: Any, **kwargs: Any
+) -> Future[Any]:
+    """Run ``fn`` in ``executor`` with the current Streamlit script context.
+
+    Streamlit caches and session state need the script context, which worker
+    threads do not inherit.
+    """
+    ctx = get_script_run_ctx()
+
+    def run() -> Any:
+        if ctx is not None:
+            add_script_run_ctx(threading.current_thread(), ctx)
+        return fn(*args, **kwargs)
+
+    return executor.submit(run)
+
+
+def _load_battery_soc(
+    microgrid_id: int, start: datetime, end: datetime, resolution: timedelta
+) -> pd.DataFrame:
+    """Load battery SOC data, timing the whole load."""
+    with log_duration("reporting.load_battery_soc"):
+        return get_microgrid_soc_data(
+            microgrid_id=microgrid_id,
+            start_date=start,
+            end_date=end,
+            resolution=resolution,
+        )
+
+
+def _load_market_metering(
+    microgrid_id: int, start: datetime, end: datetime, resolution: timedelta
+) -> pd.DataFrame:
+    """Load DSO market-metering data, timing the whole load."""
+    with log_duration("reporting.load_market_metering"):
+        return get_market_metering_data(
+            microgrid_id=microgrid_id,
+            start_date=start,
+            end_date=end,
+            resolution=resolution,
+        )
 
 
 def _parse_resolution(resolution_str: str) -> timedelta:
@@ -254,6 +303,8 @@ def _render_reporting_page(*, export_only: bool) -> None:
             else:
                 st.title(heading)
             snapshot = take_reporting_data_snapshot(data_key)
+            soc_future: Future[Any] | None = None
+            dso_future: Future[Any] | None = None
             if snapshot is not None:
                 df = snapshot.active_power.copy()
                 sync_metadata = snapshot.sync_metadata
@@ -266,6 +317,29 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     None if snapshot.dso_energy is None else snapshot.dso_energy.copy()
                 )
             else:
+                # The datasets are independent, so fetch them concurrently.
+                executor = ThreadPoolExecutor(max_workers=2)
+                soc_future = (
+                    _submit_with_script_context(
+                        executor,
+                        _load_battery_soc,
+                        microgrid_id,
+                        previous_start_time,
+                        end_time,
+                        resolution,
+                    )
+                    if "battery" in component_types
+                    else None
+                )
+                dso_future = _submit_with_script_context(
+                    executor,
+                    _load_market_metering,
+                    microgrid_id,
+                    previous_start_time,
+                    end_time,
+                    resolution,
+                )
+                executor.shutdown(wait=False)
                 with log_duration("reporting.load_active_power"):
                     df = get_microgrid_data(
                         microgrid_id=microgrid_id,
@@ -284,30 +358,18 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     "Die Aktualisierung ist fehlgeschlagen; angezeigt werden die "
                     f"zuletzt erfolgreich gespeicherten Daten ({last_sync})."
                 )
-            if snapshot is None and "battery" in component_types:
+            if soc_future is not None:
                 try:
-                    with log_duration("reporting.load_battery_soc"):
-                        fetched_soc_df = get_microgrid_soc_data(
-                            microgrid_id=microgrid_id,
-                            start_date=previous_start_time,
-                            end_date=end_time,
-                            resolution=resolution,
-                        )
+                    fetched_soc_df = soc_future.result()
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
-            if snapshot is None:
+            if dso_future is not None:
                 try:
-                    with log_duration("reporting.load_market_metering"):
-                        fetched_dso_energy_df = get_market_metering_data(
-                            microgrid_id=microgrid_id,
-                            start_date=previous_start_time,
-                            end_date=end_time,
-                            resolution=resolution,
-                        )
+                    fetched_dso_energy_df = dso_future.result()
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         "Netzbetreiber-Messdaten konnten nicht geladen werden: "
@@ -317,7 +379,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     dso_energy_df = (
                         None if fetched_dso_energy_df.empty else fetched_dso_energy_df
                     )
-            if snapshot is None and active_power_sync is None:
+            if snapshot is None:
                 store_reporting_data_snapshot(
                     ReportingDataSnapshot(
                         key=data_key,
