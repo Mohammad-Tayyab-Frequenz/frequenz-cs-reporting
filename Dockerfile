@@ -31,6 +31,7 @@ RUN pip install --no-cache-dir \
     "kaleido>=0.2.1,<1.2.0" \
     "marshmallow>=4.1.0,<5" \
     "grpcio>=1.81.1,<2" \
+    "frequenz-cs-reporting>=0.5.0,<0.6.0"
 
 # Prefer packages installed in Deepnote's venv over Deepnote's toolkit server libs.
 ENV PYTHONPATH="/root/venv/lib/python3.12/site-packages:${PYTHONPATH}"
