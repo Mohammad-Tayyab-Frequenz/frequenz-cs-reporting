@@ -20,11 +20,17 @@ from time import perf_counter
 
 from frequenz.cs_reporting.services.cache_config import get_cache_config
 
+_TIMING_ENV_VAR = "CS_REPORTING_TIMING"
 _TIMING_LOG_NAME = "duration_log.txt"
 _MAX_TIMING_LOG_BYTES = 5 * 1024 * 1024
 _TIMING_QUEUE: Queue[tuple[Path, str]] = Queue()
 _TIMING_WORKER_LOCK = Lock()
 _TIMING_WORKER: Thread | None = None
+
+
+def timing_enabled() -> bool:
+    """Return whether timing diagnostics are switched on (off by default)."""
+    return os.getenv(_TIMING_ENV_VAR, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _timing_log_path() -> Path:
@@ -85,6 +91,8 @@ def _ensure_timing_worker() -> None:
 
 def _write_timing_line(message: str) -> None:
     """Queue one timing line without blocking the calling operation."""
+    if not timing_enabled():
+        return
     try:
         path = _timing_log_path()
         timestamp = datetime.now(tz=UTC).isoformat(timespec="milliseconds")
@@ -96,6 +104,11 @@ def _write_timing_line(message: str) -> None:
         pass
 
 
+def log_timing_note(message: str) -> None:
+    """Record a free-form diagnostic line (for example a sample count)."""
+    _write_timing_line(f"NOTE {message}")
+
+
 def flush_timing_log() -> None:
     """Wait until all queued timing entries have been written."""
     _TIMING_QUEUE.join()
@@ -105,9 +118,14 @@ def flush_timing_log() -> None:
 def log_duration(operation: str) -> Iterator[None]:
     """Record the wall-clock duration of an operation in the timing log.
 
+    Does nothing unless ``CS_REPORTING_TIMING`` is set to ``1``.
+
     Args:
         operation: Stable, human-readable operation name.
     """
+    if not timing_enabled():
+        yield
+        return
     _write_timing_line(f"START {operation}")
     started = perf_counter()
     try:

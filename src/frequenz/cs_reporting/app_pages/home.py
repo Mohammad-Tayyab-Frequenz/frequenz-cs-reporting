@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import os
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import streamlit as st
@@ -20,7 +21,7 @@ from frequenz.cs_reporting.ui_resources import (
 )
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
-BACKGROUND_PATH = ASSETS_DIR / "neustrom_background.png"
+BACKGROUND_PATH = ASSETS_DIR / "neustrom_background.jpg"
 LOGO_PATH = ASSETS_DIR / "neustrom_logo.png"
 IN_DEEPNOTE = any(
     key in os.environ
@@ -127,6 +128,7 @@ def _navigate_to(page_key: str, section: str | None = None) -> None:
     st.rerun()
 
 
+@lru_cache(maxsize=None)
 def _b64_image(image_path: Path) -> str | None:
     """Return base64-encoded image string, or None if the file is missing."""
     if not image_path.exists():
@@ -177,7 +179,7 @@ def _inject_styles(bg_b64: str | None) -> None:
         bg_css = (
             f"background-image: linear-gradient("
             f"180deg, rgba(241,246,253,0.80), rgba(243,246,251,0.85)"
-            f'), url("data:image/png;base64,{bg_b64}");'
+            f'), url("data:image/jpeg;base64,{bg_b64}");'
             "background-size: cover;"
             "background-position: center top;"
             "background-attachment: fixed;"

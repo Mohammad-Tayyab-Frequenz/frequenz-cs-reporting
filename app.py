@@ -321,8 +321,12 @@ package_parent = str(PACKAGE_ROOT.parent)
 if package_parent not in sys.path:
     sys.path.insert(0, package_parent)
 
+from frequenz.cs_reporting.app_pages import preload_page_modules
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.services.client_factory import warm_up_config_directory
+from frequenz.cs_reporting.services.client_factory import (
+    warm_up_config_directory,
+    warm_up_microgrid_catalog,
+)
 from frequenz.cs_reporting.services.deepnote_cache import (
     deepnote_hybrid_cache_enabled,
     prepare_deepnote_hybrid_cache,
@@ -508,6 +512,13 @@ def render_selected_page(page: PageSpec) -> None:
         start_background_deepnote_cache_persist()
 
 
+@st.cache_resource(show_spinner=False)
+def _preload_pages() -> bool:
+    """Start importing the page modules once per process, off the render path."""
+    preload_page_modules()
+    return True
+
+
 def main() -> None:
     st.set_page_config(
         page_title="Reporting-Anwendung",
@@ -517,6 +528,8 @@ def main() -> None:
     _inject_global_theme()
 
     warm_up_config_directory()
+    warm_up_microgrid_catalog()
+    _preload_pages()
     with log_duration("app.discover_pages"):
         pages = discover_library_pages()
     if not pages:

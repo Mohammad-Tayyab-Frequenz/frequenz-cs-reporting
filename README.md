@@ -80,7 +80,8 @@ merged by timestamp. Writes use a same-directory temporary file followed by an
 atomic replacement, while a file lock prevents duplicate writers across
 Streamlit sessions and local worker processes. Sync metadata is stored beside
 the Parquet directory in `data/metadata` by default. Runtime duration entries
-are appended to `data/metadata/duration_log.txt`; when
+are appended to `data/metadata/duration_log.txt` when `CS_REPORTING_TIMING=1`
+is set (off by default); when
 `PARQUET_STORAGE_PATH` is customized, the log uses the sibling `metadata`
 directory of that configured path.
 

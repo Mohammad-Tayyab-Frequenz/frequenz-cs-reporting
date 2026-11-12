@@ -18,6 +18,7 @@ def test_log_duration_appends_start_and_end_entries(
 ) -> None:
     """Timing entries are appended below the configured metadata directory."""
     monkeypatch.setenv("PARQUET_STORAGE_PATH", str(tmp_path / "parquet"))
+    monkeypatch.setenv("CS_REPORTING_TIMING", "1")
     values: Iterator[float] = iter((10.0, 12.3456))
     monkeypatch.setattr(timing, "perf_counter", lambda: next(values))
 
@@ -42,6 +43,7 @@ def test_log_duration_records_end_when_operation_fails(
 ) -> None:
     """The end entry is recorded when the measured operation raises."""
     monkeypatch.setenv("PARQUET_STORAGE_PATH", str(tmp_path / "parquet"))
+    monkeypatch.setenv("CS_REPORTING_TIMING", "1")
     values: Iterator[float] = iter((4.0, 5.0))
     monkeypatch.setattr(timing, "perf_counter", lambda: next(values))
 
@@ -67,3 +69,17 @@ def test_oversized_log_is_rotated(
 
     assert log.read_text(encoding="utf-8") == "new\n"
     assert (tmp_path / "duration_log.txt.1").read_text(encoding="utf-8") == "x" * 100
+
+
+def test_log_duration_is_silent_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without CS_REPORTING_TIMING nothing is queued or written."""
+    monkeypatch.setenv("PARQUET_STORAGE_PATH", str(tmp_path / "parquet"))
+    monkeypatch.delenv("CS_REPORTING_TIMING", raising=False)
+
+    with timing.log_duration("reporting.silent_step"):
+        pass
+    timing.flush_timing_log()
+
+    assert not (tmp_path / "metadata" / "duration_log.txt").exists()
