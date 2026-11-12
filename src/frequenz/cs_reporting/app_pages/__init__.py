@@ -44,19 +44,26 @@ PAGE_MANIFEST: dict[str, PageSpec] = {
         order=1,
         render=_lazy_render("reporting", "reporting_dashboard"),
     ),
+    "battery_optimization": PageSpec(
+        key="battery_optimization",
+        title="Batterie Reporting",
+        icon="",
+        order=2,
+        render=_lazy_render("battery_optimization", "battery_optimization"),
+    ),
+    "solar": PageSpec(
+        key="solar",
+        title="Solar-Reporting",
+        icon="",
+        order=3,
+        render=_lazy_render("solar", "solar"),
+    ),
     "data_export": PageSpec(
         key="data_export",
         title="Datenexport",
         icon="",
         order=4,
         render=_lazy_render("data_export", "data_export"),
-    ),
-    "solar": PageSpec(
-        key="solar",
-        title="Solar-Reporting",
-        icon="",
-        order=2,
-        render=_lazy_render("solar", "solar"),
     ),
 }
 
