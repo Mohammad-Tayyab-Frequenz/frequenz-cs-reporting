@@ -25,6 +25,7 @@ from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import AssetsConfig, MicrogridConfig, load_configs
 
 from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
+from frequenz.cs_reporting.services.api_timing import instrument_client
 from frequenz.cs_reporting.utils.env import require_env
 from frequenz.cs_reporting.utils.timing import log_duration
 
@@ -294,13 +295,15 @@ def get_microgrid_client(
     sign_secret = require_env("FREQUENZ_API_SECRET")
 
     configs = {microgrid_id: _load_microgrid_config(microgrid_id)}
-    return component_data.MicrogridData(
+    client = component_data.MicrogridData(
         server_url=server_url,
         auth_key=auth_key,
         sign_secret=sign_secret,
         microgrid_configs=configs,
         assets_client=assets_client,
     )
+    instrument_client(client)
+    return client
 
 
 def get_reporting_client() -> ReportingApiClient:
@@ -450,8 +453,8 @@ def get_microgrid_names() -> dict[int, str | None]:
     names, enterprise_ids = _get_microgrid_names(get_api_credential_revision())
     # This wrapper executes even when Streamlit serves the catalog from cache,
     # so the process-local fast-path index is restored reliably after a reload.
-    _ENTERPRISE_IDS.clear()
-    _ENTERPRISE_IDS.update(enterprise_ids)
+    global _ENTERPRISE_IDS  # pylint: disable=global-statement
+    _ENTERPRISE_IDS = dict(enterprise_ids)
     return names
 
 
