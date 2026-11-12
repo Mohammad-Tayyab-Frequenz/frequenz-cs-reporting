@@ -323,7 +323,10 @@ if package_parent not in sys.path:
 
 from frequenz.cs_reporting.app_pages import preload_page_modules
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.services.client_factory import warm_up_config_directory
+from frequenz.cs_reporting.services.client_factory import (
+    warm_up_config_directory,
+    warm_up_microgrid_catalog,
+)
 from frequenz.cs_reporting.services.deepnote_cache import (
     deepnote_hybrid_cache_enabled,
     prepare_deepnote_hybrid_cache,
@@ -525,6 +528,7 @@ def main() -> None:
     _inject_global_theme()
 
     warm_up_config_directory()
+    warm_up_microgrid_catalog()
     _preload_pages()
     with log_duration("app.discover_pages"):
         pages = discover_library_pages()

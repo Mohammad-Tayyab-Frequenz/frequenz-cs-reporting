@@ -23,6 +23,7 @@ from frequenz.client.marketmetering import MarketMeteringApiClient
 from frequenz.client.reporting import ReportingApiClient
 from frequenz.data.microgrid import component_data
 from frequenz.gridpool.config import AssetsConfig, MicrogridConfig, load_configs
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.services.api_timing import instrument_client
@@ -174,6 +175,28 @@ def warm_up_config_directory() -> bool:
             _logger.warning("Config directory warm-up failed: %s", exc)
 
     Thread(target=touch, name="config-dir-warmup", daemon=True).start()
+    return True
+
+
+@st.cache_resource(show_spinner=False)
+def warm_up_microgrid_catalog() -> bool:
+    """Fetch the Assets API microgrid catalog once per process in the background.
+
+    The first Reporting visit otherwise waits for this call in the sidebar.
+    Starting it while the home page renders moves it off that critical path.
+    """
+
+    def fetch() -> None:
+        try:
+            get_microgrid_names()
+        except Exception as exc:  # pylint: disable=broad-except
+            # The sidebar repeats the call and reports the failure itself.
+            _logger.warning("Microgrid catalog warm-up failed: %s", exc)
+
+    thread = Thread(target=fetch, name="microgrid-catalog-warmup", daemon=True)
+    # Streamlit's caches need the script context, which new threads lack.
+    add_script_run_ctx(thread, get_script_run_ctx())
+    thread.start()
     return True
 
 
