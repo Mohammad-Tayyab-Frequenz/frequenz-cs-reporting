@@ -35,6 +35,7 @@ from frequenz.cs_reporting.services.data_service import (
     start_background_day_ahead_price_sync,
 )
 from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
 
 
@@ -64,14 +65,17 @@ def _poll_day_ahead_price_sync(future: Future[pd.Series]) -> None:
 def render() -> None:
     """Render the battery optimization savings page."""
     today = datetime.now(tz=UTC).date()
-    selections = collect_sidebar_inputs(
-        resolution_options=("15min", "30min", "1hour"),
-        default_resolution="15min",
-    )
+    with log_duration("battery.sidebar_inputs"):
+        selections = collect_sidebar_inputs(
+            resolution_options=("15min", "30min", "1hour"),
+            default_resolution="15min",
+        )
 
     timezone = selections["timezone"]
     microgrid_id = selections["microgrid_id"]
-    st.title(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
+    with log_duration("battery.load_microgrid_names"):
+        microgrid_names = get_microgrid_names()
+    st.title(_mid_caption(microgrid_id, microgrid_names.get(microgrid_id)))
 
     # Clear the previous filter result before any asynchronous synchronization or
     # data loading can stop this run.  Otherwise Streamlit can keep the old report
@@ -101,9 +105,10 @@ def render() -> None:
 
     price_sync_end = _completed_price_range_end(end_time, timezone, today)
     if start_time < price_sync_end:
-        price_sync = start_background_day_ahead_price_sync(
-            "DE_LU", start_time, price_sync_end
-        )
+        with log_duration("battery.start_price_sync"):
+            price_sync = start_background_day_ahead_price_sync(
+                "DE_LU", start_time, price_sync_end
+            )
         if not price_sync.done():
             _poll_day_ahead_price_sync(price_sync)
             st.stop()
@@ -125,38 +130,43 @@ def render() -> None:
 
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
-            component_types = list(get_component_types(microgrid_id))
+            with log_duration("battery.load_component_types"):
+                component_types = list(get_component_types(microgrid_id))
             if "battery" not in component_types:
                 st.info("Dieses Microgrid enthält keine Batterie.")
                 st.stop()
 
             battery_capacity_data = None
             try:
-                battery_capacity_data = get_battery_capacity_data_kwh(
-                    microgrid_id,
-                    start_time,
-                    end_time,
-                    resolution,
-                )
+                with log_duration("battery.load_capacity"):
+                    battery_capacity_data = get_battery_capacity_data_kwh(
+                        microgrid_id,
+                        start_time,
+                        end_time,
+                        resolution,
+                    )
             except Exception as exc:  # pylint: disable=broad-except
                 st.warning(f"Batteriekapazität konnte nicht geladen werden: {exc}")
 
-            mcfg = get_microgrid_config(microgrid_id)
-            df = get_microgrid_data(
-                microgrid_id=microgrid_id,
-                start_date=start_time,
-                end_date=end_time,
-                resolution=resolution,
-            )
+            with log_duration("battery.load_microgrid_config"):
+                mcfg = get_microgrid_config(microgrid_id)
+            with log_duration("battery.load_active_power"):
+                df = get_microgrid_data(
+                    microgrid_id=microgrid_id,
+                    start_date=start_time,
+                    end_date=end_time,
+                    resolution=resolution,
+                )
             battery_soc_df = None
             if "battery" in component_types:
                 try:
-                    fetched_soc_df = get_microgrid_soc_data(
-                        microgrid_id=microgrid_id,
-                        start_date=start_time,
-                        end_date=end_time,
-                        resolution=resolution,
-                    )
+                    with log_duration("battery.load_soc"):
+                        fetched_soc_df = get_microgrid_soc_data(
+                            microgrid_id=microgrid_id,
+                            start_date=start_time,
+                            end_date=end_time,
+                            resolution=resolution,
+                        )
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
@@ -171,21 +181,28 @@ def render() -> None:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    mapper = ColumnMapper.from_default()
-    master_df = build_master_df(
-        _prepare_dataframe(df),
-        component_types,
-        mcfg,
-        mapper,
-        timezone=timezone,
-        battery_soc_df=battery_soc_df,
-    )
-    current_master_df, _ = split_periods(master_df, start_time, end_time, resolution)
+    with log_duration("battery.prepare_dataframe"):
+        prepared_df = _prepare_dataframe(df)
+    with log_duration("battery.create_column_mapper"):
+        mapper = ColumnMapper.from_default()
+    with log_duration("battery.build_master_dataframe"):
+        master_df = build_master_df(
+            prepared_df,
+            component_types,
+            mcfg,
+            mapper,
+            timezone=timezone,
+            battery_soc_df=battery_soc_df,
+        )
+    with log_duration("battery.split_periods"):
+        current_master_df, _ = split_periods(
+            master_df, start_time, end_time, resolution
+        )
     if current_master_df.empty:
         st.warning("Keine Daten für die ausgewählten Filter vorhanden.")
         st.stop()
 
-    with report_content.container():
+    with log_duration("battery.render_report"), report_content.container():
         render_battery_optimization(
             current_master_df,
             resolution,

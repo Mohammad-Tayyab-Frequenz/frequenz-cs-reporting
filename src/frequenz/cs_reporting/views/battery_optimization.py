@@ -20,6 +20,7 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
     calculate_selection_metrics,
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
+from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import _section_divider
 from frequenz.cs_reporting.views.metric_renderers import render_box_section
 from frequenz.cs_reporting.views.table_renderers import render_table_section
@@ -564,58 +565,67 @@ def render_battery_optimization(
 ) -> None:
     """Render the battery optimization savings KPI and daily summary plot."""
     try:
-        interval_data = calculate_battery_optimization_intervals(
-            master_df, resolution, battery_capacity_data
-        )
+        with log_duration("battery.calculate_intervals"):
+            interval_data = calculate_battery_optimization_intervals(
+                master_df, resolution, battery_capacity_data
+            )
     except ValueError as exc:
         st.info(str(exc))
         return
 
-    normalized_metrics = calculate_selection_metrics(interval_data)
+    with log_duration("battery.calculate_selection_metrics"):
+        normalized_metrics = calculate_selection_metrics(interval_data)
     kpi_boxes = _build_battery_optimization_kpi_boxes(normalized_metrics)
     st.subheader("Batterie Reporting")
-    render_box_section(
-        "Speichermehrwert",
-        kpi_boxes[:_KPI_CARDS_PER_ROW],
-        accent="#14b8a6",
-        icon="🔋",
-        value_colors={"Netto-Einsparung (€)": "#16a34a"},
-        grid_class="kpi-grid--featured-first",
-    )
+    with log_duration("battery.render_kpis_primary"):
+        render_box_section(
+            "Speichermehrwert",
+            kpi_boxes[:_KPI_CARDS_PER_ROW],
+            accent="#14b8a6",
+            icon="🔋",
+            value_colors={"Netto-Einsparung (€)": "#16a34a"},
+            grid_class="kpi-grid--featured-first",
+        )
     _section_divider("Diagramme")
-    _render_battery_optimization_plot_tabs(
-        interval_data,
-        battery_capacity_kwh,
-        _PRIMARY_PLOT_METRICS,
-        include_optimization=True,
-    )
+    with log_duration("battery.render_plots_primary"):
+        _render_battery_optimization_plot_tabs(
+            interval_data,
+            battery_capacity_kwh,
+            _PRIMARY_PLOT_METRICS,
+            include_optimization=True,
+        )
 
-    render_box_section(
-        "Betriebskennzahlen",
-        kpi_boxes[
-            _KPI_CARDS_PER_ROW : _KPI_CARDS_PER_ROW + _OPERATING_KPI_CARDS_PER_ROW
-        ],
-        accent="#14b8a6",
-        icon="⚙",
-        grid_class="kpi-grid--two-by-two",
-    )
+    with log_duration("battery.render_kpis_operating"):
+        render_box_section(
+            "Betriebskennzahlen",
+            kpi_boxes[
+                _KPI_CARDS_PER_ROW : _KPI_CARDS_PER_ROW + _OPERATING_KPI_CARDS_PER_ROW
+            ],
+            accent="#14b8a6",
+            icon="⚙",
+            grid_class="kpi-grid--two-by-two",
+        )
     _section_divider("Diagramme")
-    _render_battery_optimization_plot_tabs(
-        interval_data,
-        battery_capacity_kwh,
-        _SECONDARY_PLOT_METRICS,
-    )
+    with log_duration("battery.render_plots_secondary"):
+        _render_battery_optimization_plot_tabs(
+            interval_data,
+            battery_capacity_kwh,
+            _SECONDARY_PLOT_METRICS,
+        )
 
     _section_divider("Datentabellen")
-    render_table_section(
-        build_battery_optimization_results_table(
+    with log_duration("battery.build_results_table"):
+        results_table = build_battery_optimization_results_table(
             interval_data,
             resolution,
             battery_capacity_kwh=battery_capacity_kwh,
-        ),
-        key_prefix="battery_optimization_results",
-        empty_info="Keine Berechnungsdaten verfügbar.",
-    )
+        )
+    with log_duration("battery.render_results_table"):
+        render_table_section(
+            results_table,
+            key_prefix="battery_optimization_results",
+            empty_info="Keine Berechnungsdaten verfügbar.",
+        )
 
 
 def _render_battery_optimization_plot_tabs(
@@ -691,21 +701,23 @@ def _render_battery_optimization_plot(
             label_visibility="collapsed",
         )
 
-    if metric_key is None:
-        fig = build_daily_battery_optimization_figure(interval_data, aggregation)
-    else:
-        fig = build_normalized_battery_optimization_figure(
-            interval_data,
-            metric_key,
-            aggregation,
-            battery_capacity_kwh=battery_capacity_kwh,
+    with log_duration(f"battery.plot.{plot_key}.build_figure"):
+        if metric_key is None:
+            fig = build_daily_battery_optimization_figure(interval_data, aggregation)
+        else:
+            fig = build_normalized_battery_optimization_figure(
+                interval_data,
+                metric_key,
+                aggregation,
+                battery_capacity_kwh=battery_capacity_kwh,
+            )
+    with log_duration(f"battery.plot.{plot_key}.render_card"):
+        render_plot_card(
+            title,
+            fig,
+            header_control=aggregation_selector,
+            key=plot_key,
         )
-    render_plot_card(
-        title,
-        fig,
-        header_control=aggregation_selector,
-        key=plot_key,
-    )
 
 
 _BATTERY_PLOT_FRAGMENT_RENDERERS = {
