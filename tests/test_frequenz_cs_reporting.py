@@ -1351,6 +1351,32 @@ def test_battery_optimization_clears_previous_report_before_filter_loading(
     monkeypatch.setattr(st, "empty", ReportPlaceholder)
     monkeypatch.setattr(
         battery_optimization_page,
+        "get_component_types",
+        lambda _microgrid_id: ("battery",),
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_battery_capacity_data_kwh",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_microgrid_soc_data",
+        lambda **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        battery_optimization_page, "get_microgrid_config", lambda _id: object()
+    )
+
+    def get_microgrid_data(**_kwargs: object) -> pd.DataFrame:
+        events.append("load")
+        return pd.DataFrame({"x": [1]})
+
+    monkeypatch.setattr(
+        battery_optimization_page, "get_microgrid_data", get_microgrid_data
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
         "_poll_day_ahead_price_sync",
         lambda _future: events.append("poll"),
     )
@@ -1360,11 +1386,43 @@ def test_battery_optimization_clears_previous_report_before_filter_loading(
         raise FilterRunStopped
 
     monkeypatch.setattr(st, "stop", stop)
+    battery_optimization_page._cached_battery_capacity.clear()
 
     with pytest.raises(FilterRunStopped):
         battery_optimization_page.render()
 
-    assert events == ["clear", "sync", "poll", "stop"]
+    # The price sync starts first and data loads while it runs; the report is
+    # only held back (poll + stop) once the data is in and prices are pending.
+    assert events == ["clear", "sync", "load", "poll", "stop"]
+
+
+def test_battery_capacity_is_cached_and_cache_end_is_floored_to_the_hour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reruns with a moving "now" end reuse one capacity API call."""
+    calls: list[tuple[datetime, datetime]] = []
+
+    def get_capacity(
+        _microgrid_id: int, start: datetime, end: datetime, _resolution: timedelta
+    ) -> pd.DataFrame:
+        calls.append((start, end))
+        return pd.DataFrame({"timestamp": [start], "battery_capacity_kwh": [500.0]})
+
+    monkeypatch.setattr(
+        battery_optimization_page, "get_battery_capacity_data_kwh", get_capacity
+    )
+    battery_optimization_page._cached_battery_capacity.clear()
+    start = datetime(2026, 9, 1, tzinfo=UTC)
+    resolution = timedelta(minutes=15)
+
+    battery_optimization_page._load_battery_capacity(
+        243, start, datetime(2026, 9, 5, 10, 17, 3, tzinfo=UTC), resolution
+    )
+    battery_optimization_page._load_battery_capacity(
+        243, start, datetime(2026, 9, 5, 10, 41, 59, tzinfo=UTC), resolution
+    )
+
+    assert calls == [(start, datetime(2026, 9, 5, 10, 0, tzinfo=UTC))]
 
 
 def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
