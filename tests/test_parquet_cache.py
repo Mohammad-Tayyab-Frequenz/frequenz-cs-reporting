@@ -4,6 +4,8 @@
 """Tests for persistent Parquet synchronization."""
 
 import asyncio
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -854,3 +856,24 @@ def test_failure_to_record_error_keeps_the_original_exception(
         cache.get(
             DatasetKey("active_power", 1, 900), start, start + timedelta(hours=1), fail
         )
+
+
+def test_sync_of_many_missing_ranges_uses_bounded_threads(tmp_path: Path) -> None:
+    """A sparse dense-series cache must not spawn one thread per missing range."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(hours=48)
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    cache = _cache(tmp_path)
+    cache.get(key, start, end, lambda s, e: _frame(s, e).iloc[::2])
+    threads: set[int] = set()
+    lock = threading.Lock()
+
+    def fetch(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        with lock:
+            threads.add(threading.get_ident())
+        time.sleep(0.01)
+        return _frame(fetch_start, fetch_end)
+
+    cache.get(key, start, end, fetch)
+
+    assert len(threads) <= 8

@@ -207,16 +207,16 @@ def render() -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if st.button("Reporting öffnen", use_container_width=True):
+        if st.button("Reporting öffnen", width="stretch"):
             _navigate_to("reporting_dashboard")
     with col2:
-        if st.button("Batterie-Reporting öffnen", use_container_width=True):
+        if st.button("Batterie-Reporting öffnen", width="stretch"):
             _navigate_to("battery_optimization")
     with col3:
-        if st.button("Solar-Reporting öffnen", use_container_width=True):
+        if st.button("Solar-Reporting öffnen", width="stretch"):
             _navigate_to("solar")
     with col4:
-        if st.button("Datenexport öffnen", use_container_width=True):
+        if st.button("Datenexport öffnen", width="stretch"):
             _navigate_to("data_export")
 
     st.markdown(_footer_html(), unsafe_allow_html=True)

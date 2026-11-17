@@ -14,10 +14,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 from threading import Thread
+from time import monotonic
 from typing import TypeAlias
 
 import streamlit as st
 from frequenz.client.assets import AssetsApiClient
+from frequenz.client.base.exception import ApiClientError
 from frequenz.client.common.microgrid import MicrogridId
 from frequenz.client.marketmetering import MarketMeteringApiClient
 from frequenz.client.reporting import ReportingApiClient
@@ -37,7 +39,9 @@ MicrogridConfigSource: TypeAlias = tuple[tuple[str, ...], MicrogridConfigRevisio
 ApiCredentialRevision: TypeAlias = str
 MicrogridCatalog: TypeAlias = tuple[dict[int, str | None], dict[int, int]]
 _ASSETS_API_TIMEOUT_SECONDS = 20.0
+CATALOG_RETRY_SECONDS = 30.0
 _LAST_ASSET_CATALOG: dict[str, MicrogridCatalog] = {}
+_CATALOG_RETRY_AT = 0.0
 _ENTERPRISE_IDS: dict[int, int] = {}
 _ENTERPRISE_FILES: dict[tuple[str, int], tuple[str, ...] | None] = {}
 
@@ -440,8 +444,9 @@ def _get_microgrid_names(
     The Assets API limits its response to the current credential scope, so it
     is the single source of the microgrid list and names.  The cache is keyed
     by the credential fingerprint, so changing the integration environment
-    variables refreshes it.  The call is bounded by a timeout; on failure the
-    last successful result is reused so the sidebar never blocks for minutes.
+    variables refreshes it.  The call is bounded by a timeout.  Failures
+    propagate so that Streamlit never caches them; ``get_microgrid_names``
+    handles them.
     """
 
     async def load() -> MicrogridCatalog:
@@ -460,23 +465,33 @@ def _get_microgrid_names(
         finally:
             await assets_client.disconnect()
 
-    try:
-        with log_duration("client_factory.assets_list_microgrids"):
-            catalog = asyncio.run(load())
-    except (TimeoutError, OSError):
-        if credential_revision not in _LAST_ASSET_CATALOG:
-            raise
-        return _LAST_ASSET_CATALOG[credential_revision]
+    with log_duration("client_factory.assets_list_microgrids"):
+        catalog = asyncio.run(load())
     _LAST_ASSET_CATALOG[credential_revision] = catalog
     return catalog
 
 
 def get_microgrid_names() -> dict[int, str | None]:
-    """Return accessible microgrid IDs and names from the Assets API."""
-    names, enterprise_ids = _get_microgrid_names(get_api_credential_revision())
+    """Return accessible microgrid IDs and names from the Assets API.
+
+    When the Assets API is unreachable, the last successful catalog is returned,
+    or an empty one if there is none yet.  The API is not retried for
+    ``CATALOG_RETRY_SECONDS`` so reruns do not each wait for a timeout.
+    """
+    global _ENTERPRISE_IDS, _CATALOG_RETRY_AT  # pylint: disable=global-statement
+    credential_revision = get_api_credential_revision()
+    catalog: MicrogridCatalog | None = None
+    if monotonic() >= _CATALOG_RETRY_AT:
+        try:
+            catalog = _get_microgrid_names(credential_revision)
+        except (ApiClientError, TimeoutError, OSError) as exc:
+            _CATALOG_RETRY_AT = monotonic() + CATALOG_RETRY_SECONDS
+            _logger.warning("Microgrid catalog unavailable: %s", exc)
+    names, enterprise_ids = catalog or _LAST_ASSET_CATALOG.get(
+        credential_revision, ({}, {})
+    )
     # This wrapper executes even when Streamlit serves the catalog from cache,
     # so the process-local fast-path index is restored reliably after a reload.
-    global _ENTERPRISE_IDS  # pylint: disable=global-statement
     _ENTERPRISE_IDS = dict(enterprise_ids)
     return names
 

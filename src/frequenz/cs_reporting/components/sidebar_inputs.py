@@ -13,6 +13,7 @@ import streamlit as st
 
 from frequenz.cs_reporting.components import inputs
 from frequenz.cs_reporting.services.client_factory import (
+    CATALOG_RETRY_SECONDS,
     get_microgrid_ids,
     get_microgrid_names,
 )
@@ -33,6 +34,13 @@ _REPORTING_STATE_KEY = f"{_REPORTING_FILTER_KEY_PREFIX}applied_filters"
 
 
 # pylint: disable=too-many-locals, too-many-arguments
+@st.fragment(run_every=CATALOG_RETRY_SECONDS)
+def _retry_microgrid_catalog() -> None:
+    """Rerun the app once the microgrid catalog can be loaded again."""
+    if get_microgrid_names():
+        st.rerun()
+
+
 def collect_sidebar_inputs(
     *,
     resolution_options: Sequence[str] = ("15min", "30min", "1hour", "4hour"),
@@ -59,6 +67,13 @@ def collect_sidebar_inputs(
     st.sidebar.caption("Wählen Sie die Parameter für die Analyse.")
 
     microgrid_names = get_microgrid_names()
+    if not microgrid_names:
+        st.sidebar.warning(
+            "Die Microgrid-Liste ist derzeit nicht verfügbar. Es wird "
+            "automatisch erneut versucht …"
+        )
+        _retry_microgrid_catalog()
+        st.stop()
     available_microgrids = sorted(microgrid_names)
     _restore_reporting_widget_state()
     _reconcile_microgrid_selection(
@@ -152,7 +167,7 @@ def collect_sidebar_inputs(
         st.divider()
 
         submitted = st.form_submit_button(
-            "Filter anwenden", use_container_width=True, type="primary"
+            "Filter anwenden", width="stretch", type="primary"
         )
 
     current_selection = {
@@ -353,7 +368,7 @@ def collect_solar_sidebar_inputs(
             key=f"{key_prefix}timezone",
         )
 
-        submit_button = st.form_submit_button("Starten", use_container_width=True)
+        submit_button = st.form_submit_button("Starten", width="stretch")
 
     inputs_data = SolarWorkflowInputs(
         microgrid_id=int(microgrid_id),

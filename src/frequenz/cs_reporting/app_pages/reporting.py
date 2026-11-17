@@ -53,6 +53,8 @@ from frequenz.cs_reporting.views.dashboard import (
     split_periods,
 )
 
+# Shared across reruns and sessions so per-run pools cannot pile up threads.
+_LOAD_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="report-load")
 _NO_REPORTING_DATA_WARNING = (
     "Für den gewählten Zeitraum liegen keine oder nur teilweise Messdaten vor. "
     "Es können nur Zeiträume abgebildet werden, in denen tatsächlich gemessen wurde."
@@ -318,10 +320,9 @@ def _render_reporting_page(*, export_only: bool) -> None:
                 )
             else:
                 # The datasets are independent, so fetch them concurrently.
-                executor = ThreadPoolExecutor(max_workers=2)
                 soc_future = (
                     _submit_with_script_context(
-                        executor,
+                        _LOAD_EXECUTOR,
                         _load_battery_soc,
                         microgrid_id,
                         previous_start_time,
@@ -332,14 +333,13 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     else None
                 )
                 dso_future = _submit_with_script_context(
-                    executor,
+                    _LOAD_EXECUTOR,
                     _load_market_metering,
                     microgrid_id,
                     previous_start_time,
                     end_time,
                     resolution,
                 )
-                executor.shutdown(wait=False)
                 with log_duration("reporting.load_active_power"):
                     df = get_microgrid_data(
                         microgrid_id=microgrid_id,

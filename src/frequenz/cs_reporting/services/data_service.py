@@ -54,6 +54,7 @@ _DAY_AHEAD_MARKET_TIMEZONE = ZoneInfo("Europe/Berlin")
 _DAY_AHEAD_SYNC_RETRY_INTERVAL = 15 * 60
 _ACTIVE_POWER_SYNC_RETRY_INTERVAL = 15 * 60
 _BATTERY_SOC_SYNC_RETRY_INTERVAL = 15 * 60
+_BATTERY_CAPACITY_SYNC_RETRY_INTERVAL = 15 * 60
 _BATTERY_SOC_DATASET = "battery_soc_with_bounds_v1"
 _ACTIVE_POWER_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
@@ -69,6 +70,14 @@ _BATTERY_SOC_SYNC_EXECUTOR = ThreadPoolExecutor(
 )
 _BATTERY_SOC_SYNC_LOCK = Lock()
 _BATTERY_SOC_SYNC_JOBS: dict[
+    tuple[int, datetime, datetime, int], tuple[Future[pd.DataFrame], float]
+] = {}
+_BATTERY_CAPACITY_SYNC_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="battery-capacity-sync",
+)
+_BATTERY_CAPACITY_SYNC_LOCK = Lock()
+_BATTERY_CAPACITY_SYNC_JOBS: dict[
     tuple[int, datetime, datetime, int], tuple[Future[pd.DataFrame], float]
 ] = {}
 _DAY_AHEAD_SYNC_EXECUTOR = ThreadPoolExecutor(
@@ -846,4 +855,22 @@ def get_battery_capacity_data_kwh(
         )
     raise RuntimeError(
         "get_battery_capacity_data_kwh() called from an active event loop."
+    )
+
+
+def start_background_battery_capacity_data_sync(
+    microgrid_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    resolution: timedelta,
+) -> Future[pd.DataFrame]:
+    """Start one shared, non-blocking battery-capacity request."""
+    return _start_shared_job(
+        _BATTERY_CAPACITY_SYNC_JOBS,
+        _BATTERY_CAPACITY_SYNC_LOCK,
+        _BATTERY_CAPACITY_SYNC_EXECUTOR,
+        _BATTERY_CAPACITY_SYNC_RETRY_INTERVAL,
+        (microgrid_id, start_date, end_date, int(resolution.total_seconds())),
+        get_battery_capacity_data_kwh,
+        (microgrid_id, start_date, end_date, resolution),
     )

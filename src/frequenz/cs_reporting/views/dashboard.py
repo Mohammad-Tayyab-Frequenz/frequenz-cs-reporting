@@ -645,7 +645,7 @@ def _price_sync_range(
     return start, end
 
 
-@st.fragment(run_every=2.0)
+@st.fragment(run_every=0.5)
 def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     """Poll background price synchronization and rerun the app when it finishes."""
     future = start_background_day_ahead_price_sync("DE_LU", start, end)

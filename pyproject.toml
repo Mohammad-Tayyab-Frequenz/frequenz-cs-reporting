@@ -31,8 +31,8 @@ dependencies = [
     "css-inline>=0.17.0",
     "frequenz-lib-notebooks>=0.17.1,<0.18.0",
     "python-box>=7.3.2",
-    "streamlit>=1.49.1",
-    "streamlit-aggrid>=1.1.8.post1",
+    "streamlit>=1.67.0,<1.68.0",
+    "streamlit-aggrid==1.2.1.post2",
     "watchdog>=6.0.0",
 ]
 
