@@ -321,6 +321,8 @@ package_parent = str(PACKAGE_ROOT.parent)
 if package_parent not in sys.path:
     sys.path.insert(0, package_parent)
 
+import st_aggrid  # noqa: F401  # pylint: disable=unused-import
+
 from frequenz.cs_reporting.app_pages import preload_page_modules
 from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
 from frequenz.cs_reporting.services.client_factory import (
