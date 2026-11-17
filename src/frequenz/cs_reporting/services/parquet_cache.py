@@ -30,6 +30,8 @@ _Range = tuple[datetime, datetime]
 _COLUMN_PREFIX = "__frequenz_column_v1__"
 # Each sync writes a new file version; cap the in-memory copies of old ones.
 _MAX_CACHED_FRAMES = 32
+
+_FETCH_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="range-fetch")
 _LEGACY_BOUNDARY_ERROR = (
     "ValueError: Reporting data contains timestamps outside the requested range"
 )
@@ -235,12 +237,10 @@ class ParquetRangeCache:
             skipped_market_location_ids: set[str] = set()
             incoming_axis: tuple[str, str | None] | None = None
             # Fetch all ranges concurrently; results are consumed in order below.
-            executor = ThreadPoolExecutor(max_workers=len(ranges))
             futures = [
-                executor.submit(self._fetch_with_retry, fetch, start_, end_)
+                _FETCH_EXECUTOR.submit(self._fetch_with_retry, fetch, start_, end_)
                 for start_, end_ in ranges
             ]
-            executor.shutdown(wait=False)
             for (range_start, range_end), future in zip(ranges, futures):
                 try:
                     raw_frame = future.result()
