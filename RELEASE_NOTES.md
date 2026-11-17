@@ -5,7 +5,7 @@
 Improved reporting reliability and responsiveness while data is refreshed.
 
 ## Upgrading
-
+- Add duration logs to the battery page for debugging.
 
 ## New Features
 
