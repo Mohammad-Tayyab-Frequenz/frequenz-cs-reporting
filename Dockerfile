@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM deepnote/python:3.12
 
 # Make sure bash, curl, and git exist (Deepnote requirement + your request)
 RUN apt-get update && apt-get install -y --no-install-recommends \
