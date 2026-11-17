@@ -2,13 +2,14 @@
 
 ## Summary
 
-Improved application startup and page navigation performance.
+Improved reporting reliability and responsiveness while data is refreshed.
 
 ## Upgrading
 
 
 ## New Features
 
+- Battery reporting now displays cached data while fresh power, state-of-charge, capacity, and day-ahead-price data is loaded in the background.
 - The microgrid catalog is fetched in the background at the start of every app run, whichever page is open, and the reporting page modules are preloaded, reducing the wait when opening reporting pages.
 - The home page background image is smaller and its encoded form is cached, reducing initial page-load work.
 - The `battery_optimization` page module is now loaded lazily, when the page is first opened.
@@ -16,3 +17,5 @@ Improved application startup and page navigation performance.
 
 ## Bug Fixes
 
+- The app no longer crashes when the microgrid catalog is temporarily unavailable; it shows a retry message and automatically tries again.
+- Reporting and cache synchronization now use bounded shared worker pools, preventing repeated page runs from accumulating threads.
