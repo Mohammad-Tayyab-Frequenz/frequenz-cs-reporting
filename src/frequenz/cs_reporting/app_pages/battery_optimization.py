@@ -81,6 +81,7 @@ def render() -> None:
     with log_duration("battery.load_microgrid_names"):
         microgrid_names = get_microgrid_names()
     st.title(_mid_caption(microgrid_id, microgrid_names.get(microgrid_id)))
+    sync_status = st.empty()
 
     try:
         with log_duration("battery.load_component_types"):
@@ -187,7 +188,8 @@ def render() -> None:
         st.stop()
 
     if still_pending:
-        _poll_background_syncs(still_pending)
+        with sync_status.container():
+            _poll_background_syncs(still_pending)
 
     if df.empty:
         if not still_pending:
