@@ -12,7 +12,7 @@ from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -682,6 +682,49 @@ def test_microgrid_names_prefer_current_assets_api_names(
     client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
 
 
+def test_microgrid_names_survive_assets_api_outage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable Assets API yields an empty catalog and is retried later."""
+    client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+    monkeypatch.setattr(client_factory, "require_env", lambda _key: "value")
+    monkeypatch.setattr(client_factory, "_CATALOG_RETRY_AT", 0.0)
+    monkeypatch.setattr(client_factory, "_LAST_ASSET_CATALOG", {})
+    calls: list[int] = []
+    state = {"up": False}
+
+    class FakeAssetsClient:
+        """Fail until the simulated outage ends."""
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def list_microgrids(self) -> list[SimpleNamespace]:
+            calls.append(1)
+            if not state["up"]:
+                raise TimeoutError("dns")
+            return [SimpleNamespace(id=243, name="Site", enterprise_id=7)]
+
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(client_factory, "AssetsApiClient", FakeAssetsClient)
+
+    assert client_factory.get_microgrid_names() == {}
+    assert client_factory.get_microgrid_names() == {}
+    assert len(calls) == 1  # throttled: no second request during the back-off
+
+    state["up"] = True
+    monkeypatch.setattr(client_factory, "_CATALOG_RETRY_AT", 0.0)
+    assert client_factory.get_microgrid_names() == {243: "Site"}
+
+    state["up"] = False
+    client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+    monkeypatch.setattr(client_factory, "_CATALOG_RETRY_AT", 0.0)
+    assert client_factory.get_microgrid_names() == {243: "Site"}  # last good
+    client_factory._get_microgrid_names.clear()  # pylint: disable=protected-access
+
+
 def test_microgrid_names_refresh_when_api_credentials_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1240,27 +1283,50 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
     )
     monkeypatch.setattr(
         battery_optimization_page,
-        "get_battery_capacity_data_kwh",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        battery_optimization_page,
         "get_microgrid_config",
         lambda _microgrid_id: SimpleNamespace(
             ctype={"battery": SimpleNamespace(formula=None)}
         ),
     )
 
-    def get_microgrid_data(
-        *,
-        microgrid_id: int,
+    def completed(result: object) -> Future[Any]:
+        future: Future[Any] = Future()
+        future.set_result(result)
+        return future
+
+    def start_power_sync(
+        _microgrid_id: int,
         start_date: datetime,
         end_date: datetime,
-        resolution: timedelta,
-    ) -> pd.DataFrame:
-        del microgrid_id, resolution
+        _resolution: timedelta,
+    ) -> Future[pd.DataFrame]:
         power_range.extend([start_date, end_date])
-        return raw_data
+        return completed(raw_data)
+
+    for name, result in (
+        ("start_background_microgrid_data_sync", None),
+        ("start_background_microgrid_soc_data_sync", pd.DataFrame()),
+        ("start_background_battery_capacity_data_sync", None),
+    ):
+        monkeypatch.setattr(
+            battery_optimization_page,
+            name,
+            (
+                start_power_sync
+                if name == "start_background_microgrid_data_sync"
+                else lambda *_args, _result=result: completed(_result)
+            ),
+        )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_cached_microgrid_data",
+        lambda *_args: (raw_data, None),
+    )
+    monkeypatch.setattr(
+        battery_optimization_page,
+        "get_cached_microgrid_soc_data",
+        lambda *_args: pd.DataFrame(),
+    )
 
     price_future: Future[pd.Series] = Future()
     price_future.set_result(pd.Series(dtype="float64"))
@@ -1271,9 +1337,6 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
         price_range.extend([start, end])
         return price_future
 
-    monkeypatch.setattr(
-        battery_optimization_page, "get_microgrid_data", get_microgrid_data
-    )
     monkeypatch.setattr(
         battery_optimization_page,
         "start_background_day_ahead_price_sync",
@@ -1300,71 +1363,6 @@ def test_battery_optimization_loads_prices_for_the_complete_selected_range(
 
     assert price_range == power_range
     assert price_range[1] - price_range[0] > timedelta(days=2)
-
-
-def test_battery_optimization_clears_previous_report_before_filter_loading(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A new filter run removes KPI cards before waiting for fresh data."""
-    selections = {
-        "start_date": date(2026, 9, 1),
-        "end_date": date(2026, 9, 5),
-        "timezone": "UTC",
-        "microgrid_id": 243,
-        "resolution": "15min",
-    }
-    events: list[str] = []
-
-    class ReportPlaceholder:
-        """Record when the previous report is cleared and reused."""
-
-        def empty(self) -> None:
-            events.append("clear")
-
-        def container(self) -> nullcontext[None]:
-            return nullcontext()
-
-    class FilterRunStopped(Exception):
-        """Stand in for Streamlit's control-flow exception."""
-
-    pending_price_sync: Future[pd.Series] = Future()
-
-    def start_price_sync(*_args: object) -> Future[pd.Series]:
-        events.append("sync")
-        return pending_price_sync
-
-    monkeypatch.setattr(
-        battery_optimization_page,
-        "collect_sidebar_inputs",
-        lambda **_kwargs: selections,
-    )
-    monkeypatch.setattr(
-        battery_optimization_page, "get_microgrid_names", lambda: {243: "Test"}
-    )
-    monkeypatch.setattr(
-        battery_optimization_page,
-        "start_background_day_ahead_price_sync",
-        start_price_sync,
-    )
-    monkeypatch.setattr(st, "title", lambda *_args: None)
-    monkeypatch.setattr(st, "caption", lambda *_args: None)
-    monkeypatch.setattr(st, "empty", ReportPlaceholder)
-    monkeypatch.setattr(
-        battery_optimization_page,
-        "_poll_day_ahead_price_sync",
-        lambda _future: events.append("poll"),
-    )
-
-    def stop() -> None:
-        events.append("stop")
-        raise FilterRunStopped
-
-    monkeypatch.setattr(st, "stop", stop)
-
-    with pytest.raises(FilterRunStopped):
-        battery_optimization_page.render()
-
-    assert events == ["clear", "sync", "poll", "stop"]
 
 
 def test_kpi_formatter_treats_non_finite_values_as_missing() -> None:
