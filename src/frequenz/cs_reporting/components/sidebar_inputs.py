@@ -167,7 +167,7 @@ def collect_sidebar_inputs(
         st.divider()
 
         submitted = st.form_submit_button(
-            "Filter anwenden", use_container_width=True, type="primary"
+            "Filter anwenden", width="stretch", type="primary"
         )
 
     current_selection = {
@@ -368,7 +368,7 @@ def collect_solar_sidebar_inputs(
             key=f"{key_prefix}timezone",
         )
 
-        submit_button = st.form_submit_button("Starten", use_container_width=True)
+        submit_button = st.form_submit_button("Starten", width="stretch")
 
     inputs_data = SolarWorkflowInputs(
         microgrid_id=int(microgrid_id),
