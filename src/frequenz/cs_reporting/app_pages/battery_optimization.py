@@ -73,6 +73,15 @@ def render() -> None:
     microgrid_id = selections["microgrid_id"]
     st.title(_mid_caption(microgrid_id, get_microgrid_names().get(microgrid_id)))
 
+    try:
+        component_types = list(get_component_types(microgrid_id))
+    except Exception as exc:  # pylint: disable=broad-except
+        st.error(_format_data_loading_error(exc, microgrid_id))
+        st.stop()
+    if "battery" not in component_types:
+        st.info("Dieses Microgrid enthält keine Batterie.")
+        st.stop()
+
     # Clear the previous filter result before any asynchronous synchronization or
     # data loading can stop this run.  Otherwise Streamlit can keep the old report
     # body visible while the newly selected range is still loading, which makes
@@ -125,11 +134,6 @@ def render() -> None:
 
     try:
         with st.spinner("Microgrid-Daten werden geladen..."):
-            component_types = list(get_component_types(microgrid_id))
-            if "battery" not in component_types:
-                st.info("Dieses Microgrid enthält keine Batterie.")
-                st.stop()
-
             battery_capacity_data = None
             try:
                 battery_capacity_data = get_battery_capacity_data_kwh(
