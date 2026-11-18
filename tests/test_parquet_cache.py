@@ -877,3 +877,25 @@ def test_sync_of_many_missing_ranges_uses_bounded_threads(tmp_path: Path) -> Non
     cache.get(key, start, end, fetch)
 
     assert len(threads) <= 8
+
+
+def test_cache_waits_for_background_restore(tmp_path: Path) -> None:
+    """Opening the cache blocks until a running Deepnote restore has finished."""
+    from frequenz.cs_reporting.services import (  # pylint: disable=C0415
+        deepnote_cache,
+    )
+
+    created = threading.Event()
+    deepnote_cache._RESTORE_DONE.clear()  # pylint: disable=W0212
+
+    def create_cache() -> None:
+        _cache(tmp_path)
+        created.set()
+
+    try:
+        thread = threading.Thread(target=create_cache, daemon=True)
+        thread.start()
+        assert not created.wait(timeout=0.2)
+    finally:
+        deepnote_cache._RESTORE_DONE.set()  # pylint: disable=W0212
+    assert created.wait(timeout=5)

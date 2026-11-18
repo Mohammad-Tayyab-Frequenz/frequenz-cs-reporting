@@ -23,6 +23,9 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from frequenz.cs_reporting.services.deepnote_cache import (
+    wait_for_deepnote_cache_restore,
+)
 from frequenz.cs_reporting.utils.timing import log_duration
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,6 +117,8 @@ class ParquetRangeCache:
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         """Initialize a cache rooted at the configured Parquet directory."""
+        # On Deepnote the snapshot is restored in the background at startup.
+        wait_for_deepnote_cache_restore()
         self._root = root
         self._metadata_root = root.parent / "metadata"
         self._sync_interval = sync_interval
