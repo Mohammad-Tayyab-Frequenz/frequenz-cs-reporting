@@ -5,15 +5,19 @@
 
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from frequenz.cs_reporting.services import deepnote_cache
 from frequenz.cs_reporting.services.deepnote_cache import (
     persist_deepnote_hybrid_cache,
     prepare_deepnote_hybrid_cache,
     start_background_deepnote_cache_persist,
+    start_deepnote_hybrid_cache_restore,
+    wait_for_deepnote_cache_restore,
 )
 
 
@@ -37,6 +41,28 @@ def test_prepare_and_persist_hybrid_cache(tmp_path: Path) -> None:
     persist_deepnote_hybrid_cache(persistent, local)
 
     assert (persistent / "parquet" / "prices.parquet").read_bytes() == b"new"
+
+
+def test_background_restore_selects_cache_then_copies_snapshot(
+    tmp_path: Path,
+) -> None:
+    """The local cache is selected at once and filled once the restore ends."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+    (persistent / "parquet").mkdir(parents=True)
+    (persistent / "metadata").mkdir()
+    (persistent / "parquet" / "prices.parquet").write_bytes(b"old")
+    (persistent / "metadata" / "duration_log.txt").write_text("history\n")
+
+    parquet_path = start_deepnote_hybrid_cache_restore(persistent, local)
+
+    assert os.environ["PARQUET_STORAGE_PATH"] == str(parquet_path)
+    (local / "metadata" / "duration_log.txt").write_text("new\n")
+    wait_for_deepnote_cache_restore()
+    # Persisted history is placed before entries written during the restore.
+    assert (local / "metadata" / "duration_log.txt").read_text() == "history\nnew\n"
+    assert (parquet_path / "prices.parquet").read_bytes() == b"old"
+    assert (persistent / "metadata").is_dir()
 
 
 def test_prepare_creates_empty_persistent_cache_layout(tmp_path: Path) -> None:
@@ -124,3 +150,51 @@ def test_interrupted_persist_does_not_publish_new_metadata(
     assert (persistent / "metadata" / "a.json").read_text(encoding="utf-8") == (
         "old-metadata"
     )
+
+
+def test_restore_never_overwrites_files_written_locally(tmp_path: Path) -> None:
+    """Data the app wrote while the restore ran survives the restore."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+    (persistent / "parquet").mkdir(parents=True)
+    (persistent / "metadata").mkdir()
+    for slug in ("prices", "power"):
+        (persistent / "parquet" / f"{slug}.parquet").write_bytes(b"old")
+        (persistent / "metadata" / f"{slug}.json").write_text("old")
+    (local / "parquet").mkdir(parents=True)
+    (local / "parquet" / "prices.parquet").write_bytes(b"new")
+
+    start_deepnote_hybrid_cache_restore(persistent, local)
+    wait_for_deepnote_cache_restore()
+
+    assert (local / "parquet" / "prices.parquet").read_bytes() == b"new"
+    assert (local / "parquet" / "power.parquet").read_bytes() == b"old"
+    assert (local / "metadata" / "power.json").read_text() == "old"
+    assert not list(local.rglob("*.restore.tmp"))
+
+
+def test_concurrent_restore_starts_run_one_restore(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A second Streamlit session must not start a second restore."""
+    persistent = tmp_path / "persistent"
+    local = tmp_path / "local"
+    (persistent / "parquet").mkdir(parents=True)
+    (persistent / "metadata").mkdir()
+    release = threading.Event()
+    calls: list[None] = []
+    real_restore = deepnote_cache._restore_snapshot  # pylint: disable=W0212
+
+    def slow_restore(*args: Any, **kwargs: Any) -> None:
+        calls.append(None)
+        release.wait(timeout=10)
+        real_restore(*args, **kwargs)
+
+    monkeypatch.setattr(deepnote_cache, "_restore_snapshot", slow_restore)
+
+    start_deepnote_hybrid_cache_restore(persistent, local)
+    start_deepnote_hybrid_cache_restore(persistent, local)
+    release.set()
+    wait_for_deepnote_cache_restore()
+
+    assert len(calls) == 1

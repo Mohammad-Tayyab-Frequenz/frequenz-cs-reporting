@@ -11,9 +11,25 @@ import importlib.util
 import os
 import pkgutil
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import streamlit as st
+
+# Startup steps run before the timing module can be imported, so they are
+# recorded here and written to the timing log once ``main`` starts.
+_STARTUP_STEPS: list[tuple[str, float]] = []
+_STARTUP_BEGAN = time.perf_counter()
+
+
+@contextmanager
+def _startup_step(name: str):
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        _STARTUP_STEPS.append((name, time.perf_counter() - started))
 
 
 def running_in_deepnote() -> bool:
@@ -31,9 +47,11 @@ def running_in_deepnote() -> bool:
 IN_DEEPNOTE = running_in_deepnote()
 
 if IN_DEEPNOTE:
-    import deepnote_toolkit
+    with _startup_step("startup.deepnote_toolkit_import"):
+        import deepnote_toolkit
 
-    deepnote_toolkit.set_integration_env()
+    with _startup_step("startup.set_integration_env"):
+        deepnote_toolkit.set_integration_env()
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 LIB_PAGES_ROOT = "frequenz.cs_reporting.app_pages"
@@ -321,23 +339,28 @@ package_parent = str(PACKAGE_ROOT.parent)
 if package_parent not in sys.path:
     sys.path.insert(0, package_parent)
 
-import st_aggrid  # noqa: F401  # pylint: disable=unused-import
+with _startup_step("startup.import_st_aggrid"):
+    import st_aggrid  # noqa: F401  # pylint: disable=unused-import
 
-from frequenz.cs_reporting.app_pages import preload_page_modules
-from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
-from frequenz.cs_reporting.services.client_factory import (
-    warm_up_config_directory,
-    warm_up_microgrid_catalog,
-)
-from frequenz.cs_reporting.services.deepnote_cache import (
-    deepnote_hybrid_cache_enabled,
-    prepare_deepnote_hybrid_cache,
-    start_background_deepnote_cache_persist,
-)
-from frequenz.cs_reporting.utils.timing import log_duration
+with _startup_step("startup.import_frequenz"):
+    from frequenz.cs_reporting.app_pages import preload_page_modules
+    from frequenz.cs_reporting.rep_cs_core.page_spec import PageSpec
+    from frequenz.cs_reporting.services.client_factory import (
+        warm_up_config_directory,
+        warm_up_microgrid_catalog,
+    )
+    from frequenz.cs_reporting.services.deepnote_cache import (
+        deepnote_hybrid_cache_enabled,
+        start_deepnote_hybrid_cache_restore,
+        start_background_deepnote_cache_persist,
+    )
+    from frequenz.cs_reporting.utils.timing import log_duration, log_timing_note
 
 if IN_DEEPNOTE and deepnote_hybrid_cache_enabled():
-    prepare_deepnote_hybrid_cache()
+    with _startup_step("startup.start_deepnote_hybrid_cache_restore"):
+        start_deepnote_hybrid_cache_restore()
+
+_STARTUP_TOTAL = time.perf_counter() - _STARTUP_BEGAN
 
 
 def _load_local_pages() -> list[PageSpec]:
@@ -521,7 +544,17 @@ def _preload_pages() -> bool:
     return True
 
 
+@st.cache_resource(show_spinner=False)
+def _log_startup_steps() -> bool:
+    """Write the module-level startup timings once per process."""
+    for name, seconds in _STARTUP_STEPS:
+        log_timing_note(f"{name} duration={seconds:.3f}s")
+    log_timing_note(f"startup.module_total duration={_STARTUP_TOTAL:.3f}s")
+    return True
+
+
 def main() -> None:
+    _log_startup_steps()
     st.set_page_config(
         page_title="Reporting-Anwendung",
         page_icon="📊",
