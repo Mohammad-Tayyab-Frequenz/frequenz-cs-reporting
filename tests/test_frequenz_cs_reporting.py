@@ -38,7 +38,12 @@ from frequenz.cs_reporting.app_pages.solar import (
     _solar_mid_heading,
     capture_workflow_figures,
 )
-from frequenz.cs_reporting.components import inputs, ui
+from frequenz.cs_reporting.components import battery_plots, inputs, ui
+from frequenz.cs_reporting.components.battery_plots import (
+    _HIDDEN_NORMALIZED_METRICS,
+    build_daily_battery_optimization_figure,
+    build_normalized_battery_optimization_figure,
+)
 from frequenz.cs_reporting.components.sidebar_inputs import (
     _default_reporting_date_range,
     _microgrid_option_label,
@@ -87,15 +92,12 @@ from frequenz.cs_reporting.views import (
 )
 from frequenz.cs_reporting.views.battery_optimization import (
     _BATTERY_PLOT_FRAGMENT_RENDERERS,
-    _HIDDEN_NORMALIZED_METRICS,
     _KPI_CARDS_PER_ROW,
     _OPERATING_KPI_CARDS_PER_ROW,
     _PRIMARY_PLOT_METRICS,
     _SECONDARY_PLOT_METRICS,
     _build_battery_optimization_kpi_boxes,
     _render_battery_optimization_plot_tabs,
-    build_daily_battery_optimization_figure,
-    build_normalized_battery_optimization_figure,
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
@@ -3055,9 +3057,9 @@ def test_normalized_metrics_without_positive_capacity_have_no_capacity_values(
 
 def test_battery_plot_formatters() -> None:
     """Battery plot labels use German number formatting and blank non-finite values."""
-    assert battery_optimization_view._format_full_eur(-1234.4) == "-€1.234"
-    assert battery_optimization_view._format_full_eur(float("nan")) == ""
-    assert battery_optimization_view._format_eur_with_decimals(1234.5) == "€1.234,50"
-    assert battery_optimization_view._format_eur_with_decimals(float("inf")) == ""
-    assert battery_optimization_view._format_cycle_count(1234.567) == "1.234,57"
-    assert battery_optimization_view._format_cycle_count(float("nan")) == ""
+    assert battery_plots._format_full_eur(-1234.4) == "-€1.234"
+    assert battery_plots._format_full_eur(float("nan")) == ""
+    assert battery_plots._format_eur_with_decimals(1234.5) == "€1.234,50"
+    assert battery_plots._format_eur_with_decimals(float("inf")) == ""
+    assert battery_plots._format_cycle_count(1234.567) == "1.234,57"
+    assert battery_plots._format_cycle_count(float("nan")) == ""
