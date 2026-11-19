@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
 
 import pandas as pd
@@ -36,6 +36,7 @@ from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
+from frequenz.cs_reporting.utils.errors import report_error
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
@@ -359,7 +360,12 @@ def split_periods(
         selected_end,
         current_timestamps.max() + pd.Timedelta(resolution),
     )
-    previous_end_ts = previous_start_ts + (actual_selected_end - selected_start)
+    # Shift the end back in the selection's own timezone so the previous period
+    # covers the same local calendar span, even across a DST change.
+    previous_end_ts = _timestamp_utc(
+        actual_selected_end.to_pydatetime().astimezone(start_time.tzinfo or UTC)
+        - period
+    )
     previous_mask = (timestamps >= previous_start_ts) & (timestamps < previous_end_ts)
 
     return master_df.loc[current_mask].copy(), master_df.loc[previous_mask].copy()
@@ -654,7 +660,8 @@ def _render_day_ahead_price_sync_status(
     try:
         prices = future.result()
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} Details: {exc}")
+        reference = report_error(exc, "Day-ahead price sync failed")
+        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} {reference}")
         return
     if prices.empty:
         st.warning(_DAY_AHEAD_PRICE_WARNING)

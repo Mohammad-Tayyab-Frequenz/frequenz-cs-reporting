@@ -943,7 +943,8 @@ def test_missing_formula_error_points_to_assets_topology() -> None:
 
     assert "Komponententopologie in der Assets API" in message
     assert "Filterparameter" not in message
-    assert "grid is missing formula for AC_POWER_ACTIVE" in message
+    assert "grid is missing formula for AC_POWER_ACTIVE" not in message
+    assert "Fehler-ID:" in message
 
 
 def test_capture_workflow_figures_redirects_notebook_displays() -> None:

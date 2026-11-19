@@ -12,3 +12,9 @@ Refactored the battery-optimization reporting code without changing user-facing 
 
 ## Bug Fixes
 
+- Data-loading errors no longer show raw exception text (internal paths, API URLs) in the UI. They show a short error ID instead, and the full exception is logged with the same ID.
+- Config discovery ignores `.toml` symlinks that point outside the config directory.
+- Section divider labels and KPI section titles are HTML-escaped.
+- A zero resolution (for example `0min`) is rejected with a clear error.
+- Removed the unused `CFG`, `AppConfig` and `Paths` objects from `rep_cs_core.config`.
+- The previous-period comparison covers the same local calendar days when the selected period crosses a daylight-saving change (it previously lost one hour).

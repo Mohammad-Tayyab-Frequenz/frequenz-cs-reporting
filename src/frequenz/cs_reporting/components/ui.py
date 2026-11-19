@@ -4,6 +4,7 @@
 """UI helpers for rendering plots and styled cards."""
 
 from collections.abc import Callable
+from html import escape
 from typing import Any, Literal, TypeAlias
 
 import plotly.graph_objects as go
@@ -131,13 +132,15 @@ def render_section_divider(label: str = "", badge: str = "") -> None:
     """Render a styled section divider with optional label."""
     _inject_dashboard_css()
     badge_html = (
-        f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
+        f'<span class="dash-section-label__count">{escape(badge)}</span>'
+        if badge
+        else ""
     )
     if label:
         st.markdown(
             render_template(
                 "dashboard_section_divider.html",
-                label=label,
+                label=escape(label),
                 badge_html=badge_html,
             ),
             unsafe_allow_html=True,
