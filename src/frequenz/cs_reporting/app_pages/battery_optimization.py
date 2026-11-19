@@ -36,6 +36,7 @@ from frequenz.cs_reporting.services.data_service import (
     start_background_microgrid_data_sync,
     start_background_microgrid_soc_data_sync,
 )
+from frequenz.cs_reporting.utils.errors import report_error
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
 from frequenz.cs_reporting.views.dashboard import build_master_df, split_periods
@@ -151,7 +152,7 @@ def render() -> None:
             else:
                 st.error(
                     "Day-Ahead-Preise konnten nicht geladen werden. "
-                    f"Details: {type(exc).__name__}: {exc}"
+                    f"{report_error(exc, 'Day-ahead price load failed')}"
                 )
                 st.stop()
 
@@ -161,12 +162,13 @@ def render() -> None:
         with log_duration("battery.load_microgrid_config"):
             mcfg = get_microgrid_config(microgrid_id)
         df, _ = get_cached_microgrid_data(*sync_args)
-        if power_sync.done() and power_sync.exception() is not None:
+        power_error = power_sync.exception() if power_sync.done() else None
+        if power_error is not None:
             if df.empty:
-                raise power_sync.exception()  # type: ignore[misc]
+                raise power_error
             st.warning(
-                f"Leistungsdaten konnten nicht aktualisiert werden: "
-                f"{power_sync.exception()}"
+                "Leistungsdaten konnten nicht aktualisiert werden: "
+                f"{report_error(power_error, 'Active power sync failed')}"
             )
         battery_soc_df = None
         try:
@@ -174,7 +176,10 @@ def render() -> None:
             if soc_sync.done() and soc_sync.exception() is not None:
                 raise soc_sync.exception()  # type: ignore[misc]
         except Exception as exc:  # pylint: disable=broad-except
-            st.warning(f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}")
+            st.warning(
+                "Batterie-SOC-Daten konnten nicht geladen werden: "
+                f"{report_error(exc, 'Battery SOC load failed')}"
+            )
         else:
             battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
         battery_capacity_data = None
@@ -182,7 +187,10 @@ def render() -> None:
             try:
                 battery_capacity_data = capacity_sync.result()
             except Exception as exc:  # pylint: disable=broad-except
-                st.warning(f"Batteriekapazität konnte nicht geladen werden: {exc}")
+                st.warning(
+                    "Batteriekapazität konnte nicht geladen werden: "
+                    f"{report_error(exc, 'Battery capacity load failed')}"
+                )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(_format_data_loading_error(exc, microgrid_id))
         st.stop()

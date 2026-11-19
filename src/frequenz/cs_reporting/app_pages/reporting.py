@@ -41,6 +41,7 @@ from frequenz.cs_reporting.services.reporting_session import (
     store_reporting_data_snapshot,
     take_reporting_data_snapshot,
 )
+from frequenz.cs_reporting.utils.errors import report_error
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.dashboard import (
     build_master_df,
@@ -164,7 +165,8 @@ def _prepare_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def _format_data_loading_error(exc: Exception, microgrid_id: int) -> str:
     """Return a user-facing error message for a data loading failure."""
     detail = str(exc).strip()
-    detail_suffix = f"\n\nDetails: {detail}" if detail else ""
+    reference = report_error(exc, f"Data loading failed for microgrid {microgrid_id}")
+    detail_suffix = f"\n\n{reference}"
 
     if isinstance(exc, TimeoutError):
         return (
@@ -363,7 +365,8 @@ def _render_reporting_page(*, export_only: bool) -> None:
                     fetched_soc_df = soc_future.result()
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
-                        f"Batterie-SOC-Daten konnten nicht geladen werden: {exc}"
+                        "Batterie-SOC-Daten konnten nicht geladen werden: "
+                        f"{report_error(exc, 'Battery SOC load failed')}"
                     )
                 else:
                     battery_soc_df = None if fetched_soc_df.empty else fetched_soc_df
@@ -373,7 +376,7 @@ def _render_reporting_page(*, export_only: bool) -> None:
                 except Exception as exc:  # pylint: disable=broad-except
                     st.warning(
                         "Netzbetreiber-Messdaten konnten nicht geladen werden: "
-                        f"{exc}"
+                        f"{report_error(exc, 'DSO metering load failed')}"
                     )
                 else:
                     dso_energy_df = (

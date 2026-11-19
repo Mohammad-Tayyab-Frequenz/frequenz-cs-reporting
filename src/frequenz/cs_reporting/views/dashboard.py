@@ -36,6 +36,7 @@ from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
+from frequenz.cs_reporting.utils.errors import report_error
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
@@ -654,7 +655,8 @@ def _render_day_ahead_price_sync_status(
     try:
         prices = future.result()
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} Details: {exc}")
+        reference = report_error(exc, "Day-ahead price sync failed")
+        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} {reference}")
         return
     if prices.empty:
         st.warning(_DAY_AHEAD_PRICE_WARNING)
