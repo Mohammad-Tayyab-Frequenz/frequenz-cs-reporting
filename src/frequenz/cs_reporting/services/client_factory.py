@@ -142,6 +142,11 @@ def _microgrid_config_source_cached(config_root_value: str) -> MicrogridConfigSo
         return _discover_config_source(config_root_value)
 
 
+def _is_within(path: str | Path, root: Path) -> bool:
+    """Return whether ``path`` resolves to a location inside ``root``."""
+    return Path(path).resolve().is_relative_to(root)
+
+
 def _discover_config_source(config_root_value: str) -> MicrogridConfigSource:
     """Glob the TOML files and fingerprint their names."""
     config_root = Path(config_root_value)
@@ -150,7 +155,11 @@ def _discover_config_source(config_root_value: str) -> MicrogridConfigSource:
 
     resolved_root = config_root.resolve()
     with os.scandir(resolved_root) as entries:
-        names = sorted(entry.name for entry in entries if entry.name.endswith(".toml"))
+        names = sorted(
+            entry.name
+            for entry in entries
+            if entry.name.endswith(".toml") and _is_within(entry.path, resolved_root)
+        )
     if not names:
         raise RuntimeError(f"No microgrid config files found in: {config_root}")
 
@@ -281,7 +290,7 @@ def _enterprise_config_files(microgrid_id: int) -> tuple[str, ...] | None:
     found: tuple[str, ...] | None = None
     for name in (f"eid{enterprise_id}.toml", f"microgrids_eid{enterprise_id}.toml"):
         path = root / name
-        if path.is_file():
+        if path.is_file() and _is_within(path, root.resolve()):
             found = (str(path.resolve()),)
             break
     _ENTERPRISE_FILES[cache_key] = found
