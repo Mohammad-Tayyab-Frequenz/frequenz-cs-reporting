@@ -2992,3 +2992,62 @@ def test_render_section_divider_with_label_and_without(
     assert "Titel" in rendered[0]
     assert "dash-section-label__count" in rendered[0]
     assert rendered[1] == '<hr class="dash-section-divider">'
+
+
+def test_calculate_battery_optimization_summary_without_rows_returns_zero_total() -> (
+    None
+):
+    """A frame with the required columns but no rows has no savings."""
+    master_df = pd.DataFrame(
+        {"timestamp": [], "battery_power_flow": [], "day_ahead_price": []}
+    )
+
+    total_savings, daily_summary = calculate_battery_optimization_summary(
+        master_df, timedelta(minutes=15)
+    )
+
+    assert total_savings == 0.0
+    assert daily_summary.empty
+
+
+def test_aggregate_battery_optimization_summary_monthly_labels_march_in_german() -> (
+    None
+):
+    """Monthly period labels use the German month abbreviation."""
+    daily_summary = pd.DataFrame(
+        {
+            "date": [date(2026, 3, 5)],
+            "battery_charging_kwh": [1.0],
+            "battery_discharging_kwh": [1.0],
+            "charging_cost_eur": [0.1],
+            "discharging_value_eur": [0.2],
+            "optimization_savings_eur": [0.1],
+        }
+    )
+
+    monthly_summary = aggregate_battery_optimization_summary(daily_summary, "monthly")
+
+    assert monthly_summary["period_label"].tolist() == ["Mär 2026"]
+
+
+@pytest.mark.parametrize("capacity_kwh", [None, 0.0])
+def test_normalized_metrics_without_positive_capacity_have_no_capacity_values(
+    capacity_kwh: float | None,
+) -> None:
+    """Missing or zero capacity leaves capacity-based metrics empty."""
+    metrics = calculate_normalized_battery_optimization_metrics(
+        pd.DataFrame(
+            {
+                "battery_charging_kwh": [1000.0],
+                "battery_discharging_kwh": [800.0],
+                "charging_cost_eur": [50.0],
+                "discharging_value_eur": [120.0],
+                "optimization_savings_eur": [70.0],
+            }
+        ),
+        battery_capacity_kwh=capacity_kwh,
+    )
+
+    assert metrics["value_per_kwh_capacity"] is None
+    assert metrics["battery_cycles"] is None
+    assert metrics["value_per_mwh_throughput"] == pytest.approx(70.0 / 1.8)
