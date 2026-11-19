@@ -14,3 +14,4 @@ Refactored the battery-optimization reporting code without changing user-facing 
 - Data-loading errors no longer show raw exception text (internal paths, API URLs) in the UI. They show a short error ID instead, and the full exception is logged with the same ID.
 - Config discovery ignores `.toml` symlinks that point outside the config directory.
 - Section divider labels and KPI section titles are HTML-escaped.
+- A zero resolution (for example `0min`) is rejected with a clear error.

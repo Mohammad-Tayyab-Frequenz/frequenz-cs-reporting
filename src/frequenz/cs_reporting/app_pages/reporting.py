@@ -143,6 +143,8 @@ def _parse_resolution(resolution_str: str) -> timedelta:
 
     value, unit = match.groups()
     minutes = int(value) * (60 if unit in ("hour", "h") else 1)
+    if minutes == 0:
+        raise ValueError(f"Auflösung muss größer als null sein: {resolution_str}")
     return timedelta(minutes=minutes)
 
 
