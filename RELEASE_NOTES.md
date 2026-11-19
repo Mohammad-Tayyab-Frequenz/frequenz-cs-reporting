@@ -15,3 +15,4 @@ Refactored the battery-optimization reporting code without changing user-facing 
 - Config discovery ignores `.toml` symlinks that point outside the config directory.
 - Section divider labels and KPI section titles are HTML-escaped.
 - A zero resolution (for example `0min`) is rejected with a clear error.
+- Removed the unused `CFG`, `AppConfig` and `Paths` objects from `rep_cs_core.config`.
