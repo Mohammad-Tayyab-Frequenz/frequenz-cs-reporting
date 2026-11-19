@@ -3051,3 +3051,13 @@ def test_normalized_metrics_without_positive_capacity_have_no_capacity_values(
     assert metrics["value_per_kwh_capacity"] is None
     assert metrics["battery_cycles"] is None
     assert metrics["value_per_mwh_throughput"] == pytest.approx(70.0 / 1.8)
+
+
+def test_battery_plot_formatters() -> None:
+    """Battery plot labels use German number formatting and blank non-finite values."""
+    assert battery_optimization_view._format_full_eur(-1234.4) == "-€1.234"
+    assert battery_optimization_view._format_full_eur(float("nan")) == ""
+    assert battery_optimization_view._format_eur_with_decimals(1234.5) == "€1.234,50"
+    assert battery_optimization_view._format_eur_with_decimals(float("inf")) == ""
+    assert battery_optimization_view._format_cycle_count(1234.567) == "1.234,57"
+    assert battery_optimization_view._format_cycle_count(float("nan")) == ""
