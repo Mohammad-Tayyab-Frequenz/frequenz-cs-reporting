@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from matplotlib.figure import Figure
 
-from frequenz.cs_reporting.ui_resources import inject_style
+from frequenz.cs_reporting.ui_resources import inject_style, render_template
 
 StreamlitHeight: TypeAlias = Literal["stretch", "content"] | int
 
@@ -120,3 +120,30 @@ def render_plot_card(
             st.pyplot(fig)
         else:
             st.warning("Nicht unterstützter Figurtyp.")
+
+
+def _inject_dashboard_css() -> None:
+    """Inject dashboard section styles for the current Streamlit run."""
+    inject_style("dashboard.css")
+
+
+def render_section_divider(label: str = "", badge: str = "") -> None:
+    """Render a styled section divider with optional label."""
+    _inject_dashboard_css()
+    badge_html = (
+        f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
+    )
+    if label:
+        st.markdown(
+            render_template(
+                "dashboard_section_divider.html",
+                label=label,
+                badge_html=badge_html,
+            ),
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<hr class="dash-section-divider">',
+            unsafe_allow_html=True,
+        )

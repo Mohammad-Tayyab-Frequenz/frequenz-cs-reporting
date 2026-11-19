@@ -38,7 +38,7 @@ from frequenz.cs_reporting.app_pages.solar import (
     _solar_mid_heading,
     capture_workflow_figures,
 )
-from frequenz.cs_reporting.components import inputs
+from frequenz.cs_reporting.components import inputs, ui
 from frequenz.cs_reporting.components.sidebar_inputs import (
     _default_reporting_date_range,
     _microgrid_option_label,
@@ -1231,7 +1231,7 @@ def test_battery_reporting_uses_standard_chart_and_table_section_headings(
     monkeypatch.setattr(st, "divider", lambda: None)
     monkeypatch.setattr(
         battery_optimization_view,
-        "_section_divider",
+        "render_section_divider",
         section_headings.append,
     )
 
@@ -2976,3 +2976,19 @@ def test_microgrid_ids_are_found_in_supported_toml_shapes(
     found = getattr(client_factory, "_microgrid_ids_in_file")(str(config_file))
 
     assert found == expected
+
+
+def test_render_section_divider_with_label_and_without(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The section divider renders a labelled heading or a bare rule."""
+    rendered: list[str] = []
+    monkeypatch.setattr(st, "markdown", lambda body, **_kwargs: rendered.append(body))
+    monkeypatch.setattr(ui, "inject_style", lambda *_args, **_kwargs: None)
+
+    ui.render_section_divider("Titel", "3")
+    ui.render_section_divider()
+
+    assert "Titel" in rendered[0]
+    assert "dash-section-label__count" in rendered[0]
+    assert rendered[1] == '<hr class="dash-section-divider">'

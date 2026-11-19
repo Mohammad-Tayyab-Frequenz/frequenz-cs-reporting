@@ -12,7 +12,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from frequenz.cs_reporting.components.ui import render_plot_card
+from frequenz.cs_reporting.components.ui import (
+    render_plot_card,
+    render_section_divider,
+)
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
     aggregate_battery_optimization_intervals,
     build_battery_optimization_results_table,
@@ -21,7 +24,6 @@ from frequenz.cs_reporting.services.battery_optimization_calculations import (
 )
 from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils.timing import log_duration
-from frequenz.cs_reporting.views.dashboard import _section_divider
 from frequenz.cs_reporting.views.metric_renderers import render_box_section
 from frequenz.cs_reporting.views.table_renderers import render_table_section
 
@@ -586,7 +588,7 @@ def render_battery_optimization(
             value_colors={"Netto-Einsparung (€)": "#16a34a"},
             grid_class="kpi-grid--featured-first",
         )
-    _section_divider("Diagramme")
+    render_section_divider("Diagramme")
     with log_duration("battery.render_plots_primary"):
         _render_battery_optimization_plot_tabs(
             interval_data,
@@ -605,7 +607,7 @@ def render_battery_optimization(
             icon="⚙",
             grid_class="kpi-grid--two-by-two",
         )
-    _section_divider("Diagramme")
+    render_section_divider("Diagramme")
     with log_duration("battery.render_plots_secondary"):
         _render_battery_optimization_plot_tabs(
             interval_data,
@@ -613,7 +615,7 @@ def render_battery_optimization(
             _SECONDARY_PLOT_METRICS,
         )
 
-    _section_divider("Datentabellen")
+    render_section_divider("Datentabellen")
     with log_duration("battery.build_results_table"):
         results_table = build_battery_optimization_results_table(
             interval_data,
