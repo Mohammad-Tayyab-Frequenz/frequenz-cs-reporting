@@ -14,8 +14,6 @@ import pandas as pd
 BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
 DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
 KWH_PER_MWH = 1000.0
-_BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
-_DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
 SUMMARY_VALUE_COLUMNS = [
     "battery_charging_kwh",
     "battery_discharging_kwh",
@@ -46,7 +44,6 @@ _GERMAN_MONTH_ABBREVIATIONS = (
     "Nov",
     "Dez",
 )
-_KWH_PER_MWH = 1000.0
 CALCULATION_COLUMNS = (
     "battery_charging_kwh",
     "battery_discharging_kwh",
@@ -430,8 +427,8 @@ def calculate_battery_optimization_summary(
     """
     missing_cols = {
         "timestamp",
-        _BATTERY_POWER_FLOW_COLUMN,
-        _DAY_AHEAD_PRICE_COLUMN,
+        BATTERY_POWER_FLOW_COLUMN,
+        DAY_AHEAD_PRICE_COLUMN,
     }.difference(master_df.columns)
     if missing_cols:
         raise ValueError(
@@ -443,28 +440,28 @@ def calculate_battery_optimization_summary(
         raise ValueError("resolution must be positive")
 
     df = master_df[
-        ["timestamp", _BATTERY_POWER_FLOW_COLUMN, _DAY_AHEAD_PRICE_COLUMN]
+        ["timestamp", BATTERY_POWER_FLOW_COLUMN, DAY_AHEAD_PRICE_COLUMN]
     ].copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-    df[_BATTERY_POWER_FLOW_COLUMN] = pd.to_numeric(
-        df[_BATTERY_POWER_FLOW_COLUMN], errors="coerce"
+    df[BATTERY_POWER_FLOW_COLUMN] = pd.to_numeric(
+        df[BATTERY_POWER_FLOW_COLUMN], errors="coerce"
     ).fillna(0.0)
-    df[_DAY_AHEAD_PRICE_COLUMN] = pd.to_numeric(
-        df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce"
+    df[DAY_AHEAD_PRICE_COLUMN] = pd.to_numeric(
+        df[DAY_AHEAD_PRICE_COLUMN], errors="coerce"
     )
-    df = df.dropna(subset=["timestamp", _DAY_AHEAD_PRICE_COLUMN])
+    df = df.dropna(subset=["timestamp", DAY_AHEAD_PRICE_COLUMN])
 
     df["battery_charging_kwh"] = (
-        df[_BATTERY_POWER_FLOW_COLUMN].clip(lower=0.0) * hours_factor
+        df[BATTERY_POWER_FLOW_COLUMN].clip(lower=0.0) * hours_factor
     )
     df["battery_discharging_kwh"] = (
-        -df[_BATTERY_POWER_FLOW_COLUMN].clip(upper=0.0) * hours_factor
+        -df[BATTERY_POWER_FLOW_COLUMN].clip(upper=0.0) * hours_factor
     )
     df["charging_cost_eur"] = (
-        df["battery_charging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+        df["battery_charging_kwh"] * df[DAY_AHEAD_PRICE_COLUMN] / 1000.0
     )
     df["discharging_value_eur"] = (
-        df["battery_discharging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+        df["battery_discharging_kwh"] * df[DAY_AHEAD_PRICE_COLUMN] / 1000.0
     )
     df["optimization_savings_eur"] = (
         df["discharging_value_eur"] - df["charging_cost_eur"]
@@ -509,8 +506,8 @@ def calculate_normalized_battery_optimization_metrics(
             summary[column] = 0.0
         summary[column] = pd.to_numeric(summary[column], errors="coerce").fillna(0.0)
 
-    charging_mwh = float(summary["battery_charging_kwh"].sum()) / _KWH_PER_MWH
-    discharging_mwh = float(summary["battery_discharging_kwh"].sum()) / _KWH_PER_MWH
+    charging_mwh = float(summary["battery_charging_kwh"].sum()) / KWH_PER_MWH
+    discharging_mwh = float(summary["battery_discharging_kwh"].sum()) / KWH_PER_MWH
     throughput_mwh = charging_mwh + discharging_mwh
     savings_eur = float(summary["optimization_savings_eur"].sum())
     charging_cost_eur = float(summary["charging_cost_eur"].sum())
