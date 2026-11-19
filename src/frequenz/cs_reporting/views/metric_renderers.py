@@ -787,8 +787,8 @@ def render_summary_boxes(
                 title,
                 '<section class="kpi-section">'
                 '<div class="kpi-section-header">'
-                f'<div class="kpi-section-icon" style="background:{icon_bg};">{icon}</div>'
-                f'<p class="kpi-section-title">{title}</p>'
+                f'<div class="kpi-section-icon" style="background:{icon_bg};">{escape(icon)}</div>'
+                f'<p class="kpi-section-title">{escape(title)}</p>'
                 f"{warning_html}</div>"
                 f"{box_grid_html}"
                 "</section>",
