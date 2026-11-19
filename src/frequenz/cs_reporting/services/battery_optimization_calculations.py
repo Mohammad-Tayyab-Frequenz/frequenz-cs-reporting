@@ -14,6 +14,39 @@ import pandas as pd
 BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
 DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
 KWH_PER_MWH = 1000.0
+_BATTERY_POWER_FLOW_COLUMN = "battery_power_flow"
+_DAY_AHEAD_PRICE_COLUMN = "day_ahead_price"
+SUMMARY_VALUE_COLUMNS = [
+    "battery_charging_kwh",
+    "battery_discharging_kwh",
+    "charging_cost_eur",
+    "discharging_value_eur",
+    "optimization_savings_eur",
+]
+_PLOT_VALUE_COLUMN_ALIASES = {
+    "charging_value_eur": "discharging_value_eur",
+    "discharging_cost_eur": "charging_cost_eur",
+}
+AGGREGATION_OPTIONS = {
+    "daily": "Täglich",
+    "weekly": "Wöchentlich",
+    "monthly": "Monatlich",
+}
+_GERMAN_MONTH_ABBREVIATIONS = (
+    "Jan",
+    "Feb",
+    "Mär",
+    "Apr",
+    "Mai",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Okt",
+    "Nov",
+    "Dez",
+)
+_KWH_PER_MWH = 1000.0
 CALCULATION_COLUMNS = (
     "battery_charging_kwh",
     "battery_discharging_kwh",
@@ -372,3 +405,205 @@ def _finite(value: object) -> float | None:
         return None
     numeric_value = float(value)
     return numeric_value if isfinite(numeric_value) else None
+
+
+def calculate_battery_optimization_summary(
+    master_df: pd.DataFrame,
+    resolution: timedelta,
+) -> tuple[float, pd.DataFrame]:
+    """Calculate total and daily battery optimization savings.
+
+    The input power column follows PSC convention: positive battery power charges
+    the battery, negative battery power discharges it. Day-ahead prices are
+    expected in EUR/MWh, so interval kWh values are divided by 1000 for EUR.
+
+    Args:
+        master_df: Canonical reporting dataframe with battery and price columns.
+        resolution: Sampling interval used to convert power (kW) to energy (kWh).
+
+    Returns:
+        A tuple with the total optimization savings in EUR and a daily summary
+            dataframe.
+
+    Raises:
+        ValueError: If required columns are missing or resolution is not positive.
+    """
+    missing_cols = {
+        "timestamp",
+        _BATTERY_POWER_FLOW_COLUMN,
+        _DAY_AHEAD_PRICE_COLUMN,
+    }.difference(master_df.columns)
+    if missing_cols:
+        raise ValueError(
+            "Required columns are missing: " + ", ".join(sorted(missing_cols))
+        )
+
+    hours_factor = float(pd.to_timedelta(resolution).total_seconds()) / 3600.0
+    if hours_factor <= 0:
+        raise ValueError("resolution must be positive")
+
+    df = master_df[
+        ["timestamp", _BATTERY_POWER_FLOW_COLUMN, _DAY_AHEAD_PRICE_COLUMN]
+    ].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df[_BATTERY_POWER_FLOW_COLUMN] = pd.to_numeric(
+        df[_BATTERY_POWER_FLOW_COLUMN], errors="coerce"
+    ).fillna(0.0)
+    df[_DAY_AHEAD_PRICE_COLUMN] = pd.to_numeric(
+        df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce"
+    )
+    df = df.dropna(subset=["timestamp", _DAY_AHEAD_PRICE_COLUMN])
+
+    df["battery_charging_kwh"] = (
+        df[_BATTERY_POWER_FLOW_COLUMN].clip(lower=0.0) * hours_factor
+    )
+    df["battery_discharging_kwh"] = (
+        -df[_BATTERY_POWER_FLOW_COLUMN].clip(upper=0.0) * hours_factor
+    )
+    df["charging_cost_eur"] = (
+        df["battery_charging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+    )
+    df["discharging_value_eur"] = (
+        df["battery_discharging_kwh"] * df[_DAY_AHEAD_PRICE_COLUMN] / 1000.0
+    )
+    df["optimization_savings_eur"] = (
+        df["discharging_value_eur"] - df["charging_cost_eur"]
+    )
+
+    if df.empty:
+        return 0.0, pd.DataFrame(
+            columns=[
+                "date",
+                *SUMMARY_VALUE_COLUMNS,
+            ]
+        )
+
+    df["date"] = df["timestamp"].dt.date
+    daily_summary = (
+        df.groupby("date", as_index=False)[SUMMARY_VALUE_COLUMNS]
+        .sum()
+        .sort_values("date")
+    )
+
+    return float(df["optimization_savings_eur"].sum()), daily_summary
+
+
+# pylint: disable=too-many-locals
+def calculate_normalized_battery_optimization_metrics(
+    daily_summary: pd.DataFrame,
+    battery_capacity_kwh: float | None = None,
+) -> dict[str, float | None]:
+    """Calculate normalized battery optimization KPIs from summary values."""
+    if daily_summary.empty:
+        return {
+            "value_per_mwh_throughput": None,
+            "value_per_mwh_discharged": None,
+            "battery_price_spread_eur_per_mwh": None,
+            "value_per_kwh_capacity": None,
+            "battery_cycles": None,
+        }
+
+    summary = daily_summary.copy()
+    for column in SUMMARY_VALUE_COLUMNS:
+        if column not in summary.columns:
+            summary[column] = 0.0
+        summary[column] = pd.to_numeric(summary[column], errors="coerce").fillna(0.0)
+
+    charging_mwh = float(summary["battery_charging_kwh"].sum()) / _KWH_PER_MWH
+    discharging_mwh = float(summary["battery_discharging_kwh"].sum()) / _KWH_PER_MWH
+    throughput_mwh = charging_mwh + discharging_mwh
+    savings_eur = float(summary["optimization_savings_eur"].sum())
+    charging_cost_eur = float(summary["charging_cost_eur"].sum())
+    discharging_value_eur = float(summary["discharging_value_eur"].sum())
+
+    value_per_mwh_throughput = savings_eur / throughput_mwh if throughput_mwh else None
+    value_per_mwh_discharged = (
+        savings_eur / discharging_mwh if discharging_mwh else None
+    )
+    average_charge_price = charging_cost_eur / charging_mwh if charging_mwh else None
+    average_discharge_price = (
+        discharging_value_eur / discharging_mwh if discharging_mwh else None
+    )
+    price_spread = (
+        average_discharge_price - average_charge_price
+        if average_charge_price is not None and average_discharge_price is not None
+        else None
+    )
+    value_per_kwh_capacity = (
+        savings_eur / battery_capacity_kwh
+        if battery_capacity_kwh is not None and battery_capacity_kwh > 0
+        else None
+    )
+    battery_cycles = (
+        (
+            float(summary["battery_charging_kwh"].sum())
+            + float(summary["battery_discharging_kwh"].sum())
+        )
+        / (2 * battery_capacity_kwh)
+        if battery_capacity_kwh is not None and battery_capacity_kwh > 0
+        else None
+    )
+
+    return {
+        "value_per_mwh_throughput": value_per_mwh_throughput,
+        "value_per_mwh_discharged": value_per_mwh_discharged,
+        "battery_price_spread_eur_per_mwh": price_spread,
+        "value_per_kwh_capacity": value_per_kwh_capacity,
+        "battery_cycles": battery_cycles,
+    }
+
+
+def aggregate_battery_optimization_summary(
+    daily_summary: pd.DataFrame,
+    aggregation: str,
+) -> pd.DataFrame:
+    """Aggregate daily battery optimization savings by day, week, or month."""
+    if aggregation not in AGGREGATION_OPTIONS:
+        raise ValueError(f"Unsupported aggregation: {aggregation}")
+    if daily_summary.empty:
+        return pd.DataFrame(columns=["period", "period_label", *SUMMARY_VALUE_COLUMNS])
+
+    summary = daily_summary.copy()
+    for column in SUMMARY_VALUE_COLUMNS:
+        if column not in summary.columns:
+            summary[column] = 0.0
+
+    summary["date"] = pd.to_datetime(summary["date"], errors="coerce")
+    summary = summary.dropna(subset=["date"])
+
+    if aggregation == "daily":
+        summary["period"] = summary["date"].dt.date
+        summary["period_label"] = summary["date"].dt.strftime("%d.%m.%Y")
+    elif aggregation == "weekly":
+        week_start = summary["date"] - pd.to_timedelta(
+            summary["date"].dt.weekday, unit="D"
+        )
+        summary["period"] = week_start.dt.date
+        summary["period_label"] = summary["date"].dt.strftime("KW %V %G")
+    else:
+        month_start = summary["date"].dt.to_period("M").dt.to_timestamp()
+        summary["period"] = month_start.dt.date
+        summary["period_label"] = month_start.map(
+            lambda value: (
+                f"{_GERMAN_MONTH_ABBREVIATIONS[value.month - 1]} {value.year}"
+            )
+        )
+
+    return (
+        summary.groupby(["period", "period_label"], as_index=False)[
+            SUMMARY_VALUE_COLUMNS
+        ]
+        .sum()
+        .sort_values("period")
+    )
+
+
+def with_plot_value_column_aliases(summary: pd.DataFrame) -> pd.DataFrame:
+    """Add plot-value aliases, preferring the latest pipeline column names."""
+    result = summary.copy()
+    for current_column, legacy_column in _PLOT_VALUE_COLUMN_ALIASES.items():
+        if current_column in result.columns:
+            result[legacy_column] = result[current_column]
+        elif legacy_column in result.columns:
+            result[current_column] = result[legacy_column]
+    return result

@@ -61,8 +61,11 @@ from frequenz.cs_reporting.constants import (
 from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
+    aggregate_battery_optimization_summary,
     build_battery_optimization_results_table,
     calculate_battery_optimization_intervals,
+    calculate_battery_optimization_summary,
+    calculate_normalized_battery_optimization_metrics,
     calculate_selection_metrics,
 )
 from frequenz.cs_reporting.services.data_service import (
@@ -91,11 +94,8 @@ from frequenz.cs_reporting.views.battery_optimization import (
     _SECONDARY_PLOT_METRICS,
     _build_battery_optimization_kpi_boxes,
     _render_battery_optimization_plot_tabs,
-    aggregate_battery_optimization_summary,
     build_daily_battery_optimization_figure,
     build_normalized_battery_optimization_figure,
-    calculate_battery_optimization_summary,
-    calculate_normalized_battery_optimization_metrics,
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
