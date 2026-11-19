@@ -16,3 +16,4 @@ Refactored the battery-optimization reporting code without changing user-facing 
 - Section divider labels and KPI section titles are HTML-escaped.
 - A zero resolution (for example `0min`) is rejected with a clear error.
 - Removed the unused `CFG`, `AppConfig` and `Paths` objects from `rep_cs_core.config`.
+- The previous-period comparison covers the same local calendar days when the selected period crosses a daylight-saving change (it previously lost one hour).

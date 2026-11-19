@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
 
 import pandas as pd
@@ -360,7 +360,12 @@ def split_periods(
         selected_end,
         current_timestamps.max() + pd.Timedelta(resolution),
     )
-    previous_end_ts = previous_start_ts + (actual_selected_end - selected_start)
+    # Shift the end back in the selection's own timezone so the previous period
+    # covers the same local calendar span, even across a DST change.
+    previous_end_ts = _timestamp_utc(
+        actual_selected_end.to_pydatetime().astimezone(start_time.tzinfo or UTC)
+        - period
+    )
     previous_mask = (timestamps >= previous_start_ts) & (timestamps < previous_end_ts)
 
     return master_df.loc[current_mask].copy(), master_df.loc[previous_mask].copy()
