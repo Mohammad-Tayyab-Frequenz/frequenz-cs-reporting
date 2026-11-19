@@ -90,13 +90,15 @@ from frequenz.cs_reporting.views import sections as reporting_sections
 from frequenz.cs_reporting.views import (
     table_renderers,
 )
+from frequenz.cs_reporting.views.battery_kpis import (
+    build_battery_optimization_kpi_boxes,
+)
 from frequenz.cs_reporting.views.battery_optimization import (
     _BATTERY_PLOT_FRAGMENT_RENDERERS,
     _KPI_CARDS_PER_ROW,
     _OPERATING_KPI_CARDS_PER_ROW,
     _PRIMARY_PLOT_METRICS,
     _SECONDARY_PLOT_METRICS,
-    _build_battery_optimization_kpi_boxes,
     _render_battery_optimization_plot_tabs,
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
@@ -1200,7 +1202,7 @@ def test_battery_reporting_uses_standard_chart_and_table_section_headings(
     )
     monkeypatch.setattr(
         battery_optimization_view,
-        "_build_battery_optimization_kpi_boxes",
+        "build_battery_optimization_kpi_boxes",
         lambda _metrics: boxes,
     )
     monkeypatch.setattr(
@@ -2577,7 +2579,7 @@ def test_battery_optimization_hides_disabled_cards_and_plots() -> None:
         "battery_cycles": 60.0,
     }
 
-    labels = [box[0] for box in _build_battery_optimization_kpi_boxes(metrics)]
+    labels = [box[0] for box in build_battery_optimization_kpi_boxes(metrics)]
 
     assert "Wert Entladung (€)" in labels
     assert "Wert Beladung (€)" in labels
@@ -3057,9 +3059,30 @@ def test_normalized_metrics_without_positive_capacity_have_no_capacity_values(
 
 def test_battery_plot_formatters() -> None:
     """Battery plot labels use German number formatting and blank non-finite values."""
+    # pylint: disable=protected-access
     assert battery_plots._format_full_eur(-1234.4) == "-€1.234"
     assert battery_plots._format_full_eur(float("nan")) == ""
     assert battery_plots._format_eur_with_decimals(1234.5) == "€1.234,50"
     assert battery_plots._format_eur_with_decimals(float("inf")) == ""
     assert battery_plots._format_cycle_count(1234.567) == "1.234,57"
     assert battery_plots._format_cycle_count(float("nan")) == ""
+
+
+def test_battery_kpi_boxes_have_tooltips() -> None:
+    """Every visible battery KPI card carries a non-empty tooltip."""
+    metrics: dict[str, float | None] = {
+        "total_savings": 10.0,
+        "charging_cost_eur": 20.0,
+        "discharging_value_eur": 30.0,
+        "battery_charging_kwh": 70.0,
+        "battery_discharging_kwh": 80.0,
+        "battery_efficiency_pct": 90.0,
+        "battery_price_spread_eur_per_mwh": 40.0,
+        "value_per_kwh_capacity": 50.0,
+        "battery_cycles": 60.0,
+    }
+
+    boxes = build_battery_optimization_kpi_boxes(metrics)
+
+    assert len(boxes) == 8
+    assert all(box[3] for box in boxes)
