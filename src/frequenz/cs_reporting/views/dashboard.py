@@ -20,6 +20,7 @@ from frequenz.lib.notebooks.reporting.utils.reporting_nb_functions import (
     compute_energy_summary,
 )
 
+from frequenz.cs_reporting.components.ui import render_section_divider
 from frequenz.cs_reporting.constants import COMPONENT_CONFIGS, TablesResult
 from frequenz.cs_reporting.services.client_factory import (
     MicrogridConfigRevision,
@@ -34,11 +35,7 @@ from frequenz.cs_reporting.services.market_metering import merge_dso_energy
 from frequenz.cs_reporting.services.reporting_session import (
     request_reporting_data_reuse,
 )
-from frequenz.cs_reporting.ui_resources import (
-    inject_style,
-    load_tooltips,
-    render_template,
-)
+from frequenz.cs_reporting.ui_resources import load_tooltips
 from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views import sections
 
@@ -77,33 +74,6 @@ _INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
 )
 _DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
 _INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
-
-
-def _inject_dashboard_css() -> None:
-    """Inject dashboard section styles for the current Streamlit run."""
-    inject_style("dashboard.css")
-
-
-def _section_divider(label: str = "", badge: str = "") -> None:
-    """Render a styled section divider with optional label."""
-    _inject_dashboard_css()
-    badge_html = (
-        f'<span class="dash-section-label__count">{badge}</span>' if badge else ""
-    )
-    if label:
-        st.markdown(
-            render_template(
-                "dashboard_section_divider.html",
-                label=label,
-                badge_html=badge_html,
-            ),
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<hr class="dash-section-divider">',
-            unsafe_allow_html=True,
-        )
 
 
 def _numeric_metric(metrics: dict[str, float | str | None], key: str) -> float | None:
@@ -755,7 +725,7 @@ def render_dashboard(
         )
 
     with log_duration("dashboard.render_kpis"):
-        # _section_divider("Übersicht", "KPIs")
+        # render_section_divider("Übersicht", "KPIs")
         st.subheader("Reporting")
         sections.render_summary_boxes(
             tables["metrics"],
@@ -769,12 +739,12 @@ def render_dashboard(
         )
 
     with log_duration("dashboard.render_plots"):
-        _section_divider("Diagramme & Zeitreihen")
+        render_section_divider("Diagramme & Zeitreihen")
         sections.render_plots_tabs(tables, mapper, component_types, master_df, mcfg)
 
     with log_duration("dashboard.render_tables"):
         st.markdown('<div id="data-export-section"></div>', unsafe_allow_html=True)
-        _section_divider("Datentabellen")
+        render_section_divider("Datentabellen")
         sections.render_data_tabs(master_df, tables, mapper, mcfg, component_types)
 
 

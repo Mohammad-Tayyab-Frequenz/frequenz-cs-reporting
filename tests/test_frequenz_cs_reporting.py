@@ -38,7 +38,12 @@ from frequenz.cs_reporting.app_pages.solar import (
     _solar_mid_heading,
     capture_workflow_figures,
 )
-from frequenz.cs_reporting.components import inputs
+from frequenz.cs_reporting.components import battery_plots, inputs, ui
+from frequenz.cs_reporting.components.battery_plots import (
+    _HIDDEN_NORMALIZED_METRICS,
+    build_daily_battery_optimization_figure,
+    build_normalized_battery_optimization_figure,
+)
 from frequenz.cs_reporting.components.sidebar_inputs import (
     _default_reporting_date_range,
     _microgrid_option_label,
@@ -61,8 +66,11 @@ from frequenz.cs_reporting.constants import (
 from frequenz.cs_reporting.rep_cs_core.config import microgrid_config_dir
 from frequenz.cs_reporting.services import client_factory
 from frequenz.cs_reporting.services.battery_optimization_calculations import (
+    aggregate_battery_optimization_summary,
     build_battery_optimization_results_table,
     calculate_battery_optimization_intervals,
+    calculate_battery_optimization_summary,
+    calculate_normalized_battery_optimization_metrics,
     calculate_selection_metrics,
 )
 from frequenz.cs_reporting.services.data_service import (
@@ -82,20 +90,16 @@ from frequenz.cs_reporting.views import sections as reporting_sections
 from frequenz.cs_reporting.views import (
     table_renderers,
 )
+from frequenz.cs_reporting.views.battery_kpis import (
+    build_battery_optimization_kpi_boxes,
+)
 from frequenz.cs_reporting.views.battery_optimization import (
     _BATTERY_PLOT_FRAGMENT_RENDERERS,
-    _HIDDEN_NORMALIZED_METRICS,
     _KPI_CARDS_PER_ROW,
     _OPERATING_KPI_CARDS_PER_ROW,
     _PRIMARY_PLOT_METRICS,
     _SECONDARY_PLOT_METRICS,
-    _build_battery_optimization_kpi_boxes,
     _render_battery_optimization_plot_tabs,
-    aggregate_battery_optimization_summary,
-    build_daily_battery_optimization_figure,
-    build_normalized_battery_optimization_figure,
-    calculate_battery_optimization_summary,
-    calculate_normalized_battery_optimization_metrics,
 )
 from frequenz.cs_reporting.views.component_sources import default_component_plot_source
 from frequenz.cs_reporting.views.dashboard import (
@@ -1198,7 +1202,7 @@ def test_battery_reporting_uses_standard_chart_and_table_section_headings(
     )
     monkeypatch.setattr(
         battery_optimization_view,
-        "_build_battery_optimization_kpi_boxes",
+        "build_battery_optimization_kpi_boxes",
         lambda _metrics: boxes,
     )
     monkeypatch.setattr(
@@ -1231,7 +1235,7 @@ def test_battery_reporting_uses_standard_chart_and_table_section_headings(
     monkeypatch.setattr(st, "divider", lambda: None)
     monkeypatch.setattr(
         battery_optimization_view,
-        "_section_divider",
+        "render_section_divider",
         section_headings.append,
     )
 
@@ -2575,7 +2579,7 @@ def test_battery_optimization_hides_disabled_cards_and_plots() -> None:
         "battery_cycles": 60.0,
     }
 
-    labels = [box[0] for box in _build_battery_optimization_kpi_boxes(metrics)]
+    labels = [box[0] for box in build_battery_optimization_kpi_boxes(metrics)]
 
     assert "Wert Entladung (€)" in labels
     assert "Wert Beladung (€)" in labels
@@ -2976,3 +2980,109 @@ def test_microgrid_ids_are_found_in_supported_toml_shapes(
     found = getattr(client_factory, "_microgrid_ids_in_file")(str(config_file))
 
     assert found == expected
+
+
+def test_render_section_divider_with_label_and_without(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The section divider renders a labelled heading or a bare rule."""
+    rendered: list[str] = []
+    monkeypatch.setattr(st, "markdown", lambda body, **_kwargs: rendered.append(body))
+    monkeypatch.setattr(ui, "inject_style", lambda *_args, **_kwargs: None)
+
+    ui.render_section_divider("Titel", "3")
+    ui.render_section_divider()
+
+    assert "Titel" in rendered[0]
+    assert "dash-section-label__count" in rendered[0]
+    assert rendered[1] == '<hr class="dash-section-divider">'
+
+
+def test_calculate_battery_optimization_summary_without_rows_returns_zero_total() -> (
+    None
+):
+    """A frame with the required columns but no rows has no savings."""
+    master_df = pd.DataFrame(
+        {"timestamp": [], "battery_power_flow": [], "day_ahead_price": []}
+    )
+
+    total_savings, daily_summary = calculate_battery_optimization_summary(
+        master_df, timedelta(minutes=15)
+    )
+
+    assert total_savings == 0.0
+    assert daily_summary.empty
+
+
+def test_aggregate_battery_optimization_summary_monthly_labels_march_in_german() -> (
+    None
+):
+    """Monthly period labels use the German month abbreviation."""
+    daily_summary = pd.DataFrame(
+        {
+            "date": [date(2026, 3, 5)],
+            "battery_charging_kwh": [1.0],
+            "battery_discharging_kwh": [1.0],
+            "charging_cost_eur": [0.1],
+            "discharging_value_eur": [0.2],
+            "optimization_savings_eur": [0.1],
+        }
+    )
+
+    monthly_summary = aggregate_battery_optimization_summary(daily_summary, "monthly")
+
+    assert monthly_summary["period_label"].tolist() == ["Mär 2026"]
+
+
+@pytest.mark.parametrize("capacity_kwh", [None, 0.0])
+def test_normalized_metrics_without_positive_capacity_have_no_capacity_values(
+    capacity_kwh: float | None,
+) -> None:
+    """Missing or zero capacity leaves capacity-based metrics empty."""
+    metrics = calculate_normalized_battery_optimization_metrics(
+        pd.DataFrame(
+            {
+                "battery_charging_kwh": [1000.0],
+                "battery_discharging_kwh": [800.0],
+                "charging_cost_eur": [50.0],
+                "discharging_value_eur": [120.0],
+                "optimization_savings_eur": [70.0],
+            }
+        ),
+        battery_capacity_kwh=capacity_kwh,
+    )
+
+    assert metrics["value_per_kwh_capacity"] is None
+    assert metrics["battery_cycles"] is None
+    assert metrics["value_per_mwh_throughput"] == pytest.approx(70.0 / 1.8)
+
+
+def test_battery_plot_formatters() -> None:
+    """Battery plot labels use German number formatting and blank non-finite values."""
+    # pylint: disable=protected-access
+    assert battery_plots._format_full_eur(-1234.4) == "-€1.234"
+    assert battery_plots._format_full_eur(float("nan")) == ""
+    assert battery_plots._format_eur_with_decimals(1234.5) == "€1.234,50"
+    assert battery_plots._format_eur_with_decimals(float("inf")) == ""
+    assert battery_plots._format_cycle_count(1234.567) == "1.234,57"
+    assert battery_plots._format_cycle_count(float("nan")) == ""
+
+
+def test_battery_kpi_boxes_have_tooltips() -> None:
+    """Every visible battery KPI card carries a non-empty tooltip."""
+    metrics: dict[str, float | None] = {
+        "total_savings": 10.0,
+        "charging_cost_eur": 20.0,
+        "discharging_value_eur": 30.0,
+        "battery_charging_kwh": 70.0,
+        "battery_discharging_kwh": 80.0,
+        "battery_efficiency_pct": 90.0,
+        "battery_price_spread_eur_per_mwh": 40.0,
+        "value_per_kwh_capacity": 50.0,
+        "battery_cycles": 60.0,
+    }
+
+    boxes = build_battery_optimization_kpi_boxes(metrics)
+
+    assert len(boxes) == 8
+    assert all(box[3] for box in boxes)
