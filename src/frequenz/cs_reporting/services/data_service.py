@@ -796,11 +796,12 @@ def _day_ahead_price_key(country_code: str) -> DatasetKey:
 
 
 def _day_ahead_price_cache(config: CacheConfig) -> ParquetRangeCache:
-    """Build the persistent cache used by scheduled price synchronization."""
-    return _range_cache(
-        config,
-        overlap=max(timedelta(minutes=config.sync_overlap_minutes), timedelta(hours=2)),
-    )
+    """Build the persistent cache used by scheduled price synchronization.
+
+    Published day-ahead prices never change, so there is no overlap refresh:
+    only the ranges missing from the cache are requested from ENTSO-E.
+    """
+    return _range_cache(config, overlap=timedelta(0))
 
 
 def get_battery_capacity_kwh(

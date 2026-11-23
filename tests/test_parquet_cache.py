@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from frequenz.cs_reporting.services import data_service
+from frequenz.cs_reporting.services.cache_config import get_cache_config
 from frequenz.cs_reporting.services.parquet_cache import (
     DatasetKey,
     ParquetRangeCache,
@@ -899,3 +900,28 @@ def test_cache_waits_for_background_restore(tmp_path: Path) -> None:
     finally:
         deepnote_cache._RESTORE_DONE.set()  # pylint: disable=W0212
     assert created.wait(timeout=5)
+
+
+def test_day_ahead_sync_requests_only_the_missing_range(tmp_path: Path) -> None:
+    """Even when a sync is due, only the gap after the cached prices is fetched."""
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    cache = ParquetRangeCache(
+        tmp_path / "parquet",
+        sync_interval=timedelta(0),
+        # pylint: disable-next=protected-access
+        overlap=data_service._day_ahead_price_cache(get_cache_config())._overlap,
+        retry_attempts=1,
+    )
+    key = DatasetKey("day_ahead_prices_DE_LU", 0, 900)
+    calls: list[tuple[datetime, datetime]] = []
+
+    def fetch(fetch_start: datetime, fetch_end: datetime) -> pd.DataFrame:
+        calls.append((fetch_start, fetch_end))
+        return _frame(fetch_start, fetch_end).rename(columns={"power": "p"})
+
+    cache.get(key, start, start + timedelta(days=1), fetch)
+    calls.clear()
+    cache.get(key, start, start + timedelta(days=1), fetch)
+    assert not calls
+    cache.get(key, start, start + timedelta(days=2), fetch)
+    assert calls == [(start + timedelta(days=1), start + timedelta(days=2))]
