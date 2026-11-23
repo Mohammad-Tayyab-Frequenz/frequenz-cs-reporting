@@ -96,3 +96,93 @@ def test_pages_never_interpolate_exceptions_into_ui_text(relative_path: str) -> 
         r"\{(?:exc|type\(exc\)[^{}]*|[^{}]*\.exception\(\))\}", source
     )
     assert offenders == []
+
+
+def test_day_ahead_warning_lists_missing_cached_dates() -> None:
+    """A failed sync warns with the dates the cache has no prices for."""
+    future: Future[pd.Series] = Future()
+    future.set_exception(OSError(SECRET))
+    warnings: list[str] = []
+    master_df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2020-01-01 00:00", "2020-01-02 00:00"]),
+            "day_ahead_price": [10.0, None],
+        }
+    )
+    with (
+        patch.object(dashboard, "_price_sync_range", return_value=(None, None)),
+        patch.object(
+            dashboard, "start_background_day_ahead_price_sync", return_value=future
+        ),
+        patch.object(st, "warning", side_effect=warnings.append),
+    ):
+        # pylint: disable-next=protected-access
+        dashboard._render_day_ahead_price_sync_status(
+            master_df, None, pd.Timedelta(hours=1)
+        )
+    assert "2020-01-02" in warnings[0] and "2020-01-01" not in warnings[0]
+
+
+def test_day_ahead_sync_still_runs_for_missing_past_dates() -> None:
+    """A gap before today is still fetched even when today's prices are cached."""
+    future: Future[pd.Series] = Future()
+    future.set_result(pd.Series(dtype="float64"))
+    now = pd.Timestamp.now(tz="UTC").floor("h")
+    master_df = pd.DataFrame(
+        {
+            "timestamp": [now - pd.Timedelta(days=3), now],
+            "day_ahead_price": [None, 50.0],
+        }
+    )
+    with (
+        patch.object(
+            dashboard, "start_background_day_ahead_price_sync", return_value=future
+        ) as sync,
+        patch.object(st, "warning"),
+    ):
+        # pylint: disable-next=protected-access
+        dashboard._render_day_ahead_price_sync_status(
+            master_df, None, pd.Timedelta(hours=1)
+        )
+    sync.assert_called_once()
+
+
+def test_missing_price_dates_collapse_consecutive_days_into_ranges() -> None:
+    """Consecutive missing days become one range; isolated days stay single."""
+    master_df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                ["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-05"]
+            ),
+            "day_ahead_price": [None, None, None, None],
+        }
+    )
+    # pylint: disable-next=protected-access
+    assert dashboard._missing_price_dates(master_df) == [
+        "2020-01-01 bis 2020-01-03",
+        "2020-01-05",
+    ]
+
+
+def test_missing_entsoe_key_warns_and_skips_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ENTSOE_API_KEY the dashboard warns and starts no sync."""
+    monkeypatch.delenv("ENTSOE_API_KEY", raising=False)
+    warnings: list[str] = []
+    master_df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(["2020-01-01"]),
+            "day_ahead_price": [None],
+        }
+    )
+    with (
+        patch.object(dashboard, "start_background_day_ahead_price_sync") as sync,
+        patch.object(st, "warning", side_effect=warnings.append),
+    ):
+        # pylint: disable-next=protected-access
+        dashboard._render_day_ahead_price_sync_status(
+            master_df, None, pd.Timedelta(hours=1)
+        )
+    sync.assert_not_called()
+    assert "ENTSOE_API_KEY" in warnings[0] and "2020-01-01" in warnings[0]

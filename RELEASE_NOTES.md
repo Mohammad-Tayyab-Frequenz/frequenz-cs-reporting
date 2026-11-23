@@ -13,6 +13,7 @@ Refactored the battery-optimization reporting code without changing user-facing 
 ## Bug Fixes
 
 - Day-ahead price synchronization requests only the ranges missing from the cache and no longer re-fetches an overlap of already cached prices.
+- The day-ahead price warning is shown in German and lists the date ranges missing from the cached prices. It also warns when the `ENTSOE_API_KEY` is missing, in which case no fetch is attempted and only cached prices are used.
 - Data-loading errors no longer show raw exception text (internal paths, API URLs) in the UI. They show a short error ID instead, and the full exception is logged with the same ID.
 - Config discovery ignores `.toml` symlinks that point outside the config directory.
 - Section divider labels and KPI section titles are HTML-escaped.

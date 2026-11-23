@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
@@ -65,13 +66,18 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "average_da_price_dso_export",
 }
 _DAY_AHEAD_PRICE_WARNING = (
-    "Day-ahead prices are not available in the local cache. "
-    "Please check the scheduled data synchronization."
+    "Day-Ahead-Preise sind im lokalen Cache nicht verfügbar. "
+    "Bitte prüfen Sie die geplante Datensynchronisation."
+)
+_MISSING_ENTSOE_KEY_WARNING = (
+    "Der ENTSO-E-API-Schlüssel (ENTSOE_API_KEY) fehlt. Fehlende Day-Ahead-Preise "
+    "können nicht abgerufen werden; es werden nur zwischengespeicherte Preise "
+    "verwendet."
 )
 _INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
-    "Day-ahead prices are missing for intervals with grid import or feed-in. "
-    "Affected cost, revenue, and average-price KPIs are shown as unavailable "
-    "(—); missing prices are not treated as zero."
+    "Für Intervalle mit Netzbezug oder Netzeinspeisung fehlen Day-Ahead-Preise. "
+    "Betroffene Kosten-, Erlös- und Durchschnittspreis-KPIs werden als "
+    "nicht verfügbar (—) angezeigt; fehlende Preise werden nicht als null gewertet."
 )
 _DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
 _INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
@@ -187,6 +193,40 @@ def _has_current_day_ahead_prices(master_df: pd.DataFrame) -> bool:
         _DAY_AHEAD_PRICE_COLUMN,
     ]
     return not latest_rows.empty and bool(latest_rows.notna().any())
+
+
+def _missing_price_dates(master_df: pd.DataFrame) -> list[str]:
+    """Return ISO dates or date ranges where cached data lacks day-ahead prices."""
+    if master_df.empty or "timestamp" not in master_df.columns:
+        return []
+    timestamps = pd.to_datetime(master_df["timestamp"], errors="coerce")
+    if _DAY_AHEAD_PRICE_COLUMN in master_df.columns:
+        missing = master_df[_DAY_AHEAD_PRICE_COLUMN].isna()
+    else:
+        missing = pd.Series(True, index=master_df.index)
+    days = sorted(set(timestamps[missing & timestamps.notna()].dt.date))
+    ranges: list[list[Any]] = []
+    for day in days:
+        if ranges and day - ranges[-1][1] == timedelta(days=1):
+            ranges[-1][1] = day
+        else:
+            ranges.append([day, day])
+    return [
+        (
+            first.isoformat()
+            if first == last
+            else f"{first.isoformat()} bis {last.isoformat()}"
+        )
+        for first, last in ranges
+    ]
+
+
+def _price_warning(base: str, master_df: pd.DataFrame) -> str:
+    """Append the dates missing in the cached prices to a warning message."""
+    dates = _missing_price_dates(master_df)
+    if not dates:
+        return base
+    return f"{base} Fehlende Day-Ahead-Preise für: {', '.join(dates)}."
 
 
 def _has_complete_dso_data(master_df: pd.DataFrame) -> bool:
@@ -652,6 +692,9 @@ def _render_day_ahead_price_sync_status(
     resolution: timedelta,
 ) -> None:
     """Start or report the non-blocking synchronization for missing prices."""
+    if not os.getenv("ENTSOE_API_KEY"):
+        st.warning(_price_warning(_MISSING_ENTSOE_KEY_WARNING, master_df))
+        return
     start, end = _price_sync_range(master_df, previous_master_df, resolution)
     future = start_background_day_ahead_price_sync("DE_LU", start, end)
     if not future.done():
@@ -661,15 +704,16 @@ def _render_day_ahead_price_sync_status(
         prices = future.result()
     except Exception as exc:  # pylint: disable=broad-exception-caught
         reference = report_error(exc, "Day-ahead price sync failed")
-        st.warning(f"{_DAY_AHEAD_PRICE_WARNING} {reference}")
+        # master_df already holds whatever the cache has; report what is missing.
+        st.warning(f"{_price_warning(_DAY_AHEAD_PRICE_WARNING, master_df)} {reference}")
         return
     if prices.empty:
-        st.warning(_DAY_AHEAD_PRICE_WARNING)
+        st.warning(_price_warning(_DAY_AHEAD_PRICE_WARNING, master_df))
         return
 
     if _rerun_after_price_sync_once(future):
         return
-    st.warning(_INCOMPLETE_DAY_AHEAD_PRICE_WARNING)
+    st.warning(_price_warning(_INCOMPLETE_DAY_AHEAD_PRICE_WARNING, master_df))
 
 
 def render_dashboard(
