@@ -60,7 +60,7 @@ LOGO_NAME = "neustrom_logo.png"
 
 def _inject_global_theme() -> None:
     """Inject the global theme CSS for the Streamlit app."""
-    st.markdown(
+    st.html(
         """
         <style>
         :root {
@@ -317,7 +317,6 @@ def _inject_global_theme() -> None:
         }
         </style>
         """,
-        unsafe_allow_html=True,
     )
 
 

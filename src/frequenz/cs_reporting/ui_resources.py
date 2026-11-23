@@ -58,4 +58,4 @@ def inject_style(style_name: str, **tokens: str) -> None:
     for key, value in tokens.items():
         style_text = style_text.replace(f"__{key.upper()}__", value)
 
-    st.markdown(f"<style>\n{style_text}\n</style>", unsafe_allow_html=True)
+    st.html(f"<style>\n{style_text}\n</style>")
