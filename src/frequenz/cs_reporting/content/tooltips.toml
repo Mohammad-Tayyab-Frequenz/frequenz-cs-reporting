@@ -103,3 +103,12 @@ battery_cycles = """
 Berechnung: (geladene Energie + entladene Energie) (kWh) /
 (2 * Batteriekapazität (kWh)).
 """
+
+[day_ahead_prices]
+unavailable = "Day-Ahead-Preise sind im lokalen Cache nicht verfügbar. Bitte prüfen Sie die geplante Datensynchronisation."
+missing_entsoe_key = "Der ENTSO-E-API-Schlüssel (ENTSOE_API_KEY) fehlt. Fehlende Day-Ahead-Preise können nicht abgerufen werden; es werden nur zwischengespeicherte Preise verwendet."
+incomplete = "Für Intervalle mit Netzbezug oder Netzeinspeisung fehlen Day-Ahead-Preise. Kosten-, Erlös- und Durchschnittspreis-KPIs werden nur aus Intervallen mit Preis berechnet; fehlende Preise werden nicht als null gewertet."
+missing_dates = "Fehlende Day-Ahead-Preise für: {dates}."
+loading = "Day-ahead prices are loading in the background …"
+no_new_prices = "Für einen Teil des Zeitraums sind keine neuen Day-Ahead-Preise verfügbar. Vorhandene Cache-Daten werden verwendet."
+load_failed = "Day-Ahead-Preise konnten nicht geladen werden."

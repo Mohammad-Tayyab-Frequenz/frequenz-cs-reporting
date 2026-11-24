@@ -65,20 +65,10 @@ _DAY_AHEAD_PRICE_METRIC_KEYS = {
     "average_da_price_dso_import",
     "average_da_price_dso_export",
 }
-_DAY_AHEAD_PRICE_WARNING = (
-    "Day-Ahead-Preise sind im lokalen Cache nicht verfügbar. "
-    "Bitte prüfen Sie die geplante Datensynchronisation."
-)
-_MISSING_ENTSOE_KEY_WARNING = (
-    "Der ENTSO-E-API-Schlüssel (ENTSOE_API_KEY) fehlt. Fehlende Day-Ahead-Preise "
-    "können nicht abgerufen werden; es werden nur zwischengespeicherte Preise "
-    "verwendet."
-)
-_INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
-    "Für Intervalle mit Netzbezug oder Netzeinspeisung fehlen Day-Ahead-Preise. "
-    "Kosten-, Erlös- und Durchschnittspreis-KPIs werden nur aus Intervallen mit "
-    "Preis berechnet; fehlende Preise werden nicht als null gewertet."
-)
+_PRICE_TEXT = load_tooltips("day_ahead_prices")
+_DAY_AHEAD_PRICE_WARNING = _PRICE_TEXT["unavailable"]
+_MISSING_ENTSOE_KEY_WARNING = _PRICE_TEXT["missing_entsoe_key"]
+_INCOMPLETE_DAY_AHEAD_PRICE_WARNING = _PRICE_TEXT["incomplete"]
 _DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
 _INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
 
@@ -172,7 +162,9 @@ def _set_projected_value_metrics(
         return
     projected_value = float((energy.loc[priced] * prices.loc[priced] / 1000).sum())
     metrics[value_key] = projected_value
-    metrics[average_price_key] = (projected_value * 100) / float(energy.loc[priced].sum())
+    metrics[average_price_key] = (projected_value * 100) / float(
+        energy.loc[priced].sum()
+    )
 
 
 def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:
@@ -228,7 +220,7 @@ def _price_warning(base: str, master_df: pd.DataFrame) -> str:
     dates = _missing_price_dates(master_df)
     if not dates:
         return base
-    return f"{base} Fehlende Day-Ahead-Preise für: {', '.join(dates)}."
+    return f"{base} {_PRICE_TEXT['missing_dates'].format(dates=', '.join(dates))}"
 
 
 def _has_complete_dso_data(master_df: pd.DataFrame) -> bool:
@@ -670,7 +662,7 @@ def _poll_day_ahead_price_sync(start: datetime, end: datetime) -> None:
     if future.done():
         _rerun_after_price_sync_once(future)
         return
-    st.info("Day-ahead prices are loading in the background …")
+    st.info(_PRICE_TEXT["loading"])
 
 
 def _request_dashboard_rerun() -> None:

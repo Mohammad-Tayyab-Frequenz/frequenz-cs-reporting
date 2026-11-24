@@ -41,6 +41,7 @@ from frequenz.cs_reporting.utils.timing import log_duration
 from frequenz.cs_reporting.views.battery_optimization import render_battery_optimization
 from frequenz.cs_reporting.views.dashboard import (
     _DAY_AHEAD_PRICE_WARNING,
+    _PRICE_TEXT,
     _missing_price_dates,
     _price_warning,
     build_master_df,
@@ -155,14 +156,10 @@ def render() -> None:
             price_sync.result()
         except Exception as exc:  # pylint: disable=broad-except
             if type(exc).__name__ == "NoMatchingDataError":
-                st.warning(
-                    "Für einen Teil des Zeitraums sind keine neuen "
-                    "Day-Ahead-Preise verfügbar. Vorhandene Cache-Daten "
-                    "werden verwendet."
-                )
+                st.warning(_PRICE_TEXT["no_new_prices"])
             else:
                 st.error(
-                    "Day-Ahead-Preise konnten nicht geladen werden. "
+                    f"{_PRICE_TEXT['load_failed']} "
                     f"{report_error(exc, 'Day-ahead price load failed')}"
                 )
                 st.stop()
