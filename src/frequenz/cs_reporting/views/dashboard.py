@@ -76,8 +76,8 @@ _MISSING_ENTSOE_KEY_WARNING = (
 )
 _INCOMPLETE_DAY_AHEAD_PRICE_WARNING = (
     "Für Intervalle mit Netzbezug oder Netzeinspeisung fehlen Day-Ahead-Preise. "
-    "Betroffene Kosten-, Erlös- und Durchschnittspreis-KPIs werden als "
-    "nicht verfügbar (—) angezeigt; fehlende Preise werden nicht als null gewertet."
+    "Kosten-, Erlös- und Durchschnittspreis-KPIs werden nur aus Intervallen mit "
+    "Preis berechnet; fehlende Preise werden nicht als null gewertet."
 )
 _DSO_POWER_COLUMNS = ("dso_import_power", "dso_export_power")
 _INCOMPLETE_DSO_DATA_WARNING = load_tooltips("reporting")["incomplete_dso_data_warning"]
@@ -144,7 +144,7 @@ def _set_projected_value_metrics(
     value_key: str,
     average_price_key: str,
 ) -> None:
-    """Set projected value metrics without valuing missing prices at zero."""
+    """Set projected value metrics from priced intervals only."""
     if power_column not in master_df.columns:
         return
     interval_hours = resolution.total_seconds() / 3600
@@ -164,13 +164,15 @@ def _set_projected_value_metrics(
         metrics[average_price_key] = None
         return
     prices = pd.to_numeric(master_df[_DAY_AHEAD_PRICE_COLUMN], errors="coerce")
-    if prices.loc[relevant].isna().any():
+    # Intervals without a price are ignored; value and average use priced rows.
+    priced = relevant & prices.notna()
+    if not priced.any():
         metrics[value_key] = None
         metrics[average_price_key] = None
         return
-    projected_value = float((energy.loc[relevant] * prices.loc[relevant] / 1000).sum())
+    projected_value = float((energy.loc[priced] * prices.loc[priced] / 1000).sum())
     metrics[value_key] = projected_value
-    metrics[average_price_key] = (projected_value * 100) / total_energy
+    metrics[average_price_key] = (projected_value * 100) / float(energy.loc[priced].sum())
 
 
 def _has_day_ahead_prices(master_df: pd.DataFrame) -> bool:

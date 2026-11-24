@@ -6,6 +6,7 @@
 import logging
 import re
 from concurrent.futures import Future
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -186,3 +187,25 @@ def test_missing_entsoe_key_warns_and_skips_sync(
         )
     sync.assert_not_called()
     assert "ENTSOE_API_KEY" in warnings[0] and "2020-01-01" in warnings[0]
+
+
+def test_projected_value_metrics_ignore_unpriced_intervals() -> None:
+    """Rows without a price are skipped; KPIs use the priced remainder."""
+    master_df = pd.DataFrame(
+        {
+            "grid_consumption": [1000.0, 1000.0],
+            "day_ahead_price": [100.0, None],
+        }
+    )
+    metrics: dict[str, float | str | None] = {}
+    # pylint: disable-next=protected-access
+    dashboard._set_projected_value_metrics(
+        metrics,
+        master_df,
+        timedelta(hours=1),
+        power_column="grid_consumption",
+        energy_key="e",
+        value_key="v",
+        average_price_key="a",
+    )
+    assert metrics == {"e": 2000.0, "v": 100.0, "a": 10.0}
