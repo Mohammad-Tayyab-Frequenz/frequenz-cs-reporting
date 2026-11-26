@@ -20,6 +20,7 @@ from frequenz.client.marketmetering.types import (
     MarketLocationIdType,
     MarketLocationRef,
     MetricType,
+    RevisionStrategy,
 )
 
 from frequenz.cs_reporting.services.client_factory import (
@@ -73,6 +74,7 @@ async def _stream_records(
             metric_types=[MetricType.ACTIVE_ENERGY],
             start_time=start_time,
             end_time=end_time,
+            revision_strategy=RevisionStrategy.LATEST_ONLY,
         ):
             records.extend(
                 {
